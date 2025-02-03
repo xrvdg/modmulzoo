@@ -1,0 +1,20 @@
+[package]
+name = "montgomery_reduction"
+version = "0.1.0"
+edition = "2021"
+
+[[bench]]
+name = "montgomery_benchmarks"
+harness = false
+
+[profile.release]
+lto = true
+
+[profile.bench]
+lto = true
+
+[dependencies]
+num-traits = "0.2.19"
+
+[dev-dependencies]
+criterion = "0.5"
