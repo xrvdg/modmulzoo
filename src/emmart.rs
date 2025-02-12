@@ -1,6 +1,7 @@
 // struct U256<N> where N is limbsize
 
 use num_traits::MulAdd;
+use quickcheck::Arbitrary;
 
 // TODO: how to deal with all the converions
 // Int to float is an expensive operation, or not if you do a casting?
@@ -120,6 +121,19 @@ fn main() {
 
     let e = sampled_product([5., 0., 0., 0.], [5., 0., 0., 0.]);
     println!("{:?}", e);
+
+    let a = U256b52([
+        522065082635604,
+        3957429228622370,
+        3604049937975926,
+        1024102382665162,
+        1561280683024766,
+    ]);
+    let value = U256b64::from(a);
+    let end = U256b52::from(value);
+    println!("value: {value:?}");
+    println!("a:\t {a:?}");
+    println!("end:\t {end:?}");
 }
 
 fn print_float(num: f64) {
@@ -132,4 +146,83 @@ fn print_float(num: f64) {
         "{num}: \t sign: {:b}, exponent: {:011b}\t mantissa: {:052b}/{mantissa}",
         sign, exponent, mantissa
     );
+}
+
+// Mention endianness
+#[derive(PartialEq, Clone, Copy, Debug)]
+struct U256b64([u64; 4]);
+#[derive(PartialEq, Clone, Copy, Debug)]
+struct U256b52([u64; 5]);
+
+const MASK52: u64 = 2_u64.pow(52) - 1;
+const MASK48: u64 = 2_u64.pow(48) - 1;
+
+impl From<U256b64> for U256b52 {
+    fn from(u: U256b64) -> Self {
+        let U256b64(limbs) = u;
+        let [l0, l1, l2, l3] = limbs;
+        U256b52([
+            l0 & MASK52, // Lower 52 bits
+            ((l0 >> 52) | (l1 << 12)) & MASK52,
+            ((l1 >> 40) | (l2 << 24)) & MASK52,
+            ((l2 >> 28) | (l3 << 36)) & MASK52,
+            l3 >> 16,
+        ])
+    }
+}
+
+impl From<U256b52> for U256b64 {
+    fn from(u: U256b52) -> Self {
+        let U256b52(limbs) = u;
+        let [l0, l1, l2, l3, l4] = limbs;
+        U256b64([
+            l0 | (l1 << 52),
+            ((l1 >> 12) | (l2 << 40)),
+            ((l2 >> 24) | (l3 << 28)),
+            ((l3 >> 36) | (l4 << 16)),
+        ])
+    }
+}
+
+impl Arbitrary for U256b52 {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        U256b52([
+            u64::arbitrary(g) & MASK52,
+            u64::arbitrary(g) & MASK52,
+            u64::arbitrary(g) & MASK52,
+            u64::arbitrary(g) & MASK52,
+            u64::arbitrary(g) & MASK48,
+        ])
+    }
+}
+
+impl Arbitrary for U256b64 {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        U256b64([
+            u64::arbitrary(g),
+            u64::arbitrary(g),
+            u64::arbitrary(g),
+            u64::arbitrary(g),
+        ])
+    }
+}
+
+#[cfg(test)]
+extern crate quickcheck;
+#[cfg(test)]
+#[macro_use(quickcheck)]
+extern crate quickcheck_macros;
+#[cfg(test)]
+mod tests {
+
+    use super::{U256b52, U256b64};
+
+    #[quickcheck]
+    fn conv64_52(a: U256b64) -> bool {
+        a == U256b64::from(U256b52::from(a))
+    }
+    #[quickcheck]
+    fn conv52_64(a: U256b52) -> bool {
+        a == U256b52::from(U256b64::from(a))
+    }
 }
