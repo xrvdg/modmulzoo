@@ -85,6 +85,29 @@ fn sampled_product(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
     col_sums
 }
 
+fn sampled_product_masked(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
+    let mut col_sums: [u64; 10] = [0; 2 * N];
+
+    for i in 0..a.len() {
+        for j in 0..b.len() {
+            let p_hi = a[i].mul_add(b[j], C1);
+            let p_lo = a[i].mul_add(b[j], C2 - p_hi);
+            // Looks like this could be vectorized
+            col_sums[i + j + 1] = col_sums[i + j + 1].wrapping_add(p_hi.to_bits() & MASK52);
+            col_sums[i + j] = col_sums[i + j].wrapping_add(p_lo.to_bits() & MASK52);
+        }
+    }
+
+    let mut carry = 0;
+
+    for i in 0..col_sums.len() {
+        let tmp = col_sums[i] + carry;
+        col_sums[i] = tmp & MASK52;
+        carry = tmp >> 52;
+    }
+    col_sums
+}
+
 fn carrying_mul_add(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
     // TODO intrinsic
     // Check assembly output for this kind of widening
@@ -121,6 +144,11 @@ fn school_method(a: U256b64, b: U256b64) -> [u64; 8] {
 // Looks like the value first needs to be converted to float
 fn main() {
     set_round_to_zero();
+
+    let (a, b) = (
+        U256b64([74043545555803848, 0, 0, 0]),
+        U256b64([0, 0, 7151295701124551652, 0]),
+    );
 }
 
 fn dpf_mul_debug() {
@@ -387,6 +415,8 @@ impl Arbitrary for U256b64 {
 
 #[cfg(test)]
 mod tests {
+    use super::sampled_product_masked;
+
     use super::MASK52;
 
     use super::set_round_to_zero;
@@ -446,12 +476,14 @@ mod tests {
         let res = school_method(a, b);
         let U256b52(a52) = a.into();
         let U256b52(b52) = b.into();
-        let fres = sampled_product(a52.map(|ai| ai as f64), b52.map(|bi| bi as f64));
+        let fres = sampled_product_masked(a52.map(|ai| ai as f64), b52.map(|bi| bi as f64));
         let lo: U256b64 = U256b52(fres[..5].try_into().unwrap()).into();
-        let hi: U256b64 = U256b52(fres[5..].try_into().unwrap()).into();
-        let expected = U256b64(res[0..4].try_into().unwrap());
+        let lo_expected = U256b64(res[..4].try_into().unwrap());
 
-        lo == expected
+        let hi: U256b64 = U256b52(fres[5..].try_into().unwrap()).into();
+        let hi_expected = U256b64(res[4..].try_into().unwrap());
+
+        lo == lo_expected
     }
 }
 
