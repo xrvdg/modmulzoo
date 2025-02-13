@@ -29,19 +29,9 @@ int main()
     volatile uint32_t b_data[4] = {5, 6, 7, 8}; // 4 32-bit values
     uint64_t acc_data[2] = {100, 200};          // 2 64-bit accumulators
 
-    // Create non-volatile copies for NEON operations
-    uint32_t a_copy[4], b_copy[4];
-
-    // Copy from volatile to non-volatile
-    for (int i = 0; i < 4; i++)
-    {
-        a_copy[i] = a_data[i];
-        b_copy[i] = b_data[i];
-    }
-
     // Load vectors from copies
-    uint32x4_t ab = vld1q_u32(a_copy);    // Load all 4 values
-    uint32x4_t bb = vld1q_u32(b_copy);    // Load all 4 values
+    uint32x4_t ab = vld1q_u32(a_data);    // Load all 4 values
+    uint32x4_t bb = vld1q_u32(b_data);    // Load all 4 values
     uint64x2_t acc = vld1q_u64(acc_data); // Load accumulators
 
     // Extract low parts (first two elements)
