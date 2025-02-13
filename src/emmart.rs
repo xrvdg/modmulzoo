@@ -12,30 +12,35 @@ fn full_product(a: f64, b: f64) -> (f64, f64) {
     (p_lo, p_hi)
 }
 
+const fn pow_2(n: u32) -> f64 {
+    // Unfortunately we can't use f64::powi in const fn yet
+    // This is a workaround that creates the bit pattern directly
+    let exp = ((n as u64 + 1023) & 0x7FF) << 52;
+    f64::from_bits(exp)
+}
+
+// Define your constants using the const fn
+const C1: f64 = pow_2(104); // 2.0^104
+const C2: f64 = pow_2(104) + pow_2(52); // 2.0^104 + 2.0^52
+const C3: f64 = pow_2(52); // 2.0^52
+
+// Then replace the manual calculations with these constants
 fn dpf_full_product(a: f64, b: f64) -> (u64, u64) {
-    let c1 = 2.0_f64.powi(104);
-    let c2 = 2.0_f64.powi(104) + 2.0_f64.powi(52);
-    let c3 = 2.0_f64.powi(52);
+    let p_hi = a.mul_add(b, C1);
+    let p_lo = a.mul_add(b, C2 - p_hi);
 
-    let p_hi = a.mul_add(b, c1);
-    let p_lo = a.mul_add(b, c2 - p_hi);
-
+    // This part is omitted in the paper, but essential
     // If you do subtraction in floating point domain the mantissa will move to the exponent
-
-    (p_lo.to_bits() - c3.to_bits(), p_hi.to_bits() - c1.to_bits())
+    (p_lo.to_bits() - C3.to_bits(), p_hi.to_bits() - C1.to_bits())
 }
 
 // Looks like for this to work you'll always have to do a conversion
 fn int_full_product(a: f64, b: f64) -> (u64, u64) {
-    let c1 = 2.0_f64.powi(104);
-    let c2 = 2.0_f64.powi(104) + 2.0_f64.powi(52);
-    let mask = 2_u64.pow(52) - 1;
-
-    let p_hi = a.mul_add(b, c1);
-    let p_lo = a.mul_add(b, c2 - p_hi);
+    let p_hi = a.mul_add(b, C1);
+    let p_lo = a.mul_add(b, C2 - p_hi);
 
     // vectorizable
-    (p_lo.to_bits() & mask, p_hi.to_bits() & mask)
+    (p_lo.to_bits() & MASK52, p_hi.to_bits() & MASK52)
 }
 
 // These probably have to stay within the 11 bits
@@ -52,8 +57,6 @@ const N: usize = 5;
 fn sampled_product(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
     // TODO make these const across the code base
     // Does require doing a compile time computation
-    let c1 = 2.0_f64.powi(104);
-    let c2 = 2.0_f64.powi(104) + 2.0_f64.powi(52);
 
     let mut col_sums: [u64; 10] = [0; 2 * N];
 
@@ -69,8 +72,8 @@ fn sampled_product(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
             // These two multiplications can be shared between implementations
             // Shows what is common and what is different
             // This cannot be a vector operation
-            let p_hi = a[i].mul_add(b[j], c1);
-            let p_lo = a[i].mul_add(b[j], c2 - p_hi);
+            let p_hi = a[i].mul_add(b[j], C1);
+            let p_lo = a[i].mul_add(b[j], C2 - p_hi);
             // Looks like this could be vectorized
             col_sums[i + j + 1] = col_sums[i + j + 1].wrapping_add(p_hi.to_bits());
             col_sums[i + j] = col_sums[i + j].wrapping_add(p_lo.to_bits());
@@ -117,6 +120,10 @@ fn school_method(a: U256b64, b: U256b64) -> [u64; 8] {
 
 // Looks like the value first needs to be converted to float
 fn main() {
+    set_round_to_zero();
+}
+
+fn dpf_mul_debug() {
     set_round_to_zero();
     let (a, b): (u64, u64) = (1, 1);
     println!("a: {:064b}, b: {:064b}", a, b);
@@ -426,6 +433,7 @@ mod tests {
         set_round_to_zero();
         let a = a & MASK52;
         let b = b & MASK52;
+        // Write generic shifting operations
         let (lo, hi) = dpf_full_product(a as f64, b as f64);
         (lo | hi << 52, hi >> 12) == a.widening_mul(b)
     }
