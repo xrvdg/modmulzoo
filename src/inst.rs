@@ -2,11 +2,16 @@
 use std::{
     hint::black_box,
     ops::Neg,
-    simd::{f64x1, Simd, StdFloat},
+    simd::{f64x1, u64x1, Simd, StdFloat},
+    time::Instant,
 };
 
+use num_traits::MulAdd;
+
 fn main() {
+    Instant::now();
     mul_generation();
+    // u_generation();
 }
 
 fn mul_generation() {
@@ -22,6 +27,9 @@ fn mul_generation() {
     // This does add the intrinsic
     // Using mul_add may be more performant than an unfused multiply-add if the target architecture has a dedicated fma CPU instruction. However, this is not always true, and will be heavily dependant on designing algorithms with specific target hardware in mind.
     // Should give the inst
+    let a: f64 = black_box(4.0);
+    let b = black_box(2.0);
+    let c = black_box(3.0);
     let e: f64 = a.mul_add(b, c);
     println!("{}", e);
 
@@ -81,4 +89,65 @@ fn mul_generation() {
     println!("{:?}", k);
 
     // Doing singles and doing doubles
+}
+
+// Redeclares a b c to not have any sharing between the calculations
+// SIMD by default does wrapping multiplication
+fn u_generation() {
+    let a: u64 = black_box(4);
+    let b: u64 = black_box(2);
+    let c: u64 = black_box(3);
+
+    // It does make use of madd, but it didn't in a previous version it shared with the next calculation and that caused
+    // the mul to be split
+    let d = a * b + c;
+    println!("{}", d);
+
+    let a: u64 = black_box(6);
+    let b: u64 = black_box(7);
+    let c: u64 = black_box(8);
+    let d: u64 = black_box(9);
+
+    // umulh, mul, adds, cinc for a*b+c
+    // umulh, mul, adds, cinc, adds, cinc for a*b+c+d
+    let e = a as u128 * b as u128 + c as u128 + d as u128;
+    // Does it handle the splitting cleanly? It does
+    let (el, eh) = (e as u64, (e >> 64) as u64);
+    println!("{} {} {}", e, el, eh);
+
+    let a: u32 = black_box(6);
+    let b: u32 = black_box(7);
+    let c: u32 = black_box(8);
+    let d: u32 = black_box(9);
+
+    // umaddl, add
+    let e2 = a as u64 * b as u64 + c as u64 + d as u64;
+    // Does it handle the splitting cleanly? It does
+    let (el2, eh2) = (e as u32, (e >> 32) as u32);
+    println!("{} {} {}", e2, el2, eh2);
+
+    let a: u64 = black_box(9);
+    let b: u64 = black_box(10);
+    let c: u64 = black_box(11);
+
+    // The mul_add here com from num_traits a package outside of std
+
+    // Uses madd
+    let f: u64 = a.mul_add(b, c);
+    println!("{}", f);
+
+    let a: i64 = black_box(9);
+    let b: i64 = black_box(10);
+    let c: i64 = black_box(11);
+
+    // neg madd
+    let g = a.mul_add(b, -1 * c);
+    println!("{}", g);
+
+    // msub
+    let h = a.mul_add(-1 * b, c);
+    println!("{}", h);
+
+    // What we need are widening mulls which the portable SIMD library doesn't support
+    // This could be a nice addition to write
 }
