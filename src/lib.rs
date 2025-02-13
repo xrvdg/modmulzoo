@@ -1,3 +1,3 @@
-pub use crate::main::{montgomery_reduction, montgomery_reduction_power_of_two};
+#![feature(bigint_helper_methods)]
 
-mod main;
+pub mod emmart;
