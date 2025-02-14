@@ -24,17 +24,33 @@ const C1: f64 = pow_2(104); // 2.0^104
 const C2: f64 = pow_2(104) + pow_2(52); // 2.0^104 + 2.0^52
 const C3: f64 = pow_2(52); // 2.0^52
 
-// Then replace the manual calculations with these constants
-fn dpf_full_product(a: f64, b: f64) -> (u64, u64) {
+// As in the paper, but does not work as is
+// The subtractions causes the value to be normalized again meaning
+fn dpf_full_product(a: f64, b: f64) -> (f64, f64) {
+    let p_hi = a.mul_add(b, C1);
+    let p_lo = a.mul_add(b, C2 - p_hi);
+
+    // It will normalize the values again, which is what we don't want at this step
+    (p_lo - C3, p_hi - C1)
+}
+
+// Working variant
+fn dpf_full_product_u64(a: f64, b: f64) -> (u64, u64) {
     let p_hi = a.mul_add(b, C1);
     let p_lo = a.mul_add(b, C2 - p_hi);
 
     // This part is omitted in the paper, but essential
     // If you do subtraction in floating point domain the mantissa will move to the exponent
-    (p_lo.to_bits() - C3.to_bits(), p_hi.to_bits() - C1.to_bits())
+    (
+        (p_lo.to_bits() - C3.to_bits()),
+        (p_hi.to_bits() - C1.to_bits()),
+    )
+    // Might be beneficial to convert them to floats again as they are still in the register
+    // might also not be that useful as it can create a bottleneck on v0
 }
 
-// Looks like for this to work you'll always have to do a conversion
+// Check which full product variant gives better assembly
+// This should also stay in vector register and can
 fn int_full_product(a: f64, b: f64) -> (u64, u64) {
     let p_hi = a.mul_add(b, C1);
     let p_lo = a.mul_add(b, C2 - p_hi);
@@ -93,11 +109,12 @@ fn sampled_product_masked(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
             let p_hi = a[i].mul_add(b[j], C1);
             let p_lo = a[i].mul_add(b[j], C2 - p_hi);
             // Looks like this could be vectorized
-            col_sums[i + j + 1] = col_sums[i + j + 1].wrapping_add(p_hi.to_bits() & MASK52);
-            col_sums[i + j] = col_sums[i + j].wrapping_add(p_lo.to_bits() & MASK52);
+            col_sums[i + j + 1] = col_sums[i + j + 1] + (p_hi.to_bits() & MASK52);
+            col_sums[i + j] = col_sums[i + j] + (p_lo.to_bits() & MASK52);
         }
     }
 
+    // This make non-redundant b52. Is that best keep it here or outside?
     let mut carry = 0;
 
     for i in 0..col_sums.len() {
@@ -142,21 +159,56 @@ fn school_method(a: U256b64, b: U256b64) -> [u64; 8] {
 // you add 2^52 and mask it.
 
 // Looks like the value first needs to be converted to float
-fn main() {
+
+fn convert_limb_debug() {
+    let s = vec![0];
+    let c = convert_limb_sizes(&s, 256, 64, 52);
+    println!("s: {s:?}");
+    println!("c: {c:?}");
+    let d = convert_limb_sizes(&c, 256, 52, 64);
+    println!("c: {d:?}");
+    let b = s == d;
+    print!("{b}")
+}
+fn sampled_product_masked_debug() {
     set_round_to_zero();
 
-    let (a, b) = (
-        U256b64([74043545555803848, 0, 0, 0]),
-        U256b64([0, 0, 7151295701124551652, 0]),
-    );
+    let (a, b) = (U256b64([0, 0, 0, 1]), U256b64([0, 0, 1, 0]));
+    print!("a:\t");
+    print_bits(&a.0);
+    print!("b:\t");
+    print_bits(&b.0);
+    let s = school_method(a, b);
+    print!("s:\t");
+    print_bits(&s);
+    let (a52, b52): (U256b52, U256b52) = (a.into(), b.into());
+    print!("a52:\t");
+    print_bits(&a52.0);
+    print!("b52:\t");
+    print_bits(&b52.0);
+    let spm = sampled_product_masked(a52.0.map(|ai| ai as f64), b52.0.map(|bi| bi as f64));
+    print_bits(&spm);
 }
 
-fn dpf_mul_debug() {
+fn main() {
     set_round_to_zero();
     let (a, b): (u64, u64) = (1, 1);
     println!("a: {:064b}, b: {:064b}", a, b);
     let (ilo, ihi) = dpf_full_product(a as f64, b as f64);
-    println!("ia: {:064b}, ib: {:064b}", ilo, ihi);
+    println!("ia: {:064b}, ib: {:064b}", ilo as u64, ihi as u64);
+    let (wlo, whi) = a.widening_mul(b);
+    println!("wa: {:064b}, wb: {:064b}", wlo, whi);
+
+    println!("");
+    let (a, b): (u64, u64) = (2, 2251799813685248);
+    println!("a: {:064b}, b: {:064b}", a, b);
+    let (dlo, dhi) = dpf_full_product(a as f64, b as f64);
+    println!(
+        "dlo: {:064b}/{}/{}, dhi: {:064b}/{}/{}",
+        dlo as u64, dlo as u64, dlo, dhi as u64, dhi as u64, dhi
+    );
+    let (ulo, uhi) = dpf_full_product_u64(a as f64, b as f64);
+    println!("ulo: {:064b}, uhi: {:064b}", ulo as u64, uhi as u64);
     let (wlo, whi) = a.widening_mul(b);
     println!("wa: {:064b}, wb: {:064b}", wlo, whi);
 }
@@ -254,8 +306,9 @@ fn print_float(num: f64) {
 
 fn print_bits(nums: &[u64]) {
     for (i, &num) in nums.iter().enumerate() {
-        println!("[{i}]: {num:b}");
+        print!("{num:b}\t");
     }
+    println!("");
 }
 
 // Mention endianness
@@ -266,6 +319,64 @@ struct U256b52([u64; 5]);
 
 const MASK52: u64 = 2_u64.pow(52) - 1;
 const MASK48: u64 = 2_u64.pow(48) - 1;
+
+// Even u8 seems to big, max size is 64 so that's
+// 2^6
+// Can I use generic here to make it perform better?
+// Should this become a macro?
+fn convert_limb_sizes(
+    input: &[u64],
+    total_bits: usize,
+    source_size: u8,
+    destination_size: u8,
+) -> Vec<u64> {
+    assert!(source_size <= 64, "Source limb size must be <= 64 bits");
+    assert!(
+        destination_size <= 64,
+        "Destination limb size must be <= 64 bits"
+    );
+
+    // If input is empty, return empty vector
+    if input.is_empty() {
+        return Vec::new();
+    }
+
+    // Calculate total bits and required output capacity
+    let out_len = (total_bits + destination_size as usize - 1) / destination_size as usize;
+    let mut output = Vec::with_capacity(out_len);
+
+    // Create mask for destination size
+    let dest_mask = (1u128 << destination_size) - 1;
+
+    // Track bits we're currently processing
+    let mut bit_buffer: u128 = 0; // Use u128 to handle overflow during shifting
+    let mut bits_in_buffer = 0u32;
+
+    // Process each input limb
+    for &limb in input {
+        // Add new bits to buffer
+        bit_buffer |= (limb as u128) << bits_in_buffer;
+        bits_in_buffer += source_size as u32;
+
+        // Extract complete destination-sized chunks
+        while bits_in_buffer >= destination_size as u32 {
+            let new_limb = (bit_buffer & dest_mask) as u64;
+            output.push(new_limb);
+            bit_buffer >>= destination_size;
+            bits_in_buffer -= destination_size as u32;
+        }
+    }
+
+    // Handle remaining bits if any
+    if bits_in_buffer > 0 {
+        let new_limb = (bit_buffer & dest_mask as u128) as u64;
+        output.push(new_limb);
+    }
+
+    output
+}
+
+// Helper function specifically for 64-to-52 bit conversion
 
 impl From<U256b64> for U256b52 {
     fn from(u: U256b64) -> Self {
@@ -280,6 +391,8 @@ impl From<U256b64> for U256b52 {
         ])
     }
 }
+
+// Generalized shifting algorithm
 
 impl From<U256b52> for U256b64 {
     fn from(u: U256b52) -> Self {
@@ -415,13 +528,12 @@ impl Arbitrary for U256b64 {
 
 #[cfg(test)]
 mod tests {
+    use super::int_full_product;
     use super::sampled_product_masked;
-
-    use super::MASK52;
-
     use super::set_round_to_zero;
-    use super::{dpf_full_product, int_full_product};
-    use super::{sampled_product, school_method, U256b52, U256b64};
+    use super::MASK52;
+    use super::*; // Make sure we're importing everything from parent
+    use super::{school_method, U256b52, U256b64};
     use quickcheck_macros::quickcheck;
 
     #[quickcheck]
@@ -464,9 +576,19 @@ mod tests {
         let a = a & MASK52;
         let b = b & MASK52;
         // Write generic shifting operations
-        let (lo, hi) = dpf_full_product(a as f64, b as f64);
+        let (lo, hi) = dpf_full_product_u64(a as f64, b as f64);
+        let (lo, hi) = (lo as u64, hi as u64);
         (lo | hi << 52, hi >> 12) == a.widening_mul(b)
     }
+
+    // Bidirectional doesn't work as u64 -> 2 x u52 -> 104 -> 2x u64
+    // Should be fixable but do save it for later
+    // #[quickcheck]
+    // fn test_bidirectional_conversion(s: Vec<u64>) -> bool {
+    //     let c = convert_limb_sizes(&s, 256, 64, 52);
+    //     s == convert_limb_sizes(&c, 256, 52, 64)
+    // }
+
     // Test if school multiplication is correct
     // School multiplication can be tested with u8 and u32 and that should point out if it works.
     // Maybe generalize sampled_product, later we can make it such that it is optimized for a certain size without any overhead
@@ -477,13 +599,9 @@ mod tests {
         let U256b52(a52) = a.into();
         let U256b52(b52) = b.into();
         let fres = sampled_product_masked(a52.map(|ai| ai as f64), b52.map(|bi| bi as f64));
-        let lo: U256b64 = U256b52(fres[..5].try_into().unwrap()).into();
-        let lo_expected = U256b64(res[..4].try_into().unwrap());
 
-        let hi: U256b64 = U256b52(fres[5..].try_into().unwrap()).into();
-        let hi_expected = U256b64(res[4..].try_into().unwrap());
-
-        lo == lo_expected
+        let cres = convert_limb_sizes(&res, 256, 64, 52);
+        cres == fres
     }
 }
 
