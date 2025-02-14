@@ -95,13 +95,19 @@ fn sampled_product(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
             col_sums[i + j] = col_sums[i + j].wrapping_add(p_lo.to_bits());
         }
     }
+    let mut carry = 0;
+    for i in 0..col_sums.len() {
+        let tmp = col_sums[i] + carry;
+        col_sums[i] = tmp & MASK52;
+        carry = tmp >> 52;
+    }
     // Kind of need to return a pair of high and lo
     // or shift the whole thing
     // Also didn't typecheck due to not using 5 which is needed for the U256 method
     col_sums
 }
 
-fn sampled_product_masked(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
+pub fn sampled_product_masked(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
     let mut col_sums: [u64; 10] = [0; 2 * N];
 
     for i in 0..a.len() {
@@ -117,6 +123,7 @@ fn sampled_product_masked(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
     // This make non-redundant b52. Is that best keep it here or outside?
     let mut carry = 0;
 
+    // This loop is relatively cheap
     for i in 0..col_sums.len() {
         let tmp = col_sums[i] + carry;
         col_sums[i] = tmp & MASK52;
@@ -125,7 +132,8 @@ fn sampled_product_masked(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
     col_sums
 }
 
-fn carrying_mul_add(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
+#[inline(always)]
+pub fn carrying_mul_add(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
     // TODO intrinsic
     // Check assembly output for this kind of widening
     // unchecked version might be better, shouldn't be possible to overflow due to widening beforehand.
@@ -135,7 +143,7 @@ fn carrying_mul_add(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
     (c as u64, (c >> 64) as u64)
 }
 
-fn school_method(a: U256b64, b: U256b64) -> [u64; 8] {
+pub fn school_method(a: U256b64, b: U256b64) -> [u64; 8] {
     let mut ab = [0_u64; 8];
     let U256b64(a) = a;
     let U256b64(b) = b;
@@ -313,9 +321,9 @@ fn print_bits(nums: &[u64]) {
 
 // Mention endianness
 #[derive(PartialEq, Clone, Copy, Debug)]
-struct U256b64([u64; 4]);
+pub struct U256b64(pub [u64; 4]);
 #[derive(PartialEq, Clone, Copy, Debug)]
-struct U256b52([u64; 5]);
+pub struct U256b52(pub [u64; 5]);
 
 const MASK52: u64 = 2_u64.pow(52) - 1;
 const MASK48: u64 = 2_u64.pow(48) - 1;
@@ -602,6 +610,12 @@ mod tests {
 
         let cres = convert_limb_sizes(&res, 256, 64, 52);
         cres == fres
+    }
+
+    #[quickcheck]
+    fn long_multiplication_sampled(a: U256b52, b: U256b52) -> bool {
+        sampled_product(a.0.map(|x| x as f64), b.0.map(|x| x as f64))
+            == sampled_product_masked(a.0.map(|x| x as f64), b.0.map(|x| x as f64))
     }
 }
 
