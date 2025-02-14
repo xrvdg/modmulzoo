@@ -38,19 +38,19 @@ fn bench_montgomery(c: &mut Criterion) {
     println!("b = {:?}", b);
 
     group.bench_function("sos_random", |bencher| {
-        bencher.iter(|| sos(black_box(a), black_box(b), black_box(P), black_box(NP0)))
+        bencher.iter(|| sos(black_box(a), black_box(b), P, NP0))
     });
 
     group.bench_function("fios_random", |bencher| {
-        bencher.iter(|| fios(black_box(a), black_box(b), black_box(P), black_box(NP0)))
+        bencher.iter(|| fios(black_box(a), black_box(b), P, NP0))
     });
 
     group.bench_function("cios_random", |bencher| {
-        bencher.iter(|| cios(black_box(a), black_box(b), black_box(P), black_box(NP0)))
+        bencher.iter(|| cios(black_box(a), black_box(b), P, NP0))
     });
 
     group.bench_function("cios_opt_random", |bencher| {
-        bencher.iter(|| cios_opt(black_box(a), black_box(b), black_box(P), black_box(NP0)))
+        bencher.iter(|| cios_opt(black_box(a), black_box(b), P, NP0))
     });
 
     group.finish();

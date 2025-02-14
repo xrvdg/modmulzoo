@@ -89,10 +89,10 @@ fn naive(a: U256, b: U256, n: U256, np: U256) -> Vec<u64> {
     t
 }
 
-pub fn sos(a: U256, b: U256, n: U256, n0: u64) -> Vec<u64> {
+pub fn sos(a: U256, b: U256, n: U256, n0: u64) -> [u64; 8] {
     // Can transmute do splitting?
     // The plus one is for the addition of t + m*n
-    let mut t = vec![0_u64; 8];
+    let mut t = [0_u64; 8];
 
     // TODO: try to write an iterator version of this. I don't think you can't as you refer back to an element you just created
 
@@ -134,8 +134,8 @@ pub fn sos(a: U256, b: U256, n: U256, n0: u64) -> Vec<u64> {
     t
 }
 
-pub fn cios(a: U256, b: U256, n: U256, np0: u64) -> Vec<u64> {
-    let mut t = vec![0_u64; 6];
+pub fn cios(a: U256, b: U256, n: U256, np0: u64) -> [u64; 6] {
+    let mut t = [0_u64; 6];
     for i in 0..a.len() {
         let mut carry = 0;
         for j in 0..b.len() {
@@ -159,8 +159,8 @@ pub fn cios(a: U256, b: U256, n: U256, np0: u64) -> Vec<u64> {
     t
 }
 
-pub fn cios_opt(a: U256, b: U256, n: U256, np0: u64) -> Vec<u64> {
-    let mut t = vec![0_u64; 6];
+pub fn cios_opt(a: U256, b: U256, n: U256, np0: u64) -> [u64; 6] {
+    let mut t = [0_u64; 6];
     for i in 0..a.len() {
         let mut carry = 0;
         for j in 0..b.len() {
@@ -181,8 +181,8 @@ pub fn cios_opt(a: U256, b: U256, n: U256, np0: u64) -> Vec<u64> {
     t
 }
 
-pub fn fios(a: U256, b: U256, n: U256, np0: u64) -> Vec<u64> {
-    let mut t = vec![0_u64; 6];
+pub fn fios(a: U256, b: U256, n: U256, np0: u64) -> [u64; 6] {
+    let mut t = [0_u64; 6];
     for i in 0..a.len() {
         let (sum, mut carry) = carrying_mul_add(a[i], b[0], t[0], 0);
         adds(&mut t[1..], carry);
