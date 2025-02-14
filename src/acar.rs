@@ -1,69 +1,11 @@
 #![feature(bigint_helper_methods)]
-type U256 = [u64; 4];
 
-fn main() {
-    let a = [0_u64; 4];
-    let b = [0_u64; 4];
-
-    let c = sos(a, b, P, NP0);
-    println!("sos:      \t{c:?}");
-    let c = fios(a, b, P, NP0);
-    println!("fios:     \t{c:?}");
-    let c = cios(a, b, P, NP0);
-    println!("cios:     \t{c:?}");
-    let c = cios_opt(a, b, P, NP0);
-    println!("cios_opt: \t{c:?}\n");
-
-    let a = [0, 0, 0, 1];
-    let b = [0, 0, 0, 1];
-
-    let c = sos(a, b, P, NP0);
-    println!("sos:      \t{c:?}");
-    let c = fios(a, b, P, NP0);
-    println!("fios:     \t{c:?}");
-    let c = cios(a, b, P, NP0);
-    println!("cios:     \t{c:?}");
-    let c = cios_opt(a, b, P, NP0);
-    println!("cios_opt: \t{c:?}\n");
-
-    let a = [1, 0, 0, 1];
-    let b = [1, 0, 0, 1];
-
-    let c = sos(a, b, P, NP0);
-    println!("sos:      \t{c:?}");
-    let c = fios(a, b, P, NP0);
-    println!("fios:     \t{c:?}");
-    let c = cios(a, b, P, NP0);
-    println!("cios:     \t{c:?}");
-    let c = cios_opt(a, b, P, NP0);
-    println!("cios_opt: \t{c:?}\n");
-
-    // cios and cios_opt differ here in the highest result
-    // not sure if that has any impact on the substraction
-    // without the lower s+1 words do agree
-    let (a, b) = (
-        [0, 0, 0, 15041487139945544921],
-        [64395813789477709, 0, 0, 18358496891515497855],
-    );
-    let c = sos(a, b, P, NP0);
-    println!("sos:      \t{c:?}");
-    let c = fios(a, b, P, NP0);
-    println!("fios:     \t{c:?}");
-    let c = cios(a, b, P, NP0);
-    println!("cios:     \t{c:?}");
-    let c = cios_opt(a, b, P, NP0);
-    println!("cios_opt: \t{c:?}");
-}
+pub type U256 = [u64; 4];
 
 // first is result, second is carry (S,C)
 // we keep the same signature as the rust libraries instead of what is common in literature
 #[inline(always)]
 fn carrying_mul_add(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
-    // TODO intrinsic
-    // Check assembly output for this kind of widening
-    // unchecked version might be better, shouldn't be possible to overflow due to widening beforehand.
-    // Is there a difference between unchecked
-    // using widening_mul might be friendlier to use
     let c: u128 = a as u128 * b as u128 + carry as u128 + add as u128;
     (c as u64, (c >> 64) as u64)
 }
@@ -147,7 +89,7 @@ fn naive(a: U256, b: U256, n: U256, np: U256) -> Vec<u64> {
     t
 }
 
-fn sos(a: U256, b: U256, n: U256, n0: u64) -> Vec<u64> {
+pub fn sos(a: U256, b: U256, n: U256, n0: u64) -> Vec<u64> {
     // Can transmute do splitting?
     // The plus one is for the addition of t + m*n
     let mut t = vec![0_u64; 8];
@@ -192,7 +134,7 @@ fn sos(a: U256, b: U256, n: U256, n0: u64) -> Vec<u64> {
     t
 }
 
-fn cios(a: U256, b: U256, n: U256, np0: u64) -> Vec<u64> {
+pub fn cios(a: U256, b: U256, n: U256, np0: u64) -> Vec<u64> {
     let mut t = vec![0_u64; 6];
     for i in 0..a.len() {
         let mut carry = 0;
@@ -217,7 +159,7 @@ fn cios(a: U256, b: U256, n: U256, np0: u64) -> Vec<u64> {
     t
 }
 
-fn cios_opt(a: U256, b: U256, n: U256, np0: u64) -> Vec<u64> {
+pub fn cios_opt(a: U256, b: U256, n: U256, np0: u64) -> Vec<u64> {
     let mut t = vec![0_u64; 6];
     for i in 0..a.len() {
         let mut carry = 0;
@@ -239,7 +181,7 @@ fn cios_opt(a: U256, b: U256, n: U256, np0: u64) -> Vec<u64> {
     t
 }
 
-fn fios(a: U256, b: U256, n: U256, np0: u64) -> Vec<u64> {
+pub fn fios(a: U256, b: U256, n: U256, np0: u64) -> Vec<u64> {
     let mut t = vec![0_u64; 6];
     for i in 0..a.len() {
         let (sum, mut carry) = carrying_mul_add(a[i], b[0], t[0], 0);
@@ -281,17 +223,10 @@ fn adds(t: &mut [u64], mut carry: u64) {
     }
 }
 
-const NP0: u64 = 0xc2e1f593efffffff;
-const P: [u64; 4] = [
-    0x43e1f593f0000001,
-    0x2833e84879b97091,
-    0xb85045b68181585d,
-    0x30644e72e131a029,
-];
-
 #[cfg(test)]
 mod tests {
-    use crate::{cios, cios_opt, fios, sos, NP0, P};
+    use super::*;
+    use crate::{NP0, P}; // Import constants from the crate root
     use quickcheck_macros::quickcheck;
 
     #[quickcheck]
