@@ -37,9 +37,6 @@ fn main() {
     let c = cios_opt(a, b, P, NP0);
     println!("cios_opt: \t{c:?}\n");
 
-    // cios and cios_opt differ here in the highest result
-    // not sure if that has any impact on the substraction
-    // without the lower s+1 words do agree
     let (a, b) = (
         [0, 0, 0, 15041487139945544921],
         [64395813789477709, 0, 0, 18358496891515497855],

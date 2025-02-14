@@ -11,6 +11,7 @@ fn carrying_mul_add(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
 }
 
 // direct implementation
+// untested
 fn naive(a: U256, b: U256, n: U256, np: U256) -> Vec<u64> {
     // Can transmute do splitting?
     // The plus one is for the addition of t + m*n
@@ -167,6 +168,9 @@ pub fn cios_opt(a: U256, b: U256, n: U256, np0: u64) -> [u64; 6] {
             (t[j], carry) = carrying_mul_add(a[i], b[j], t[j], carry);
         }
         (t[b.len()], t[b.len() + 1]) = carry_add(t[b.len()], carry);
+        // Last entry can probably be skipped brings it closer to Yuval's. It's mostly the last
+        // carry add that makes the difference
+        // (t[b.len()], _) = carry_add(t[b.len()], carry);
 
         let mut carry = 0;
         let m = t[0].wrapping_mul(np0);
@@ -176,6 +180,7 @@ pub fn cios_opt(a: U256, b: U256, n: U256, np0: u64) -> [u64; 6] {
             (t[j - 1], carry) = carrying_mul_add(m, n[j], t[j], carry);
         }
         (t[n.len() - 1], carry) = carry_add(t[n.len()], carry);
+        // Last shift can probably be skipped. This brings it very close to Yuval's numbers
         (t[n.len()], _) = carry_add(t[n.len() + 1], carry);
     }
     t
@@ -214,8 +219,13 @@ fn carry_add(lhs: u64, carry: u64) -> (u64, u64) {
 // Adds can probably be removed if you allow for a bigger carry
 // Only the first addition is u64 the later are single bit increase
 // How is this solved in the latter ones?
+#[inline(always)]
 fn adds(t: &mut [u64], mut carry: u64) {
     for i in 0..t.len() {
+        // Performance drops heavily when introducing this check
+        // if carry == 0 {
+        //     break;
+        // }
         let b;
         (t[i], b) = t[i].overflowing_add(carry);
         // Add if to exit
