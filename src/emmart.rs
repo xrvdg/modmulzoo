@@ -107,6 +107,8 @@ fn sampled_product(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
     col_sums
 }
 
+// Masking works but likely make use of the M-pipeline which we want to
+// keep free for another implementation
 pub fn sampled_product_masked(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
     let mut col_sums: [u64; 10] = [0; 2 * N];
 
@@ -115,15 +117,16 @@ pub fn sampled_product_masked(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
             let p_hi = a[i].mul_add(b[j], C1);
             let p_lo = a[i].mul_add(b[j], C2 - p_hi);
             // Looks like this could be vectorized
-            col_sums[i + j + 1] = col_sums[i + j + 1] + (p_hi.to_bits() & MASK52);
-            col_sums[i + j] = col_sums[i + j] + (p_lo.to_bits() & MASK52);
+            col_sums[i + j + 1] += p_hi.to_bits() & MASK52;
+            col_sums[i + j] += p_lo.to_bits() & MASK52;
         }
     }
 
     // This make non-redundant b52. Is that best keep it here or outside?
     let mut carry = 0;
 
-    // This loop is relatively cheap
+    // This loop is relatively cheap. Does it get fused into the upper one?
+    // Should we write it as such?
     for i in 0..col_sums.len() {
         let tmp = col_sums[i] + carry;
         col_sums[i] = tmp & MASK52;
