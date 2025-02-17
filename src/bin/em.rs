@@ -1,22 +1,25 @@
 use montgomery_reduction::{
-    convert_limb_sizes, emmart, subtraction_step, subtraction_step_u52, U256b52, P, U52_NP0, U52_P,
-    U52_R2,
+    convert_limb_sizes,
+    emmart::{self, cios_opt_f64},
+    subtraction_step, subtraction_step_u52, U256b52, P, U52_NP0, U52_P, U52_R2,
 };
 
 fn main() {
-    let a = U256b52([0, 0, 0, 0, 60023223353699]);
-    let b = U256b52([1, 0, 0, 0, 0]);
-    let a_tilde = emmart::sos(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+    println!("cios_opt");
+    let a = U256b52([0, 0, 0, 0, 1]);
+
+    let a_tilde = cios_opt_f64(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
     a_tilde.iter().for_each(|li| print!("{li:X}\t"));
     println!("");
-    let a_round = emmart::sos(
-        U256b52(a_tilde[5..].try_into().unwrap()),
-        b,
+    let a_round = cios_opt_f64(
+        U256b52(a_tilde[..5].try_into().unwrap()),
+        U256b52([1, 0, 0, 0, 0]),
         U256b52(U52_P),
         U52_NP0,
     );
     a_round.iter().for_each(|li| print!("{li:X}\t"));
     println!("");
+
     let mut d = a.0;
     let mut prev = d;
     loop {
@@ -30,7 +33,7 @@ fn main() {
     d.iter().for_each(|li| print!("{li:X}\t"));
     println!("");
 
-    let mut d = a_round[5..].try_into().unwrap();
+    let mut d = a_round[0..5].try_into().unwrap();
     let mut prev = d;
     loop {
         d = subtraction_step_u52(d, U52_P);
@@ -39,7 +42,7 @@ fn main() {
         }
         prev = d;
     }
+    print!("a_round: ");
     d.iter().for_each(|li| print!("{li:X}\t"));
     println!("");
-    // Or first calculate inverse and then do the convert_limb_sizes
 }

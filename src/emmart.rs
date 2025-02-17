@@ -63,13 +63,14 @@ pub fn cios_opt(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 7] {
             (t[j], carry) = carrying_mul_add_u104(a[i], b[j], t[j], carry);
         }
         (t[b.len()], t[b.len() + 1]) = carry_add_u52(t[b.len()], carry);
+
         // Last entry can probably be skipped brings it closer to Yuval's. It's mostly the last
         // carry add that makes the difference
         // (t[b.len()], _) = carry_add(t[b.len()], carry);
 
         let mut carry = 0;
         let m = t[0].wrapping_mul(np0) & MASK52;
-        (t[0], carry) = carrying_mul_add_u104(m, n[0], t[0], carry);
+        (_, carry) = carrying_mul_add_u104(m, n[0], t[0], carry);
 
         for j in 1..n.len() {
             (t[j - 1], carry) = carrying_mul_add_u104(m, n[j], t[j], carry);
@@ -80,6 +81,86 @@ pub fn cios_opt(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 7] {
     }
     t
 }
+
+pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
+    let a = a.0;
+    let b = b.0;
+    let n = n.0;
+
+    let mut t = [0_u64; 6];
+    for i in 0..a.len() {
+        for j in 0..b.len() {
+            let p_hi = (a[i] as f64).mul_add(b[j] as f64, C1);
+            let p_lo = (a[i] as f64).mul_add(b[j] as f64, C2 - p_hi);
+            // TODO(xrvdg) optimize subtractions
+            t[j] += p_lo.to_bits() - C3.to_bits();
+            t[j + 1] += p_hi.to_bits() - C1.to_bits();
+        }
+
+        let m = (t[0].wrapping_mul(np0) & MASK52) as f64;
+        let p_hi = m.mul_add(n[0] as f64, C1);
+        let p_lo = m.mul_add(n[0] as f64, C2 - p_hi);
+        // TODO(xrvdg) optmize subtractions
+        t[0] += p_lo.to_bits() - C3.to_bits();
+        t[1] += (p_hi.to_bits() - C1.to_bits()) + (t[0] >> 52);
+
+        for j in 1..n.len() {
+            let p_hi = m.mul_add(n[j] as f64, C1);
+            let p_lo = m.mul_add(n[j] as f64, C2 - p_hi);
+            // TODO(xrvdg) optmize subtractions
+            t[j - 1] = t[j] + (p_lo.to_bits() - C3.to_bits());
+            t[j + 1] += p_hi.to_bits() - C1.to_bits();
+        }
+        t[n.len() - 1] = t[n.len()];
+        t[n.len()] = 0;
+        // t[n.len()] = t[n.len() + 1];
+        // t[n.len()] = (t[n.len()] >> 52) + t[n.len() + 1];
+    }
+
+    let mut carry = 0;
+    for i in 0..t.len() {
+        let tmp = t[i] + carry;
+        t[i] = tmp & MASK52;
+        carry = tmp >> 52;
+    }
+    t
+}
+
+// pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
+//     let a = a.0;
+//     let b = b.0;
+//     let n = n.0;
+//     let n0 = n[0] as f64;
+
+//     let mut t = [0_u64; 6];
+//     for i in 0..a.len() {
+//         for j in 0..b.len() {
+//             let ai = a[i] as f64;
+//             let bj = b[j] as f64;
+//             let p_hi = ai.mul_add(bj, C1);
+//             let p_lo = ai.mul_add(bj, C2 - p_hi);
+//             // Looks like this could be vectorized
+//             t[j + 1] += p_hi.to_bits() & MASK52;
+//             t[j] += p_lo.to_bits() & MASK52;
+//         }
+
+//         t[1] += t[0] >> 52;
+
+//         let m = (t[0].wrapping_mul(np0) & MASK52) as f64;
+//         let p_hi = m.mul_add(n0, C1);
+//         t[1] += p_hi.to_bits() & MASK52;
+
+//         for j in 1..n.len() {
+//             let nj = n[j] as f64;
+//             let p_hi = m.mul_add(nj, C1);
+//             let p_lo = m.mul_add(nj, C2 - p_hi);
+//             // Looks like this could be vectorized
+//             t[j] += p_hi.to_bits() & MASK52;
+//             t[j - 1] += p_lo.to_bits() & MASK52;
+//         }
+//     }
+//     t
+// }
 
 // TODO: how to deal with all the converions
 // Int to float is an expensive operation, or not if you do a casting?
@@ -218,6 +299,14 @@ pub fn sampled_product_masked(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
 pub fn carrying_mul_add_u104(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
     let c: u128 = a as u128 * b as u128 + carry as u128 + add as u128;
     (c as u64 & MASK52, (c >> 52) as u64)
+}
+
+#[inline(always)]
+pub fn carrying_mul_add_fu104(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
+    let (mut lo, mut hi) = dpf_full_product_u64(a as f64, b as f64);
+    lo += add + carry;
+    hi += lo >> 52;
+    (lo & MASK52, hi)
 }
 
 #[inline(always)]
@@ -687,6 +776,30 @@ mod tests {
     fn cios_round(a: U256b52) -> bool {
         let a_tilde = super::cios_opt(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
         let a_round = super::cios_opt(
+            U256b52(a_tilde[..5].try_into().unwrap()),
+            U256b52([1, 0, 0, 0, 0]),
+            U256b52(U52_P),
+            U52_NP0,
+        );
+
+        let mut d = a.0;
+        let mut prev = d;
+        loop {
+            d = subtraction_step_u52(d, U52_P);
+            if d == prev {
+                break;
+            }
+            prev = d;
+        }
+
+        d == subtraction_step_u52(a_round[..5].try_into().unwrap(), U52_P)
+    }
+
+    #[quickcheck]
+    fn cios_f64_round(a: U256b52) -> bool {
+        set_round_to_zero();
+        let a_tilde = super::cios_opt_f64(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+        let a_round = super::cios_opt_f64(
             U256b52(a_tilde[..5].try_into().unwrap()),
             U256b52([1, 0, 0, 0, 0]),
             U256b52(U52_P),
