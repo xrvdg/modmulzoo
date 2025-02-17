@@ -5,7 +5,9 @@ mod emmart;
 
 // TODO This should already flow out the above mod?
 pub use acar::{cios, cios_opt, fios, sos};
-pub use emmart::{sampled_product_masked, school_method, set_round_to_zero, U256b52, U256b64};
+pub use emmart::{
+    sampled_product, sampled_product_masked, school_method, set_round_to_zero, U256b52, U256b64,
+};
 
 pub const NP0: u64 = 0xc2e1f593efffffff;
 pub const P: [u64; 4] = [

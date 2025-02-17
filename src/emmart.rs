@@ -70,8 +70,8 @@ fn make_initial(low_count: usize, high_count: usize) -> u64 {
 }
 
 const N: usize = 5;
-// Can add up to 2^12 terms.
-fn sampled_product(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
+// Runs faster than the masked variant
+pub fn sampled_product(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
     // TODO make these const across the code base
     // Does require doing a compile time computation
 

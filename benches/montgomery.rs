@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use montgomery_reduction::{
-    cios, cios_opt, fios, sampled_product_masked, school_method, set_round_to_zero, sos, U256b52,
-    U256b64,
+    cios, cios_opt, fios, sampled_product, sampled_product_masked, school_method,
+    set_round_to_zero, sos, U256b52, U256b64,
 };
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -71,6 +71,9 @@ fn bench_montgomery(c: &mut Criterion) {
 
     group.bench_function("mul_sampled_product_masked_random", |bencher| {
         bencher.iter(|| sampled_product_masked(black_box(a_float), black_box(b_float)))
+    });
+    group.bench_function("mul_sampled_product_random", |bencher| {
+        bencher.iter(|| sampled_product(black_box(a_float), black_box(b_float)))
     });
 
     group.finish();
