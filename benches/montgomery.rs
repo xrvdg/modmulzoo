@@ -1,18 +1,10 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use montgomery_reduction::{
     cios, cios_opt, fios, sampled_product, sampled_product_masked, school_method,
-    set_round_to_zero, sos, U256b52, U256b64,
+    set_round_to_zero, sos, U256b52, U256b64, NP0, P,
 };
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-
-const NP0: u64 = 0xc2e1f593efffffff;
-const P: [u64; 4] = [
-    0x43e1f593f0000001,
-    0x2833e84879b97091,
-    0xb85045b68181585d,
-    0x30644e72e131a029,
-];
 
 fn bench_montgomery(c: &mut Criterion) {
     let mut group = c.benchmark_group("Montgomery Multiplication");
@@ -24,16 +16,16 @@ fn bench_montgomery(c: &mut Criterion) {
 
     // Generate random test case
     let a = [
-        rng.gen::<u64>(),
-        rng.gen::<u64>(),
-        rng.gen::<u64>(),
-        rng.gen::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
     ];
     let b = [
-        rng.gen::<u64>(),
-        rng.gen::<u64>(),
-        rng.gen::<u64>(),
-        rng.gen::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
     ];
 
     println!("Random test values:");

@@ -3,6 +3,49 @@
 use num_traits::MulAdd;
 use quickcheck::Arbitrary;
 
+use crate::{convert_limb_sizes, MASK48, MASK52};
+
+#[inline(always)]
+pub fn adds_u52(t: &mut [u64], mut carry: u64) {
+    for i in 0..t.len() {
+        // Performance drops heavily when introducing this check
+        // if carry == 0 {
+        //     break;
+        // }
+        let tmp = t[i] + carry;
+        (t[i], carry) = (tmp & MASK52, tmp >> 52);
+    }
+}
+
+pub fn sos(a: U256b52, b: U256b52, n: U256b52, n0: u64) -> [u64; 10] {
+    let a = a.0;
+    let b = b.0;
+    let n = n.0;
+    let mut t = [0_u64; 10];
+
+    // TODO: try to write an iterator version of this. I don't think you can't as you refer back to an element you just created
+
+    // multiplication a * b
+    for i in 0..a.len() {
+        let mut carry = 0;
+        for j in 0..b.len() {
+            (t[i + j], carry) = carrying_mul_add_u104(a[i], b[j], t[i + j], carry)
+        }
+        t[i + b.len()] = carry;
+    }
+
+    for i in 0..(n.len()) {
+        let mut carry = 0;
+        let m = t[i].wrapping_mul(n0) & MASK52;
+        for j in 0..n.len() {
+            (t[i + j], carry) = carrying_mul_add_u104(m, n[j], t[i + j], carry)
+        }
+        adds_u52(&mut t[(i + n.len())..], carry)
+    }
+
+    t
+}
+
 // TODO: how to deal with all the converions
 // Int to float is an expensive operation, or not if you do a casting?
 // TODO how to ensure that the right multiplication algorithm is used.
@@ -137,6 +180,12 @@ pub fn sampled_product_masked(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
 }
 
 #[inline(always)]
+pub fn carrying_mul_add_u104(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
+    let c: u128 = a as u128 * b as u128 + carry as u128 + add as u128;
+    (c as u64 & MASK52, (c >> 52) as u64)
+}
+
+#[inline(always)]
 pub fn carrying_mul_add(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
     // TODO intrinsic
     // Check assembly output for this kind of widening
@@ -200,17 +249,6 @@ fn sampled_product_masked_debug() {
     print_bits(&b52.0);
     let spm = sampled_product_masked(a52.0.map(|ai| ai as f64), b52.0.map(|bi| bi as f64));
     print_bits(&spm);
-}
-
-fn main() {
-    set_round_to_zero();
-    // let (a, b) = (
-    //     U256b52([0, 0, 0, 0, 1]),
-    //     U256b52([0, 2875046977242133, 0, 0, 0]),
-    // );
-
-    let a = make_initial(1, 0);
-    println!("a: {:b}", a);
 }
 
 fn dpf_debug() {
@@ -340,64 +378,10 @@ pub struct U256b64(pub [u64; 4]);
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub struct U256b52(pub [u64; 5]);
 
-const MASK52: u64 = 2_u64.pow(52) - 1;
-const MASK48: u64 = 2_u64.pow(48) - 1;
-
 // Even u8 seems to big, max size is 64 so that's
 // 2^6
 // Can I use generic here to make it perform better?
 // Should this become a macro?
-fn convert_limb_sizes(
-    input: &[u64],
-    total_bits: usize,
-    source_size: u8,
-    destination_size: u8,
-) -> Vec<u64> {
-    assert!(source_size <= 64, "Source limb size must be <= 64 bits");
-    assert!(
-        destination_size <= 64,
-        "Destination limb size must be <= 64 bits"
-    );
-
-    // If input is empty, return empty vector
-    if input.is_empty() {
-        return Vec::new();
-    }
-
-    // Calculate total bits and required output capacity
-    let out_len = (total_bits + destination_size as usize - 1) / destination_size as usize;
-    let mut output = Vec::with_capacity(out_len);
-
-    // Create mask for destination size
-    let dest_mask = (1u128 << destination_size) - 1;
-
-    // Track bits we're currently processing
-    let mut bit_buffer: u128 = 0; // Use u128 to handle overflow during shifting
-    let mut bits_in_buffer = 0u32;
-
-    // Process each input limb
-    for &limb in input {
-        // Add new bits to buffer
-        bit_buffer |= (limb as u128) << bits_in_buffer;
-        bits_in_buffer += source_size as u32;
-
-        // Extract complete destination-sized chunks
-        while bits_in_buffer >= destination_size as u32 {
-            let new_limb = (bit_buffer & dest_mask) as u64;
-            output.push(new_limb);
-            bit_buffer >>= destination_size;
-            bits_in_buffer -= destination_size as u32;
-        }
-    }
-
-    // Handle remaining bits if any
-    if bits_in_buffer > 0 {
-        let new_limb = (bit_buffer & dest_mask as u128) as u64;
-        output.push(new_limb);
-    }
-
-    output
-}
 
 // Helper function specifically for 64-to-52 bit conversion
 
@@ -551,6 +535,12 @@ impl Arbitrary for U256b64 {
 
 #[cfg(test)]
 mod tests {
+    use crate::subtraction_step;
+    use crate::subtraction_step_u52;
+    use crate::U52_NP0;
+    use crate::U52_P;
+    use crate::U52_R2;
+
     use super::int_full_product;
     use super::sampled_product_masked;
     use super::set_round_to_zero;
@@ -632,6 +622,30 @@ mod tests {
         set_round_to_zero();
         sampled_product(a.0.map(|x| x as f64), b.0.map(|x| x as f64))
             == sampled_product_masked(a.0.map(|x| x as f64), b.0.map(|x| x as f64))
+    }
+
+    // This comparison doesn't make sense
+    #[quickcheck]
+    fn sos_round(a: U256b52) -> bool {
+        let a_tilde = super::sos(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+        let a_round = super::sos(
+            U256b52(a_tilde[5..].try_into().unwrap()),
+            U256b52([1, 0, 0, 0, 0]),
+            U256b52(U52_P),
+            U52_NP0,
+        );
+
+        let mut d = a.0;
+        let mut prev = d;
+        loop {
+            d = subtraction_step_u52(d, U52_P);
+            if d == prev {
+                break;
+            }
+            prev = d;
+        }
+
+        d == subtraction_step_u52(a_round[5..].try_into().unwrap(), U52_P)
     }
 }
 

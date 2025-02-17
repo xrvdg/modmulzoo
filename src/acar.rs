@@ -187,21 +187,6 @@ pub fn cios_opt(a: U256, b: U256, n: U256, np0: u64) -> [u64; 6] {
 }
 
 // a - b
-pub fn subtraction_step(a: U256, b: U256) -> U256 {
-    let mut borrow: i64 = 0;
-    let mut c = [0; 4];
-    for i in 0..a.len() {
-        let tmp = a[i] as i128 - b[i] as i128 + borrow as i128;
-        c[i] = tmp as u64;
-        borrow = (tmp >> 64) as i64
-    }
-
-    if borrow != 0 {
-        a
-    } else {
-        c
-    }
-}
 
 pub fn fios(a: U256, b: U256, n: U256, np0: u64) -> [u64; 6] {
     let mut t = [0_u64; 6];
@@ -254,7 +239,7 @@ pub fn adds(t: &mut [u64], mut carry: u64) {
 mod tests {
     // Test if they actually give back the same result
     use super::*;
-    use crate::{NP0, P, R2}; // Import constants from the crate root
+    use crate::{subtraction_step, NP0, P, R2}; // Import constants from the crate root
     use quickcheck_macros::quickcheck;
 
     #[quickcheck]

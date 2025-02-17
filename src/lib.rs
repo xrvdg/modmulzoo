@@ -1,7 +1,7 @@
 #![feature(bigint_helper_methods)]
 
 pub mod acar;
-mod emmart;
+pub mod emmart;
 
 // TODO This should already flow out the above mod?
 pub use acar::{cios, cios_opt, fios, sos};
@@ -10,6 +10,7 @@ pub use emmart::{
 };
 
 pub const NP0: u64 = 0xc2e1f593efffffff;
+
 pub const P: [u64; 4] = [
     0x43e1f593f0000001,
     0x2833e84879b97091,
@@ -26,6 +27,21 @@ pub const R2: [u64; 4] = [
 ];
 
 pub const U52_NP0: u64 = 0x1F593EFFFFFFF;
+pub const U52_R2: [u64; 5] = [
+    0x0B852D16DA6F5,
+    0xC621620CDDCE3,
+    0xAF1B95343FFB6,
+    0xC3C15E103E7C2,
+    0x00281528FA122,
+];
+
+pub const U52_P: [u64; 5] = [
+    0x1F593F0000001,
+    0x4879B9709143E,
+    0x181585D2833E8,
+    0xA029B85045B68,
+    0x030644E72E131,
+];
 
 pub fn convert_limb_sizes(
     input: &[u64],
@@ -77,4 +93,39 @@ pub fn convert_limb_sizes(
     }
 
     output
+}
+
+pub fn subtraction_step<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
+    let mut borrow: i64 = 0;
+    let mut c = [0; N];
+    for i in 0..N {
+        let tmp = a[i] as i128 - b[i] as i128 + borrow as i128;
+        c[i] = tmp as u64;
+        borrow = (tmp >> 64) as i64
+    }
+
+    if borrow != 0 {
+        a
+    } else {
+        c
+    }
+}
+
+const MASK52: u64 = 2_u64.pow(52) - 1;
+const MASK48: u64 = 2_u64.pow(48) - 1;
+
+pub fn subtraction_step_u52<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
+    let mut borrow: i64 = 0;
+    let mut c = [0; N];
+    for i in 0..N {
+        let tmp = a[i] as i128 - b[i] as i128 + borrow as i128;
+        c[i] = (tmp as u64) & MASK52;
+        borrow = (tmp >> 52) as i64
+    }
+
+    if borrow != 0 {
+        a
+    } else {
+        c
+    }
 }
