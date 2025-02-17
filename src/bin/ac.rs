@@ -1,4 +1,5 @@
-use montgomery_reduction::{cios, cios_opt, fios, sos, subtraction_step, NP0, P};
+use montgomery_reduction::acar::cios_opt;
+use montgomery_reduction::{cios, fios, sos, subtraction_step, NP0, P};
 
 fn main() {
     let a = [0_u64; 4];

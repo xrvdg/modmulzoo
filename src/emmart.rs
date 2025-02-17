@@ -101,7 +101,9 @@ pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
         let p_hi = m.mul_add(n[0] as f64, C1);
         let p_lo = m.mul_add(n[0] as f64, C2 - p_hi);
         // TODO(xrvdg) optmize subtractions
+        // TODO(xrvdg) Don't write to a memory address, it's thrown away
         t[0] += p_lo.to_bits() - C3.to_bits();
+        // Doesn't this shift already do most of the heavy work
         t[1] += (p_hi.to_bits() - C1.to_bits()) + (t[0] >> 52);
 
         for j in 1..n.len() {
@@ -117,7 +119,10 @@ pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
         // t[n.len()] = (t[n.len()] >> 52) + t[n.len() + 1];
     }
 
+    // This takes a 5ns
     let mut carry = 0;
+    // When we return we only look at the first 5
+    // Could reduce the round with one
     for i in 0..t.len() {
         let tmp = t[i] + carry;
         t[i] = tmp & MASK52;
