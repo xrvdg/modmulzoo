@@ -15,9 +15,6 @@ lto = true
 name = "inst"
 path = "./src/inst.rs"
 
-[[bin]]
-name = "em"
-path = "./src/emmart.rs"
 
 [dependencies]
 libc = "0.2.169"

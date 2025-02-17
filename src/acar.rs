@@ -186,6 +186,23 @@ pub fn cios_opt(a: U256, b: U256, n: U256, np0: u64) -> [u64; 6] {
     t
 }
 
+// a - b
+pub fn subtraction_step(a: U256, b: U256) -> U256 {
+    let mut borrow: i64 = 0;
+    let mut c = [0; 4];
+    for i in 0..a.len() {
+        let tmp = a[i] as i128 - b[i] as i128 + borrow as i128;
+        c[i] = tmp as u64;
+        borrow = (tmp >> 64) as i64
+    }
+
+    if borrow != 0 {
+        a
+    } else {
+        c
+    }
+}
+
 pub fn fios(a: U256, b: U256, n: U256, np0: u64) -> [u64; 6] {
     let mut t = [0_u64; 6];
     for i in 0..a.len() {
@@ -220,7 +237,7 @@ fn carry_add(lhs: u64, carry: u64) -> (u64, u64) {
 // Only the first addition is u64 the later are single bit increase
 // How is this solved in the latter ones?
 #[inline(always)]
-fn adds(t: &mut [u64], mut carry: u64) {
+pub fn adds(t: &mut [u64], mut carry: u64) {
     for i in 0..t.len() {
         // Performance drops heavily when introducing this check
         // if carry == 0 {
@@ -235,9 +252,41 @@ fn adds(t: &mut [u64], mut carry: u64) {
 
 #[cfg(test)]
 mod tests {
+    // Test if they actually give back the same result
     use super::*;
-    use crate::{NP0, P}; // Import constants from the crate root
+    use crate::{NP0, P, R2}; // Import constants from the crate root
     use quickcheck_macros::quickcheck;
+
+    #[quickcheck]
+    fn cios_round(a: Vec<u64>) -> bool {
+        // Ensure vectors are length 4 by either truncating or padding with zeros
+        let a: [u64; 4] = if a.len() >= 4 {
+            a[..4].try_into().unwrap()
+        } else {
+            let mut padded = [0u64; 4];
+            padded[..a.len()].copy_from_slice(&a);
+            padded
+        };
+
+        // Montgomery form
+        let a_tilde: [u64; 4] = cios(a, R2, P, NP0)[..4].try_into().unwrap();
+        // Invert
+        let a_round: [u64; 4] = cios(a_tilde, [1, 0, 0, 0], P, NP0)[..4].try_into().unwrap();
+
+        // When we generate the input it isn't modulo N so to compare the result we have to do it here
+        // We don't do it earlier as the algorithm should work with values outside of the modulus
+        let mut d = a;
+        let mut prev = d;
+        loop {
+            d = subtraction_step(d, P);
+            if d == prev {
+                break;
+            }
+            prev = d;
+        }
+
+        d == subtraction_step(a_round, P)
+    }
 
     #[quickcheck]
     fn cios_sos(a: Vec<u64>, b: Vec<u64>) -> bool {
