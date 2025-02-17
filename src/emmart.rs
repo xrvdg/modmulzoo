@@ -1,4 +1,5 @@
 #![feature(bigint_helper_methods)]
+
 use num_traits::MulAdd;
 use quickcheck::Arbitrary;
 
@@ -202,6 +203,17 @@ fn sampled_product_masked_debug() {
 }
 
 fn main() {
+    set_round_to_zero();
+    // let (a, b) = (
+    //     U256b52([0, 0, 0, 0, 1]),
+    //     U256b52([0, 2875046977242133, 0, 0, 0]),
+    // );
+
+    let a = make_initial(1, 0);
+    println!("a: {:b}", a);
+}
+
+fn dpf_debug() {
     set_round_to_zero();
     let (a, b): (u64, u64) = (1, 1);
     println!("a: {:064b}, b: {:064b}", a, b);
@@ -617,6 +629,7 @@ mod tests {
 
     #[quickcheck]
     fn long_multiplication_sampled(a: U256b52, b: U256b52) -> bool {
+        set_round_to_zero();
         sampled_product(a.0.map(|x| x as f64), b.0.map(|x| x as f64))
             == sampled_product_masked(a.0.map(|x| x as f64), b.0.map(|x| x as f64))
     }
