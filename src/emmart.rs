@@ -96,8 +96,8 @@ pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
             let p_hi = (a[i] as f64).mul_add(b[j] as f64, C1);
             let p_lo = (a[i] as f64).mul_add(b[j] as f64, C2 - p_hi);
             // TODO(xrvdg) optimize subtractions
-            t[j] += p_lo.to_bits() - C3.to_bits();
             t[j + 1] += p_hi.to_bits() - C1.to_bits();
+            t[j] += p_lo.to_bits() - C3.to_bits();
         }
 
         let m = (t[0].wrapping_mul(np0) & MASK52) as f64;
@@ -115,8 +115,8 @@ pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
             let p_lo = m.mul_add(n[j] as f64, C2 - p_hi);
             // TODO(xrvdg) optmize subtractions
             // Worried about read after write. Is the carry formulation maybe better?
-            t[j - 1] = t[j] + (p_lo.to_bits() - C3.to_bits());
             t[j + 1] += p_hi.to_bits() - C1.to_bits();
+            t[j - 1] = t[j] + (p_lo.to_bits() - C3.to_bits());
         }
         t[n.len() - 1] = t[n.len()];
         t[n.len()] = 0;
@@ -138,12 +138,81 @@ pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
     t
 }
 
+// Batch all the subtractions on t[i] together
+pub fn fios_opt_sub_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
+    let a = a.0;
+    let b = b.0;
+    let n = n.0;
+
+    let mut t = [0_u64; 6];
+    for i in 0..t.len() - 1 {
+        t[i] = make_initial(2 + 2 * i, 2 * i);
+    }
+
+    for i in 0..a.len() {
+        // a_i * B
+        let p_hi = (a[i] as f64).mul_add(b[0] as f64, C1);
+        let p_lo = (a[i] as f64).mul_add(b[0] as f64, C2 - p_hi);
+
+        t[0] = t[0].wrapping_add(p_lo.to_bits());
+        t[1] = t[1].wrapping_add(p_hi.to_bits());
+        let m = (t[0].wrapping_mul(np0) & MASK52) as f64;
+        // Outside of the loop because the loop does shifting
+        let p_hi = m.mul_add(n[0] as f64, C1);
+        let p_lo = m.mul_add(n[0] as f64, C2 - p_hi);
+        // TODO(xrvdg) optmize subtractions
+        // TODO(xrvdg) Don't write to a memory address, it's thrown away
+
+        // Only interested in the carry bits of t[0], that's why we are not writing it back to
+        // t[0]
+        let carry_t0 = (t[0].wrapping_add(p_lo.to_bits())) >> 52;
+        // Doesn't this shift already do most of the heavy work
+        t[1] += (p_hi.to_bits()) + carry_t0;
+
+        for j in 1..b.len() {
+            let ab_hi = (a[i] as f64).mul_add(b[j] as f64, C1);
+            let ab_lo = (a[i] as f64).mul_add(b[j] as f64, C2 - ab_hi);
+            let mn_hi = m.mul_add(n[j] as f64, C1);
+            let mn_lo = m.mul_add(n[j] as f64, C2 - mn_hi);
+            // TODO(xrvdg) optmize subtractions
+            // Worried about read after write. Is the carry formulation maybe better?
+            // TODO(xrvdg) optimize subtractions
+            // How does the assembly of this piece look like. Is the to_bits shared?
+            // The t[j+1] can be kept in memory. Debating  whether it makes a different to make  this a carry
+            // Acar counts write as just writing to any variable
+            t[j + 1] = t[j + 1].wrapping_add(ab_hi.to_bits() + mn_hi.to_bits());
+            t[j - 1] = t[j].wrapping_add(ab_lo.to_bits() + mn_lo.to_bits());
+        }
+        t[n.len() - 1] = t[n.len()].wrapping_add(make_initial(10 - 2 - 2 * i, 10 - 2 * i));
+        t[n.len()] = 0;
+    }
+
+    // println!("c: {c:?}");
+    // println!("count: {count:?}");
+    // This takes a 5ns
+    let mut carry = 0;
+    // When we return we only look at the first 5
+    // Could reduce the round with one
+    // Could we deal with the carries later? As in the next round of the multiplication
+
+    for i in 0..t.len() {
+        let tmp = t[i] + carry;
+        t[i] = tmp & MASK52;
+        carry = tmp >> 52;
+    }
+    t
+}
+
 pub fn fios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
     let a = a.0;
     let b = b.0;
     let n = n.0;
 
     let mut t = [0_u64; 6];
+    // for i in 0..t.len() - 1 {
+    //     t[i] = make_initial(2 + 2 * i, 2 * i);
+    // }
+
     for i in 0..a.len() {
         // a_i * B
         let p_hi = (a[i] as f64).mul_add(b[0] as f64, C1);
@@ -172,10 +241,15 @@ pub fn fios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
             // TODO(xrvdg) optmize subtractions
             // Worried about read after write. Is the carry formulation maybe better?
             // TODO(xrvdg) optimize subtractions
-            t[j - 1] = t[j] + (ab_lo.to_bits() - C3.to_bits()) + (mn_lo.to_bits() - C3.to_bits());
-            t[j + 1] += (ab_hi.to_bits() - C1.to_bits()) + (mn_hi.to_bits() - C1.to_bits());
+            // How does the assembly of this piece look like. Is the to_bits shared?
+            // The t[j+1] can be kept in memory. Debating  whether it makes a different to make  this a carry
+            // Acar counts write as just writing to any variable
+            t[j + 1] += ab_hi.to_bits() + mn_hi.to_bits() - 2 * C1.to_bits();
+            t[j - 1] = t[j] + ab_lo.to_bits() + mn_lo.to_bits() - 2 * C3.to_bits();
         }
         t[n.len() - 1] = t[n.len()];
+        // Instead of zero this could initialize the number of additions and subtractions to be done
+        // t[n.len()] = make_initial(10 - 2 - 2 * i, 10 - 2 * i);
         t[n.len()] = 0;
         // t[n.len()] = t[n.len() + 1];
         // t[n.len()] = (t[n.len()] >> 52) + t[n.len() + 1];
