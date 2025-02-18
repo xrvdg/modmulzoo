@@ -138,6 +138,63 @@ pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
     t
 }
 
+pub fn cios_opt_sub_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
+    let a = a.0;
+    let b = b.0;
+    let n = n.0;
+
+    let mut t = [0_u64; 6];
+    for i in 0..t.len() - 1 {
+        t[i] = make_initial(2 + 2 * i, 2 * i);
+    }
+
+    for i in 0..a.len() {
+        t[n.len()] = make_initial(10 - 2 - 2 * i, 10 - 2 * i);
+        // a_i * B
+        for j in 0..b.len() {
+            let p_hi = (a[i] as f64).mul_add(b[j] as f64, C1);
+            let p_lo = (a[i] as f64).mul_add(b[j] as f64, C2 - p_hi);
+            // TODO(xrvdg) optimize subtractions
+            t[j + 1] = t[j + 1].wrapping_add(p_hi.to_bits());
+            t[j] = t[j].wrapping_add(p_lo.to_bits());
+        }
+
+        let m = (t[0].wrapping_mul(np0) & MASK52) as f64;
+        // Outside of the loop because the loop does shifting
+        let p_hi = m.mul_add(n[0] as f64, C1);
+        let p_lo = m.mul_add(n[0] as f64, C2 - p_hi);
+        // TODO(xrvdg) optmize subtractions
+        // TODO(xrvdg) Don't write to a memory address, it's thrown away
+        t[0] = t[0].wrapping_add(p_lo.to_bits());
+        t[1] = t[1].wrapping_add((p_hi.to_bits()) + (t[0] >> 52));
+
+        for j in 1..n.len() {
+            let p_hi = m.mul_add(n[j] as f64, C1);
+            let p_lo = m.mul_add(n[j] as f64, C2 - p_hi);
+            // TODO(xrvdg) optmize subtractions
+            // Worried about read after write. Is the carry formulation maybe better?
+            t[j + 1] = t[j + 1].wrapping_add(p_hi.to_bits());
+            t[j - 1] = t[j].wrapping_add(p_lo.to_bits());
+        }
+        t[n.len() - 1] = t[n.len()];
+        // t[n.len()] = t[n.len() + 1];
+        // t[n.len()] = (t[n.len()] >> 52) + t[n.len() + 1];
+    }
+
+    // This takes a 5ns
+    let mut carry = 0;
+    // When we return we only look at the first 5
+    // Could reduce the round with one
+    // Could we deal with the carries later? As in the next round of the multiplication
+
+    for i in 0..t.len() {
+        let tmp = t[i] + carry;
+        t[i] = tmp & MASK52;
+        carry = tmp >> 52;
+    }
+    t
+}
+
 // Batch all the subtractions on t[i] together
 // #[inline(never)]
 pub fn fios_opt_sub_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
@@ -938,6 +995,55 @@ mod tests {
 
         d == subtraction_step_u52(a_round[..5].try_into().unwrap(), U52_P)
     }
+
+    #[quickcheck]
+    fn cios_f64_sub_round(a: U256b52) -> bool {
+        set_round_to_zero();
+        let a_tilde = super::cios_opt_sub_f64(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+        let a_round = super::cios_opt_sub_f64(
+            U256b52(a_tilde[..5].try_into().unwrap()),
+            U256b52([1, 0, 0, 0, 0]),
+            U256b52(U52_P),
+            U52_NP0,
+        );
+
+        let mut d = a.0;
+        let mut prev = d;
+        loop {
+            d = subtraction_step_u52(d, U52_P);
+            if d == prev {
+                break;
+            }
+            prev = d;
+        }
+
+        d == subtraction_step_u52(a_round[..5].try_into().unwrap(), U52_P)
+    }
+
+    #[quickcheck]
+    fn fios_f64_sub_round(a: U256b52) -> bool {
+        set_round_to_zero();
+        let a_tilde = super::fios_opt_sub_f64(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+        let a_round = super::fios_opt_sub_f64(
+            U256b52(a_tilde[..5].try_into().unwrap()),
+            U256b52([1, 0, 0, 0, 0]),
+            U256b52(U52_P),
+            U52_NP0,
+        );
+
+        let mut d = a.0;
+        let mut prev = d;
+        loop {
+            d = subtraction_step_u52(d, U52_P);
+            if d == prev {
+                break;
+            }
+            prev = d;
+        }
+
+        d == subtraction_step_u52(a_round[..5].try_into().unwrap(), U52_P)
+    }
+
     #[quickcheck]
     fn fios_f64_round(a: U256b52) -> bool {
         set_round_to_zero();
