@@ -68,7 +68,7 @@ fn main() {
         "cios_opt: \t{:?}",
         subtraction_step(c[..4].try_into().unwrap(), P)
     );
-    println!("");
+    println!();
     let (a, b) = ([0, 0, 0, 6973996533605941332], [1, 0, 0, 0]);
     let c = cios_opt(
         [
