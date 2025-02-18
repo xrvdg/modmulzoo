@@ -197,6 +197,7 @@ pub fn cios_opt_sub_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6
 
 // Batch all the subtractions on t[i] together
 // #[inline(never)]
+// Bester performing version so far
 pub fn fios_opt_sub_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
     let a = a.0;
     let b = b.0;
@@ -209,7 +210,7 @@ pub fn fios_opt_sub_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6
 
     for i in 0..a.len() {
         // a_i * B
-        t[n.len()] = make_initial(10 - 2 - 2 * i, 10 - 2 * i);
+        t[n.len()] = make_initial(2 * (n.len() - 1 - i), 2 * (n.len() - i));
         let p_hi = (a[i] as f64).mul_add(b[0] as f64, C1);
         let p_lo = (a[i] as f64).mul_add(b[0] as f64, C2 - p_hi);
 
@@ -267,9 +268,6 @@ pub fn fios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
     let n = n.0;
 
     let mut t = [0_u64; 6];
-    // for i in 0..t.len() - 1 {
-    //     t[i] = make_initial(2 + 2 * i, 2 * i);
-    // }
 
     for i in 0..a.len() {
         // a_i * B
@@ -306,11 +304,7 @@ pub fn fios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
             t[j - 1] = t[j] + ab_lo.to_bits() + mn_lo.to_bits() - 2 * C3.to_bits();
         }
         t[n.len() - 1] = t[n.len()];
-        // Instead of zero this could initialize the number of additions and subtractions to be done
-        // t[n.len()] = make_initial(10 - 2 - 2 * i, 10 - 2 * i);
         t[n.len()] = 0;
-        // t[n.len()] = t[n.len() + 1];
-        // t[n.len()] = (t[n.len()] >> 52) + t[n.len() + 1];
     }
 
     // This takes a 5ns
@@ -326,42 +320,6 @@ pub fn fios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
     }
     t
 }
-
-// pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
-//     let a = a.0;
-//     let b = b.0;
-//     let n = n.0;
-//     let n0 = n[0] as f64;
-
-//     let mut t = [0_u64; 6];
-//     for i in 0..a.len() {
-//         for j in 0..b.len() {
-//             let ai = a[i] as f64;
-//             let bj = b[j] as f64;
-//             let p_hi = ai.mul_add(bj, C1);
-//             let p_lo = ai.mul_add(bj, C2 - p_hi);
-//             // Looks like this could be vectorized
-//             t[j + 1] += p_hi.to_bits() & MASK52;
-//             t[j] += p_lo.to_bits() & MASK52;
-//         }
-
-//         t[1] += t[0] >> 52;
-
-//         let m = (t[0].wrapping_mul(np0) & MASK52) as f64;
-//         let p_hi = m.mul_add(n0, C1);
-//         t[1] += p_hi.to_bits() & MASK52;
-
-//         for j in 1..n.len() {
-//             let nj = n[j] as f64;
-//             let p_hi = m.mul_add(nj, C1);
-//             let p_lo = m.mul_add(nj, C2 - p_hi);
-//             // Looks like this could be vectorized
-//             t[j] += p_hi.to_bits() & MASK52;
-//             t[j - 1] += p_lo.to_bits() & MASK52;
-//         }
-//     }
-//     t
-// }
 
 // TODO: how to deal with all the converions
 // Int to float is an expensive operation, or not if you do a casting?

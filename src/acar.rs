@@ -1,5 +1,3 @@
-#![feature(bigint_helper_methods)]
-
 pub type U256 = [u64; 4];
 
 // first is result, second is carry (S,C)
@@ -54,7 +52,7 @@ fn naive(a: U256, b: U256, n: U256, np: U256) -> Vec<u64> {
     // t + m*n
     // Doing a multiply add results in a adds here. You can prevent this by going double space.
     // How do the product based ones handle this?
-    let mut nm = [0_64; 8];
+    let mut nm = [0_u64; 8];
     for i in 0..n.len() {
         let mut carry = 0;
         for j in 0..m.len() {
@@ -63,7 +61,7 @@ fn naive(a: U256, b: U256, n: U256, np: U256) -> Vec<u64> {
         nm[i + m.len()] = carry;
     }
 
-    let mut out = [0_64; 9];
+    let mut out = [0_u64; 9];
     // Extra loop to do the addition that makes just a single pass for the carry
     for i in 0..nm.len() {
         // Could also directly assign it to a windowing slice
