@@ -51,6 +51,7 @@ fn carry_add_u52(lhs: u64, carry: u64) -> (u64, u64) {
     (tmp & MASK52, tmp >> 52)
 }
 
+// Has excessive shifting and masking
 pub fn cios_opt(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 7] {
     let a = a.0;
     let b = b.0;
@@ -70,6 +71,7 @@ pub fn cios_opt(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 7] {
 
         let mut carry = 0;
         let m = t[0].wrapping_mul(np0) & MASK52;
+        // Outside of the loop because the loop does shifting
         (_, carry) = carrying_mul_add_u104(m, n[0], t[0], carry);
 
         for j in 1..n.len() {
@@ -89,6 +91,7 @@ pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
 
     let mut t = [0_u64; 6];
     for i in 0..a.len() {
+        // a_i * B
         for j in 0..b.len() {
             let p_hi = (a[i] as f64).mul_add(b[j] as f64, C1);
             let p_lo = (a[i] as f64).mul_add(b[j] as f64, C2 - p_hi);
@@ -98,6 +101,7 @@ pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
         }
 
         let m = (t[0].wrapping_mul(np0) & MASK52) as f64;
+        // Outside of the loop because the loop does shifting
         let p_hi = m.mul_add(n[0] as f64, C1);
         let p_lo = m.mul_add(n[0] as f64, C2 - p_hi);
         // TODO(xrvdg) optmize subtractions
@@ -110,6 +114,7 @@ pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
             let p_hi = m.mul_add(n[j] as f64, C1);
             let p_lo = m.mul_add(n[j] as f64, C2 - p_hi);
             // TODO(xrvdg) optmize subtractions
+            // Worried about read after write. Is the carry formulation maybe better?
             t[j - 1] = t[j] + (p_lo.to_bits() - C3.to_bits());
             t[j + 1] += p_hi.to_bits() - C1.to_bits();
         }
@@ -123,6 +128,65 @@ pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
     let mut carry = 0;
     // When we return we only look at the first 5
     // Could reduce the round with one
+    // Could we deal with the carries later? As in the next round of the multiplication
+
+    for i in 0..t.len() {
+        let tmp = t[i] + carry;
+        t[i] = tmp & MASK52;
+        carry = tmp >> 52;
+    }
+    t
+}
+
+pub fn fios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
+    let a = a.0;
+    let b = b.0;
+    let n = n.0;
+
+    let mut t = [0_u64; 6];
+    for i in 0..a.len() {
+        // a_i * B
+        let p_hi = (a[i] as f64).mul_add(b[0] as f64, C1);
+        let p_lo = (a[i] as f64).mul_add(b[0] as f64, C2 - p_hi);
+
+        t[0] += p_lo.to_bits() - C3.to_bits();
+        t[1] += p_hi.to_bits() - C1.to_bits();
+        let m = (t[0].wrapping_mul(np0) & MASK52) as f64;
+        // Outside of the loop because the loop does shifting
+        let p_hi = m.mul_add(n[0] as f64, C1);
+        let p_lo = m.mul_add(n[0] as f64, C2 - p_hi);
+        // TODO(xrvdg) optmize subtractions
+        // TODO(xrvdg) Don't write to a memory address, it's thrown away
+
+        // Only interested in the carry bits of t[0], that's why we are not writing it back to
+        // t[0]
+        let carry_t0 = (t[0] + p_lo.to_bits() - C3.to_bits()) >> 52;
+        // Doesn't this shift already do most of the heavy work
+        t[1] += (p_hi.to_bits() - C1.to_bits()) + carry_t0;
+
+        for j in 1..b.len() {
+            let ab_hi = (a[i] as f64).mul_add(b[j] as f64, C1);
+            let ab_lo = (a[i] as f64).mul_add(b[j] as f64, C2 - ab_hi);
+            let mn_hi = m.mul_add(n[j] as f64, C1);
+            let mn_lo = m.mul_add(n[j] as f64, C2 - mn_hi);
+            // TODO(xrvdg) optmize subtractions
+            // Worried about read after write. Is the carry formulation maybe better?
+            // TODO(xrvdg) optimize subtractions
+            t[j - 1] = t[j] + (ab_lo.to_bits() - C3.to_bits()) + (mn_lo.to_bits() - C3.to_bits());
+            t[j + 1] += (ab_hi.to_bits() - C1.to_bits()) + (mn_hi.to_bits() - C1.to_bits());
+        }
+        t[n.len() - 1] = t[n.len()];
+        t[n.len()] = 0;
+        // t[n.len()] = t[n.len() + 1];
+        // t[n.len()] = (t[n.len()] >> 52) + t[n.len() + 1];
+    }
+
+    // This takes a 5ns
+    let mut carry = 0;
+    // When we return we only look at the first 5
+    // Could reduce the round with one
+    // Could we deal with the carries later? As in the next round of the multiplication
+
     for i in 0..t.len() {
         let tmp = t[i] + carry;
         t[i] = tmp & MASK52;
@@ -781,6 +845,29 @@ mod tests {
     fn cios_round(a: U256b52) -> bool {
         let a_tilde = super::cios_opt(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
         let a_round = super::cios_opt(
+            U256b52(a_tilde[..5].try_into().unwrap()),
+            U256b52([1, 0, 0, 0, 0]),
+            U256b52(U52_P),
+            U52_NP0,
+        );
+
+        let mut d = a.0;
+        let mut prev = d;
+        loop {
+            d = subtraction_step_u52(d, U52_P);
+            if d == prev {
+                break;
+            }
+            prev = d;
+        }
+
+        d == subtraction_step_u52(a_round[..5].try_into().unwrap(), U52_P)
+    }
+    #[quickcheck]
+    fn fios_f64_round(a: U256b52) -> bool {
+        set_round_to_zero();
+        let a_tilde = super::fios_opt_f64(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+        let a_round = super::fios_opt_f64(
             U256b52(a_tilde[..5].try_into().unwrap()),
             U256b52([1, 0, 0, 0, 0]),
             U256b52(U52_P),

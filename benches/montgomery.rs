@@ -102,6 +102,16 @@ fn bench_montgomery(c: &mut Criterion) {
             )
         })
     });
+    group.bench_function("fios_opt_f64_random", |bencher| {
+        bencher.iter(|| {
+            emmart::fios_opt_f64(
+                black_box(U256b52(a)),
+                black_box(U256b52(b)),
+                U256b52(U52_P),
+                U52_NP0,
+            )
+        })
+    });
 
     // Set up for sampled_product_masked benchmark
 
