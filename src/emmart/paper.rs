@@ -1,6 +1,6 @@
+#![allow(dead_code)]
 /// Functions that are in the paper or related to it, but currently not directly used.
-use super::{make_initial, C1, C2, C3};
-use crate::MASK52;
+use super::{make_initial, C1, C2, C3, MASK52};
 
 /// Technique for extracting the truncated part of a f64 multiplication
 fn full_product(a: f64, b: f64) -> (f64, f64) {
@@ -109,8 +109,8 @@ pub fn sampled_product_masked(a: [f64; 5], b: [f64; 5]) -> [u64; 10] {
 mod tests {
     use super::*;
     use crate::arith::school_method;
+    use crate::convert_limb_sizes;
     use crate::emmart::*;
-    use crate::{convert_limb_sizes, MASK52};
     use quickcheck_macros::quickcheck;
 
     #[quickcheck]

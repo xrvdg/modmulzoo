@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use montgomery_reduction::emmart::{self, cios_opt_f64};
+use montgomery_reduction::emmart::{self, cios_opt};
 use montgomery_reduction::{
     acar, cios, fios, sampled_product, sampled_product_masked, school_method, set_round_to_zero,
     sos, U256b52, U256b64, NP0, P, U52_NP0, U52_P,
@@ -84,7 +84,7 @@ fn bench_montgomery(c: &mut Criterion) {
     set_round_to_zero();
     group.bench_function("cios_opt_f64_random", |bencher| {
         bencher.iter(|| {
-            cios_opt_f64(
+            cios_opt(
                 black_box(U256b52(a)),
                 black_box(U256b52(b)),
                 U256b52(U52_P),
@@ -92,19 +92,19 @@ fn bench_montgomery(c: &mut Criterion) {
             )
         })
     });
-    group.bench_function("cios_opt_u52_random", |bencher| {
-        bencher.iter(|| {
-            emmart::cios_opt(
-                black_box(U256b52(a)),
-                black_box(U256b52(b)),
-                U256b52(U52_P),
-                U52_NP0,
-            )
-        })
-    });
+    // group.bench_function("cios_opt_u52_random", |bencher| {
+    //     bencher.iter(|| {
+    //         emmart::uint52::cios_opt(
+    //             black_box(U256b52(a)),
+    //             black_box(U256b52(b)),
+    //             U256b52(U52_P),
+    //             U52_NP0,
+    //         )
+    //     })
+    // });
     group.bench_function("fios_opt_f64_random", |bencher| {
         bencher.iter(|| {
-            emmart::fios_opt_f64(
+            emmart::fios_opt(
                 black_box(U256b52(a)),
                 black_box(U256b52(b)),
                 U256b52(U52_P),
@@ -114,7 +114,7 @@ fn bench_montgomery(c: &mut Criterion) {
     });
     group.bench_function("fios_opt_sub_f64_random", |bencher| {
         bencher.iter(|| {
-            emmart::fios_opt_sub_f64(
+            emmart::fios_opt_sub(
                 black_box(U256b52(a)),
                 black_box(U256b52(b)),
                 U256b52(U52_P),
@@ -124,7 +124,7 @@ fn bench_montgomery(c: &mut Criterion) {
     });
     group.bench_function("cios_opt_sub_f64_random", |bencher| {
         bencher.iter(|| {
-            emmart::cios_opt_sub_f64(
+            emmart::cios_opt_sub(
                 black_box(U256b52(a)),
                 black_box(U256b52(b)),
                 U256b52(U52_P),

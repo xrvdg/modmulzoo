@@ -6,7 +6,7 @@ pub type U256 = [u64; 4];
 // direct translation of montgomery multiplication.
 // Goal is to serve as a reference
 // untested
-#[ignore = "dead_code"]
+#[allow(dead_code)]
 fn naive(a: U256, b: U256, n: U256, np: U256) -> Vec<u64> {
     let mut t = vec![0_u64; 8];
 

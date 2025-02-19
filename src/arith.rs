@@ -1,4 +1,5 @@
 /// All these method operate on b64
+/// TODO: generalise these functions to work on b52 without performance loss for either b52 or b64
 
 pub fn school_method(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
     let mut ab = [0_u64; 8];

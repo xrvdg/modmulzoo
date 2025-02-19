@@ -38,6 +38,9 @@ pub const U52_P: [u64; 5] = [
     0x030644E72E131,
 ];
 
+/// Buggy doesn't work when reducing a 5x52bit containing a 256 number to 4x64 bit.
+/// Generated so not fully tested
+/// Only deals with 4x64->5x52bit
 pub fn convert_limb_sizes(
     input: &[u64],
     total_bits: usize,
@@ -50,28 +53,23 @@ pub fn convert_limb_sizes(
         "Destination limb size must be <= 64 bits"
     );
 
-    // If input is empty, return empty vector
     if input.is_empty() {
         return Vec::new();
     }
-    // Calculate total bits and required output capacity
+
     let out_len = total_bits.div_ceil(destination_size as usize);
     let mut output = Vec::with_capacity(out_len);
 
-    // Create mask for destination size
     let dest_mask = (1u128 << destination_size) - 1;
 
     // Track bits we're currently processing
-    let mut bit_buffer: u128 = 0; // Use u128 to handle overflow during shifting
+    let mut bit_buffer: u128 = 0;
     let mut bits_in_buffer = 0u32;
 
-    // Process each input limb
     for &limb in input {
-        // Add new bits to buffer
         bit_buffer |= (limb as u128) << bits_in_buffer;
         bits_in_buffer += source_size as u32;
 
-        // Extract complete destination-sized chunks
         while bits_in_buffer >= destination_size as u32 {
             let new_limb = (bit_buffer & dest_mask) as u64;
             output.push(new_limb);
@@ -80,7 +78,6 @@ pub fn convert_limb_sizes(
         }
     }
 
-    // Handle remaining bits if any
     if bits_in_buffer > 0 {
         let new_limb = (bit_buffer & dest_mask) as u64;
         output.push(new_limb);
@@ -88,6 +85,3 @@ pub fn convert_limb_sizes(
 
     output
 }
-
-const MASK52: u64 = 2_u64.pow(52) - 1;
-const MASK48: u64 = 2_u64.pow(48) - 1;

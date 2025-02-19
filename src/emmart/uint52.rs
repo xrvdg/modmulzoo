@@ -1,7 +1,6 @@
+#![allow(dead_code)]
 /// 52 bit integer reference implementation
-use crate::MASK52;
-
-use super::U256b52;
+use super::{U256b52, MASK52};
 
 #[inline(always)]
 pub fn adds_u52(t: &mut [u64], mut carry: u64) {
