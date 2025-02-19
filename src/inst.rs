@@ -2,16 +2,14 @@
 use std::{
     hint::black_box,
     ops::Neg,
-    simd::{f64x1, u64x1, Simd, StdFloat},
-    time::Instant,
+    simd::{f64x1, Simd, StdFloat},
 };
 
 use num_traits::MulAdd;
 
 fn main() {
-    Instant::now();
     mul_generation();
-    // u_generation();
+    u_generation();
 }
 
 fn mul_generation() {
@@ -141,11 +139,11 @@ fn u_generation() {
     let c: i64 = black_box(11);
 
     // neg madd
-    let g = a.mul_add(b, -1 * c);
+    let g = a.mul_add(b, -c);
     println!("{}", g);
 
     // msub
-    let h = a.mul_add(-1 * b, c);
+    let h = a.mul_add(-b, c);
     println!("{}", h);
 
     // What we need are widening mulls which the portable SIMD library doesn't support

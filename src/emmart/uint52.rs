@@ -1,0 +1,141 @@
+use crate::MASK52;
+
+use super::U256b52;
+
+#[inline(always)]
+pub fn adds_u52(t: &mut [u64], mut carry: u64) {
+    for ti in t {
+        // Performance heavily affected by this carry check
+        // if carry == 0 {
+        //     break;
+        // }
+        let tmp = *ti + carry;
+        (*ti, carry) = (tmp & MASK52, tmp >> 52);
+    }
+}
+
+pub fn sos_u52(a: U256b52, b: U256b52, n: U256b52, n0: u64) -> [u64; 10] {
+    let a = a.0;
+    let b = b.0;
+    let n = n.0;
+    let mut t = [0_u64; 10];
+
+    // TODO: try to write an iterator version of this. I don't think you can't as you refer back to an element you just created
+
+    // multiplication a * b
+    for i in 0..a.len() {
+        let mut carry = 0;
+        for j in 0..b.len() {
+            (t[i + j], carry) = carrying_mul_add_u104(a[i], b[j], t[i + j], carry)
+        }
+        t[i + b.len()] = carry;
+    }
+
+    for i in 0..(n.len()) {
+        let mut carry = 0;
+        let m = t[i].wrapping_mul(n0) & MASK52;
+        for j in 0..n.len() {
+            (t[i + j], carry) = carrying_mul_add_u104(m, n[j], t[i + j], carry)
+        }
+        adds_u52(&mut t[(i + n.len())..], carry)
+    }
+
+    t
+}
+
+fn carry_add_u52(lhs: u64, carry: u64) -> (u64, u64) {
+    let tmp = lhs + carry;
+    (tmp & MASK52, tmp >> 52)
+}
+
+// Has excessive shifting and masking
+pub fn cios_opt(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 7] {
+    let a = a.0;
+    let b = b.0;
+    let n = n.0;
+
+    let mut t = [0_u64; 7];
+    for i in 0..a.len() {
+        let mut carry = 0;
+        for j in 0..b.len() {
+            (t[j], carry) = carrying_mul_add_u104(a[i], b[j], t[j], carry);
+        }
+        (t[b.len()], t[b.len() + 1]) = carry_add_u52(t[b.len()], carry);
+
+        // Last entry can probably be skipped brings it closer to Yuval's. It's mostly the last
+        // carry add that makes the difference
+        // (t[b.len()], _) = carry_add(t[b.len()], carry);
+
+        let mut carry = 0;
+        let m = t[0].wrapping_mul(np0) & MASK52;
+        // Outside of the loop because the loop does shifting
+        (_, carry) = carrying_mul_add_u104(m, n[0], t[0], carry);
+
+        for j in 1..n.len() {
+            (t[j - 1], carry) = carrying_mul_add_u104(m, n[j], t[j], carry);
+        }
+        (t[n.len() - 1], carry) = carry_add_u52(t[n.len()], carry);
+        // Last shift can probably be skipped. This brings it very close to Yuval's numbers
+        (t[n.len()], _) = carry_add_u52(t[n.len() + 1], carry);
+    }
+    t
+}
+
+#[inline(always)]
+// Useful as a function to convert an existing algorithm to u104
+pub fn carrying_mul_add_u104(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
+    let c: u128 = a as u128 * b as u128 + carry as u128 + add as u128;
+    (c as u64 & MASK52, (c >> 52) as u64)
+}
+#[cfg(test)]
+mod tests {
+    use quickcheck_macros::quickcheck;
+
+    use super::U256b52;
+    use crate::{subtraction_step_u52, U52_NP0, U52_P, U52_R2};
+    #[quickcheck]
+    fn sos_round(a: U256b52) -> bool {
+        let a_tilde = super::sos_u52(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+        let a_round = super::sos_u52(
+            U256b52(a_tilde[5..].try_into().unwrap()),
+            U256b52([1, 0, 0, 0, 0]),
+            U256b52(U52_P),
+            U52_NP0,
+        );
+
+        let mut d = a.0;
+        let mut prev = d;
+        loop {
+            d = subtraction_step_u52(d, U52_P);
+            if d == prev {
+                break;
+            }
+            prev = d;
+        }
+
+        d == subtraction_step_u52(a_round[5..].try_into().unwrap(), U52_P)
+    }
+
+    #[quickcheck]
+    fn cios_round(a: U256b52) -> bool {
+        let a_tilde = super::cios_opt(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+        let a_round = super::cios_opt(
+            U256b52(a_tilde[..5].try_into().unwrap()),
+            U256b52([1, 0, 0, 0, 0]),
+            U256b52(U52_P),
+            U52_NP0,
+        );
+
+        let mut d = a.0;
+        let mut prev = d;
+        loop {
+            d = subtraction_step_u52(d, U52_P);
+            if d == prev {
+                break;
+            }
+            prev = d;
+        }
+
+        d == subtraction_step_u52(a_round[..5].try_into().unwrap(), U52_P)
+    }
+}
