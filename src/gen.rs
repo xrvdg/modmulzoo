@@ -1,4 +1,5 @@
 // Test generators
+#![cfg(test)]
 use quickcheck::Arbitrary;
 
 use crate::emmart::{MASK48, MASK52};
