@@ -57,7 +57,7 @@ pub fn sampled_product(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
     // TODO make these const across the code base
     // Does require doing a compile time computation
 
-    let mut col_sums: [u64; 10] = [0; 2 * N];
+    let mut col_sums: [u64; 2 * N] = [0; 2 * N];
 
     // Since our N is fixed this can be made a compile time constant
     // For a known size this is probably mixed in
@@ -115,6 +115,7 @@ pub fn sampled_product_masked(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::arith::school_method;
     use crate::emmart::*;
     use crate::{convert_limb_sizes, MASK52};
     use quickcheck_macros::quickcheck;
@@ -146,7 +147,7 @@ mod tests {
     #[quickcheck]
     fn long_multiplication(a: U256b64, b: U256b64) -> bool {
         set_round_to_zero();
-        let res = school_method(a, b);
+        let res = school_method(a.0, b.0);
         let U256b52(a52) = a.into();
         let U256b52(b52) = b.into();
         let fres = sampled_product_masked(a52.map(|ai| ai as f64), b52.map(|bi| bi as f64));

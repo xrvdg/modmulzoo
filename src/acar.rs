@@ -1,13 +1,7 @@
+use crate::arith::{adds, carry_add, carrying_mul_add};
+
 // This implements most of the modular multiplication algorithms listed in Acar97
 pub type U256 = [u64; 4];
-
-// first is result, second is carry (S,C)
-// This order is common in the Rust std library, but it differs from the order common in papers.
-#[inline(always)]
-fn carrying_mul_add(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
-    let c: u128 = a as u128 * b as u128 + carry as u128 + add as u128;
-    (c as u64, (c >> 64) as u64)
-}
 
 // direct translation of montgomery multiplication.
 // Goal is to serve as a reference
@@ -169,30 +163,13 @@ pub fn fios(a: U256, b: U256, n: U256, np0: u64) -> [u64; 6] {
     t
 }
 
-#[inline(always)]
-fn carry_add(lhs: u64, carry: u64) -> (u64, u64) {
-    let (sum, carry) = lhs.overflowing_add(carry);
-    (sum, carry.into())
-}
-
-#[inline(always)]
-pub fn adds(t: &mut [u64], mut carry: u64) {
-    for i in 0..t.len() {
-        // Performance drops heavily when introducing this check
-        // if carry == 0 {
-        //     break;
-        // }
-        let b;
-        (t[i], b) = t[i].overflowing_add(carry);
-        // Add if to exit
-        carry = b.into();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{subtraction_step, NP0, P, R2};
+    use crate::{
+        arith::{modulus, subtraction_step},
+        NP0, P, R2,
+    };
     use quickcheck_macros::quickcheck;
 
     /// The tests in this file make use of Vector shrinking which not only
@@ -221,15 +198,7 @@ mod tests {
         // and back
         let a_round: [u64; 4] = cios(a_tilde, [1, 0, 0, 0], P, NP0)[..4].try_into().unwrap();
 
-        let mut d = a;
-        let mut prev = d;
-        loop {
-            d = subtraction_step(d, P);
-            if d == prev {
-                break;
-            }
-            prev = d;
-        }
+        let d = modulus(a, P);
 
         d == subtraction_step(a_round, P)
     }

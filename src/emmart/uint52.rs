@@ -1,3 +1,4 @@
+/// 52 bit integer reference implementation
 use crate::MASK52;
 
 use super::U256b52;
@@ -19,8 +20,6 @@ pub fn sos_u52(a: U256b52, b: U256b52, n: U256b52, n0: u64) -> [u64; 10] {
     let b = b.0;
     let n = n.0;
     let mut t = [0_u64; 10];
-
-    // TODO: try to write an iterator version of this. I don't think you can't as you refer back to an element you just created
 
     // multiplication a * b
     for i in 0..a.len() {
@@ -62,10 +61,6 @@ pub fn cios_opt(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 7] {
         }
         (t[b.len()], t[b.len() + 1]) = carry_add_u52(t[b.len()], carry);
 
-        // Last entry can probably be skipped brings it closer to Yuval's. It's mostly the last
-        // carry add that makes the difference
-        // (t[b.len()], _) = carry_add(t[b.len()], carry);
-
         let mut carry = 0;
         let m = t[0].wrapping_mul(np0) & MASK52;
         // Outside of the loop because the loop does shifting
@@ -75,7 +70,6 @@ pub fn cios_opt(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 7] {
             (t[j - 1], carry) = carrying_mul_add_u104(m, n[j], t[j], carry);
         }
         (t[n.len() - 1], carry) = carry_add_u52(t[n.len()], carry);
-        // Last shift can probably be skipped. This brings it very close to Yuval's numbers
         (t[n.len()], _) = carry_add_u52(t[n.len() + 1], carry);
     }
     t
@@ -87,6 +81,7 @@ pub fn carrying_mul_add_u104(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64)
     let c: u128 = a as u128 * b as u128 + carry as u128 + add as u128;
     (c as u64 & MASK52, (c >> 52) as u64)
 }
+
 #[cfg(test)]
 mod tests {
     use quickcheck_macros::quickcheck;

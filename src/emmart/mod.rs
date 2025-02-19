@@ -4,20 +4,6 @@ use crate::{MASK48, MASK52};
 mod paper;
 mod uint52;
 
-pub fn school_method(a: U256b64, b: U256b64) -> [u64; 8] {
-    let mut ab = [0_u64; 8];
-    let U256b64(a) = a;
-    let U256b64(b) = b;
-    for i in 0..a.len() {
-        let mut carry = 0;
-        for j in 0..b.len() {
-            (ab[i + j], carry) = carrying_mul_add(a[i], b[j], ab[i + j], carry)
-        }
-        ab[i + b.len()] = carry;
-    }
-    ab
-}
-
 pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
     let a = a.0;
     let b = b.0;
@@ -270,17 +256,6 @@ const C3: f64 = pow_2(52); // 2.0^52
 fn make_initial(low_count: usize, high_count: usize) -> u64 {
     let val = high_count * 0x467 + low_count * 0x433;
     -((val as i64 & 0xFFF) << 52) as u64
-}
-
-#[inline(always)]
-pub fn carrying_mul_add(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
-    // TODO intrinsic
-    // Check assembly output for this kind of widening
-    // unchecked version might be better, shouldn't be possible to overflow due to widening beforehand.
-    // Is there a difference between unchecked
-    // using widening_mul might be friendlier to use
-    let c: u128 = a as u128 * b as u128 + carry as u128 + add as u128;
-    (c as u64, (c >> 64) as u64)
 }
 
 // Cost of getting it into the right from

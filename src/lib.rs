@@ -1,6 +1,7 @@
 #![feature(bigint_helper_methods)]
 
 pub mod acar;
+pub mod arith;
 pub mod emmart;
 
 pub const NP0: u64 = 0xc2e1f593efffffff;
@@ -86,22 +87,6 @@ pub fn convert_limb_sizes(
     }
 
     output
-}
-
-pub fn subtraction_step<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
-    let mut borrow: i64 = 0;
-    let mut c = [0; N];
-    for i in 0..N {
-        let tmp = a[i] as i128 - b[i] as i128 + borrow as i128;
-        c[i] = tmp as u64;
-        borrow = (tmp >> 64) as i64
-    }
-
-    if borrow != 0 {
-        a
-    } else {
-        c
-    }
 }
 
 const MASK52: u64 = 2_u64.pow(52) - 1;
