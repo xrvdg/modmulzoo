@@ -3,17 +3,12 @@ name = "montgomery_reduction"
 version = "0.1.0"
 edition = "2021"
 
-
 [profile.release]
 debug = 2
 lto = true
 
 [profile.bench]
 lto = true
-
-[[bin]]
-name = "inst"
-path = "./src/inst.rs"
 
 [dependencies]
 num-traits = "0.2.19"
