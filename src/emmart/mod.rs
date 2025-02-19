@@ -139,7 +139,7 @@ pub fn cios_opt_sub(a: [u64; 5], b: [u64; 5], n: [u64; 5], np0: u64) -> [u64; 6]
 
 // FIOS variant of the above cios_opt_sub
 // Batch all the subtractions on t[i] together
-// Best performing version so far
+// Best performing f64 version on the RPi
 pub fn fios_opt_sub(a: [u64; 5], b: [u64; 5], n: [u64; 5], np0: u64) -> [u64; 6] {
     let mut t = [0_u64; 6];
     for i in 0..t.len() - 1 {

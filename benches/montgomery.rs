@@ -5,8 +5,8 @@ use montgomery_reduction::{acar, NP0, P, U52_NP0, U52_P};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-fn bench_montgomery(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Montgomery Multiplication");
+fn bench_acar(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Acar");
 
     // Generate and print a random seed
     let seed: u64 = rand::random();
@@ -50,6 +50,15 @@ fn bench_montgomery(c: &mut Criterion) {
     group.bench_function("mul_school_method", |bencher| {
         bencher.iter(|| school_method(black_box(a), black_box(b)))
     });
+}
+
+fn bench_emmart(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Emmart");
+
+    // Generate and print a random seed
+    let seed: u64 = rand::random();
+    println!("Using random seed: {}", seed);
+    let mut rng = StdRng::seed_from_u64(seed);
 
     // SET ROUND TO ZERO BENCHES
     emmart::set_round_to_zero();
@@ -82,16 +91,7 @@ fn bench_montgomery(c: &mut Criterion) {
     group.bench_function("cios_opt_f64_random", |bencher| {
         bencher.iter(|| emmart::cios_opt(black_box(a), black_box(b), U52_P, U52_NP0))
     });
-    // group.bench_function("cios_opt_u52_random", |bencher| {
-    //     bencher.iter(|| {
-    //         emmart::uint52::cios_opt(
-    //             black_box(U256b52(a)),
-    //             black_box(U256b52(b)),
-    //             U256b52(U52_P),
-    //             U52_NP0,
-    //         )
-    //     })
-    // });
+
     group.bench_function("fios_opt_f64_random", |bencher| {
         bencher.iter(|| emmart::fios_opt(black_box(a), black_box(b), U52_P, U52_NP0))
     });
@@ -113,6 +113,6 @@ criterion_group!(
         .sample_size(5000)
         .warm_up_time(std::time::Duration::new(3,0))
         .measurement_time(std::time::Duration::new(10,0));
-    targets = bench_montgomery
+    targets = bench_acar, bench_emmart
 );
 criterion_main!(benches);
