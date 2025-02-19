@@ -168,31 +168,15 @@ mod tests {
     use super::*;
     use crate::{
         arith::{modulus, subtraction_step},
+        gen::U256b64,
         NP0, P, R2,
     };
     use quickcheck_macros::quickcheck;
 
-    /// The tests in this file make use of Vector shrinking which not only
-    /// shrinks the elements but also shrinks the size of the vector.
-    /// Here we pad the vector with zero to the right length again.
-    /// Downside of this approach is that it might not find that require zeros
-    /// in higher limbs
-    fn pad_vec(a: Vec<u64>) -> [u64; 4] {
-        let a: [u64; 4] = if a.len() >= 4 {
-            a[..4].try_into().unwrap()
-        } else {
-            let mut padded = [0u64; 4];
-            padded[..a.len()].copy_from_slice(&a);
-            padded
-        };
-        a
-    }
-
     #[quickcheck]
     /// Test whether montgomery multiplication gives the same result as repeatedly subtraction
-    fn cios_roundtrip(a: Vec<u64>) -> bool {
-        let a = pad_vec(a);
-
+    fn cios_roundtrip(a: U256b64) -> bool {
+        let a = a.0;
         // Montgomery form
         let a_tilde: [u64; 4] = cios(a, R2, P, NP0)[..4].try_into().unwrap();
         // and back
@@ -205,23 +189,23 @@ mod tests {
 
     // All remaining tests check equivalence with cios
     #[quickcheck]
-    fn cios_sos(a: Vec<u64>, b: Vec<u64>) -> bool {
-        let a = pad_vec(a);
-        let b = pad_vec(b);
+    fn cios_sos(a: U256b64, b: U256b64) -> bool {
+        let a = a.0;
+        let b = b.0;
 
         cios(a, b, P, NP0)[..4] == sos(a, b, P, NP0)[4..]
     }
     #[quickcheck]
-    fn cios_ciosopt(a: Vec<u64>, b: Vec<u64>) -> bool {
-        let a = pad_vec(a);
-        let b = pad_vec(b);
+    fn cios_ciosopt(a: U256b64, b: U256b64) -> bool {
+        let a = a.0;
+        let b = b.0;
         cios(a, b, P, NP0)[..5] == cios_opt(a, b, P, NP0)[..5]
     }
 
     #[quickcheck]
-    fn fios_ciosopt(a: Vec<u64>, b: Vec<u64>) -> bool {
-        let a = pad_vec(a);
-        let b = pad_vec(b);
+    fn fios_ciosopt(a: U256b64, b: U256b64) -> bool {
+        let a = a.0;
+        let b = b.0;
         fios(a, b, P, NP0)[..5] == cios_opt(a, b, P, NP0)[..5]
     }
 }
