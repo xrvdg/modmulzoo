@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 /// 52 bit integer reference implementation
-use super::{U256b52, MASK52};
+use super::MASK52;
 
 #[inline(always)]
 pub fn adds_u52(t: &mut [u64], mut carry: u64) {
@@ -14,10 +14,7 @@ pub fn adds_u52(t: &mut [u64], mut carry: u64) {
     }
 }
 
-pub fn sos_u52(a: U256b52, b: U256b52, n: U256b52, n0: u64) -> [u64; 10] {
-    let a = a.0;
-    let b = b.0;
-    let n = n.0;
+pub fn sos_u52(a: [u64; 5], b: [u64; 5], n: [u64; 5], n0: u64) -> [u64; 10] {
     let mut t = [0_u64; 10];
 
     // multiplication a * b
@@ -47,11 +44,7 @@ fn carry_add_u52(lhs: u64, carry: u64) -> (u64, u64) {
 }
 
 // Has excessive shifting and masking
-pub fn cios_opt(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 7] {
-    let a = a.0;
-    let b = b.0;
-    let n = n.0;
-
+pub fn cios_opt(a: [u64; 5], b: [u64; 5], n: [u64; 5], np0: u64) -> [u64; 7] {
     let mut t = [0_u64; 7];
     for i in 0..a.len() {
         let mut carry = 0;
@@ -85,15 +78,17 @@ pub fn carrying_mul_add_u104(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64)
 mod tests {
     use quickcheck_macros::quickcheck;
 
-    use super::U256b52;
-    use crate::{emmart::subtraction_step_u52, U52_NP0, U52_P, U52_R2};
+    use crate::{
+        emmart::{subtraction_step_u52, tests::U256b52},
+        U52_NP0, U52_P, U52_R2,
+    };
     #[quickcheck]
     fn sos_round(a: U256b52) -> bool {
-        let a_tilde = super::sos_u52(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+        let a_tilde = super::sos_u52(a.0, U52_R2, U52_P, U52_NP0);
         let a_round = super::sos_u52(
-            U256b52(a_tilde[5..].try_into().unwrap()),
-            U256b52([1, 0, 0, 0, 0]),
-            U256b52(U52_P),
+            a_tilde[5..].try_into().unwrap(),
+            [1, 0, 0, 0, 0],
+            U52_P,
             U52_NP0,
         );
 
@@ -112,11 +107,11 @@ mod tests {
 
     #[quickcheck]
     fn cios_round(a: U256b52) -> bool {
-        let a_tilde = super::cios_opt(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+        let a_tilde = super::cios_opt(a.0, U52_R2, U52_P, U52_NP0);
         let a_round = super::cios_opt(
-            U256b52(a_tilde[..5].try_into().unwrap()),
-            U256b52([1, 0, 0, 0, 0]),
-            U256b52(U52_P),
+            a_tilde[..5].try_into().unwrap(),
+            [1, 0, 0, 0, 0],
+            U52_P,
             U52_NP0,
         );
 

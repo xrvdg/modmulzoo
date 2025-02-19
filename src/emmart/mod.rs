@@ -71,11 +71,7 @@ fn resolve(mut t: [u64; 6]) -> [u64; 6] {
     t
 }
 /// Based on CIOS_OPT from ACAR but with floating point multiplication
-pub fn cios_opt(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
-    let a = a.0;
-    let b = b.0;
-    let n = n.0;
-
+pub fn cios_opt(a: [u64; 5], b: [u64; 5], n: [u64; 5], np0: u64) -> [u64; 6] {
     let mut t = [0_u64; 6];
     for i in 0..a.len() {
         // a_i * B
@@ -108,11 +104,7 @@ pub fn cios_opt(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
 
 /// Like cios_opt above but with the subtraction optimisation
 /// `t` is initialised with the - sum of exponents
-pub fn cios_opt_sub(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
-    let a = a.0;
-    let b = b.0;
-    let n = n.0;
-
+pub fn cios_opt_sub(a: [u64; 5], b: [u64; 5], n: [u64; 5], np0: u64) -> [u64; 6] {
     let mut t = [0_u64; 6];
     for i in 0..t.len() - 1 {
         t[i] = make_initial(2 + 2 * i, 2 * i);
@@ -150,11 +142,7 @@ pub fn cios_opt_sub(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
 // FIOS variant of the above cios_opt_sub
 // Batch all the subtractions on t[i] together
 // Best performing version so far
-pub fn fios_opt_sub(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
-    let a = a.0;
-    let b = b.0;
-    let n = n.0;
-
+pub fn fios_opt_sub(a: [u64; 5], b: [u64; 5], n: [u64; 5], np0: u64) -> [u64; 6] {
     let mut t = [0_u64; 6];
     for i in 0..t.len() - 1 {
         t[i] = make_initial(2 + 2 * i, 2 * i);
@@ -192,11 +180,7 @@ pub fn fios_opt_sub(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
 }
 
 /// FIOS variant with the subtraction optimization
-pub fn fios_opt(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
-    let a = a.0;
-    let b = b.0;
-    let n = n.0;
-
+pub fn fios_opt(a: [u64; 5], b: [u64; 5], n: [u64; 5], np0: u64) -> [u64; 6] {
     let mut t = [0_u64; 6];
 
     for i in 0..a.len() {
@@ -249,118 +233,8 @@ fn make_initial(low_count: usize, high_count: usize) -> u64 {
     -((val as i64 & 0xFFF) << 52) as u64
 }
 
-#[derive(PartialEq, Clone, Copy, Debug)]
-pub struct U256b64(pub [u64; 4]);
-#[derive(PartialEq, Clone, Copy, Debug)]
-pub struct U256b52(pub [u64; 5]);
-
-impl From<U256b64> for U256b52 {
-    fn from(u: U256b64) -> Self {
-        let U256b64(limbs) = u;
-        let [l0, l1, l2, l3] = limbs;
-        U256b52([
-            l0 & MASK52,
-            ((l0 >> 52) | (l1 << 12)) & MASK52,
-            ((l1 >> 40) | (l2 << 24)) & MASK52,
-            ((l2 >> 28) | (l3 << 36)) & MASK52,
-            l3 >> 16,
-        ])
-    }
-}
-
-impl From<U256b52> for U256b64 {
-    fn from(u: U256b52) -> Self {
-        let U256b52(limbs) = u;
-        let [l0, l1, l2, l3, l4] = limbs;
-        U256b64([
-            l0 | (l1 << 52),
-            ((l1 >> 12) | (l2 << 40)),
-            ((l2 >> 24) | (l3 << 28)),
-            ((l3 >> 36) | (l4 << 16)),
-        ])
-    }
-}
-
-impl Arbitrary for U256b52 {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        U256b52([
-            u64::arbitrary(g) & MASK52,
-            u64::arbitrary(g) & MASK52,
-            u64::arbitrary(g) & MASK52,
-            u64::arbitrary(g) & MASK52,
-            u64::arbitrary(g) & MASK48,
-        ])
-    }
-
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let a = self.0;
-
-        if a.iter().all(|&ai| ai == 0) {
-            return Box::new(std::iter::empty());
-        }
-
-        // Create vector of shrunk values
-        let mut shrunk = Vec::new();
-
-        // Add zero as the smallest possible value
-        shrunk.push(Self(Default::default()));
-
-        for (i, &elem) in a.iter().enumerate() {
-            if elem != 0 {
-                let mut zero_limb = a.clone();
-                zero_limb[i] = 0;
-                let mut half_limb = a.clone();
-                half_limb[i] = elem >> 1;
-                shrunk.push(Self(zero_limb));
-                shrunk.push(Self(half_limb));
-            }
-        }
-
-        Box::new(shrunk.into_iter())
-    }
-}
-
-impl Arbitrary for U256b64 {
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        U256b64([
-            u64::arbitrary(g),
-            u64::arbitrary(g),
-            u64::arbitrary(g),
-            u64::arbitrary(g),
-        ])
-    }
-
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let a = self.0;
-
-        if a.iter().all(|&ai| ai == 0) {
-            return Box::new(std::iter::empty());
-        }
-
-        // Create vector of shrunk values
-        let mut shrunk = Vec::new();
-
-        // Add zero as the smallest possible value
-        shrunk.push(Self(Default::default()));
-
-        for (i, &elem) in a.iter().enumerate() {
-            if elem != 0 {
-                let mut zero_limb = a.clone();
-                zero_limb[i] = 0;
-                let mut half_limb = a.clone();
-                half_limb[i] = elem >> 1;
-                shrunk.push(Self(zero_limb));
-                shrunk.push(Self(half_limb));
-            }
-        }
-
-        Box::new(shrunk.into_iter())
-    }
-}
-
 #[cfg(test)]
 mod tests {
-
     use crate::emmart::modulus_u52;
     use crate::emmart::subtraction_step_u52;
     use crate::U52_NP0;
@@ -368,8 +242,119 @@ mod tests {
     use crate::U52_R2;
 
     use super::set_round_to_zero;
-    use super::{U256b52, U256b64};
+    use super::MASK48;
+    use super::MASK52;
+    use quickcheck::Arbitrary;
     use quickcheck_macros::quickcheck;
+
+    #[derive(PartialEq, Clone, Copy, Debug)]
+    pub struct U256b64(pub [u64; 4]);
+    #[derive(PartialEq, Clone, Copy, Debug)]
+    pub struct U256b52(pub [u64; 5]);
+
+    impl From<U256b64> for U256b52 {
+        fn from(u: U256b64) -> Self {
+            let U256b64(limbs) = u;
+            let [l0, l1, l2, l3] = limbs;
+            U256b52([
+                l0 & MASK52,
+                ((l0 >> 52) | (l1 << 12)) & MASK52,
+                ((l1 >> 40) | (l2 << 24)) & MASK52,
+                ((l2 >> 28) | (l3 << 36)) & MASK52,
+                l3 >> 16,
+            ])
+        }
+    }
+
+    impl From<U256b52> for U256b64 {
+        fn from(u: U256b52) -> Self {
+            let U256b52(limbs) = u;
+            let [l0, l1, l2, l3, l4] = limbs;
+            U256b64([
+                l0 | (l1 << 52),
+                ((l1 >> 12) | (l2 << 40)),
+                ((l2 >> 24) | (l3 << 28)),
+                ((l3 >> 36) | (l4 << 16)),
+            ])
+        }
+    }
+
+    impl Arbitrary for U256b52 {
+        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+            U256b52([
+                u64::arbitrary(g) & MASK52,
+                u64::arbitrary(g) & MASK52,
+                u64::arbitrary(g) & MASK52,
+                u64::arbitrary(g) & MASK52,
+                u64::arbitrary(g) & MASK48,
+            ])
+        }
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            let a = self.0;
+
+            if a.iter().all(|&ai| ai == 0) {
+                return Box::new(std::iter::empty());
+            }
+
+            // Create vector of shrunk values
+            let mut shrunk = Vec::new();
+
+            // Add zero as the smallest possible value
+            shrunk.push(Self(Default::default()));
+
+            for (i, &elem) in a.iter().enumerate() {
+                if elem != 0 {
+                    let mut zero_limb = a.clone();
+                    zero_limb[i] = 0;
+                    let mut half_limb = a.clone();
+                    half_limb[i] = elem >> 1;
+                    shrunk.push(Self(zero_limb));
+                    shrunk.push(Self(half_limb));
+                }
+            }
+
+            Box::new(shrunk.into_iter())
+        }
+    }
+
+    impl Arbitrary for U256b64 {
+        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+            U256b64([
+                u64::arbitrary(g),
+                u64::arbitrary(g),
+                u64::arbitrary(g),
+                u64::arbitrary(g),
+            ])
+        }
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            let a = self.0;
+
+            if a.iter().all(|&ai| ai == 0) {
+                return Box::new(std::iter::empty());
+            }
+
+            // Create vector of shrunk values
+            let mut shrunk = Vec::new();
+
+            // Add zero as the smallest possible value
+            shrunk.push(Self(Default::default()));
+
+            for (i, &elem) in a.iter().enumerate() {
+                if elem != 0 {
+                    let mut zero_limb = a.clone();
+                    zero_limb[i] = 0;
+                    let mut half_limb = a.clone();
+                    half_limb[i] = elem >> 1;
+                    shrunk.push(Self(zero_limb));
+                    shrunk.push(Self(half_limb));
+                }
+            }
+
+            Box::new(shrunk.into_iter())
+        }
+    }
 
     #[quickcheck]
     fn conv64_52(a: U256b64) -> bool {
@@ -390,11 +375,11 @@ mod tests {
     #[quickcheck]
     fn cios_f64_sub_round(a: U256b52) -> bool {
         set_round_to_zero();
-        let a_tilde = super::cios_opt_sub(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+        let a_tilde = super::cios_opt_sub(a.0, U52_R2, U52_P, U52_NP0);
         let a_round = super::cios_opt_sub(
-            U256b52(a_tilde[..5].try_into().unwrap()),
-            U256b52([1, 0, 0, 0, 0]),
-            U256b52(U52_P),
+            a_tilde[..5].try_into().unwrap(),
+            [1, 0, 0, 0, 0],
+            U52_P,
             U52_NP0,
         );
 
@@ -404,11 +389,11 @@ mod tests {
     #[quickcheck]
     fn fios_f64_sub_round(a: U256b52) -> bool {
         set_round_to_zero();
-        let a_tilde = super::fios_opt_sub(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+        let a_tilde = super::fios_opt_sub(a.0, U52_R2, U52_P, U52_NP0);
         let a_round = super::fios_opt_sub(
-            U256b52(a_tilde[..5].try_into().unwrap()),
-            U256b52([1, 0, 0, 0, 0]),
-            U256b52(U52_P),
+            a_tilde[..5].try_into().unwrap(),
+            [1, 0, 0, 0, 0],
+            U52_P,
             U52_NP0,
         );
 
@@ -418,11 +403,11 @@ mod tests {
     #[quickcheck]
     fn fios_f64_round(a: U256b52) -> bool {
         set_round_to_zero();
-        let a_tilde = super::fios_opt(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+        let a_tilde = super::fios_opt(a.0, U52_R2, U52_P, U52_NP0);
         let a_round = super::fios_opt(
-            U256b52(a_tilde[..5].try_into().unwrap()),
-            U256b52([1, 0, 0, 0, 0]),
-            U256b52(U52_P),
+            a_tilde[..5].try_into().unwrap(),
+            [1, 0, 0, 0, 0],
+            U52_P,
             U52_NP0,
         );
 
@@ -432,11 +417,11 @@ mod tests {
     #[quickcheck]
     fn cios_f64_round(a: U256b52) -> bool {
         set_round_to_zero();
-        let a_tilde = super::cios_opt(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+        let a_tilde = super::cios_opt(a.0, U52_R2, U52_P, U52_NP0);
         let a_round = super::cios_opt(
-            U256b52(a_tilde[..5].try_into().unwrap()),
-            U256b52([1, 0, 0, 0, 0]),
-            U256b52(U52_P),
+            a_tilde[..5].try_into().unwrap(),
+            [1, 0, 0, 0, 0],
+            U52_P,
             U52_NP0,
         );
 

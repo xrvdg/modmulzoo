@@ -110,6 +110,7 @@ mod tests {
     use super::*;
     use crate::arith::school_method;
     use crate::convert_limb_sizes;
+    use crate::emmart::tests::{U256b52, U256b64};
     use crate::emmart::*;
     use quickcheck_macros::quickcheck;
 

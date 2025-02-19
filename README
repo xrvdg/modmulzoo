@@ -2,6 +2,3 @@ Notes
 
 The montgomery multiplications themselves do not perform the final subtraction step. 
 
-TODO: 
-- Explain folder structure
-- Mention related project
