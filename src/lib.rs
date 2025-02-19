@@ -3,6 +3,7 @@
 pub mod acar;
 pub mod arith;
 pub mod emmart;
+mod gen;
 
 pub const NP0: u64 = 0xc2e1f593efffffff;
 

@@ -78,10 +78,7 @@ pub fn carrying_mul_add_u104(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64)
 mod tests {
     use quickcheck_macros::quickcheck;
 
-    use crate::{
-        emmart::{subtraction_step_u52, tests::U256b52},
-        U52_NP0, U52_P, U52_R2,
-    };
+    use crate::{emmart::subtraction_step_u52, gen::U256b52, U52_NP0, U52_P, U52_R2};
     #[quickcheck]
     fn sos_round(a: U256b52) -> bool {
         let a_tilde = super::sos_u52(a.0, U52_R2, U52_P, U52_NP0);
