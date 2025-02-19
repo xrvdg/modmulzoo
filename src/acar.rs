@@ -12,6 +12,7 @@ fn carrying_mul_add(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
 // direct translation of montgomery multiplication.
 // Goal is to serve as a reference
 // untested
+#[ignore = "dead_code"]
 fn naive(a: U256, b: U256, n: U256, np: U256) -> Vec<u64> {
     let mut t = vec![0_u64; 8];
 
@@ -190,14 +191,16 @@ pub fn adds(t: &mut [u64], mut carry: u64) {
 
 #[cfg(test)]
 mod tests {
-    // Test if they actually give back the same result
     use super::*;
-    use crate::{subtraction_step, NP0, P, R2}; // Import constants from the crate root
+    use crate::{subtraction_step, NP0, P, R2};
     use quickcheck_macros::quickcheck;
 
-    #[quickcheck]
-    fn cios_round(a: Vec<u64>) -> bool {
-        // Ensure vectors are length 4 by either truncating or padding with zeros
+    /// The tests in this file make use of Vector shrinking which not only
+    /// shrinks the elements but also shrinks the size of the vector.
+    /// Here we pad the vector with zero to the right length again.
+    /// Downside of this approach is that it might not find that require zeros
+    /// in higher limbs
+    fn pad_vec(a: Vec<u64>) -> [u64; 4] {
         let a: [u64; 4] = if a.len() >= 4 {
             a[..4].try_into().unwrap()
         } else {
@@ -205,14 +208,19 @@ mod tests {
             padded[..a.len()].copy_from_slice(&a);
             padded
         };
+        a
+    }
+
+    #[quickcheck]
+    /// Test whether montgomery multiplication gives the same result as repeatedly subtraction
+    fn cios_roundtrip(a: Vec<u64>) -> bool {
+        let a = pad_vec(a);
 
         // Montgomery form
         let a_tilde: [u64; 4] = cios(a, R2, P, NP0)[..4].try_into().unwrap();
-        // Invert
+        // and back
         let a_round: [u64; 4] = cios(a_tilde, [1, 0, 0, 0], P, NP0)[..4].try_into().unwrap();
 
-        // When we generate the input it isn't modulo N so to compare the result we have to do it here
-        // We don't do it earlier as the algorithm should work with values outside of the modulus
         let mut d = a;
         let mut prev = d;
         loop {
@@ -226,68 +234,25 @@ mod tests {
         d == subtraction_step(a_round, P)
     }
 
+    // All remaining tests check equivalence with cios
     #[quickcheck]
     fn cios_sos(a: Vec<u64>, b: Vec<u64>) -> bool {
-        // Ensure vectors are length 4 by either truncating or padding with zeros
-        let a: [u64; 4] = if a.len() >= 4 {
-            a[..4].try_into().unwrap()
-        } else {
-            let mut padded = [0u64; 4];
-            padded[..a.len()].copy_from_slice(&a);
-            padded
-        };
-
-        let b: [u64; 4] = if b.len() >= 4 {
-            b[..4].try_into().unwrap()
-        } else {
-            let mut padded = [0u64; 4];
-            padded[..b.len()].copy_from_slice(&b);
-            padded
-        };
+        let a = pad_vec(a);
+        let b = pad_vec(b);
 
         cios(a, b, P, NP0)[..4] == sos(a, b, P, NP0)[4..]
     }
     #[quickcheck]
     fn cios_ciosopt(a: Vec<u64>, b: Vec<u64>) -> bool {
-        // Ensure vectors are length 4 by either truncating or padding with zeros
-        let a: [u64; 4] = if a.len() >= 4 {
-            a[..4].try_into().unwrap()
-        } else {
-            let mut padded = [0u64; 4];
-            padded[..a.len()].copy_from_slice(&a);
-            padded
-        };
-
-        let b: [u64; 4] = if b.len() >= 4 {
-            b[..4].try_into().unwrap()
-        } else {
-            let mut padded = [0u64; 4];
-            padded[..b.len()].copy_from_slice(&b);
-            padded
-        };
-
+        let a = pad_vec(a);
+        let b = pad_vec(b);
         cios(a, b, P, NP0)[..5] == cios_opt(a, b, P, NP0)[..5]
     }
 
     #[quickcheck]
     fn fios_ciosopt(a: Vec<u64>, b: Vec<u64>) -> bool {
-        // Ensure vectors are length 4 by either truncating or padding with zeros
-        let a: [u64; 4] = if a.len() >= 4 {
-            a[..4].try_into().unwrap()
-        } else {
-            let mut padded = [0u64; 4];
-            padded[..a.len()].copy_from_slice(&a);
-            padded
-        };
-
-        let b: [u64; 4] = if b.len() >= 4 {
-            b[..4].try_into().unwrap()
-        } else {
-            let mut padded = [0u64; 4];
-            padded[..b.len()].copy_from_slice(&b);
-            padded
-        };
-
+        let a = pad_vec(a);
+        let b = pad_vec(b);
         fios(a, b, P, NP0)[..5] == cios_opt(a, b, P, NP0)[..5]
     }
 }
