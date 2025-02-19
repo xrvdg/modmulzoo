@@ -1,5 +1,5 @@
 /// Make sure to call set_round_to_zero before using any of the functions in this module
-mod paper;
+pub mod paper;
 mod uint52;
 
 pub const MASK52: u64 = 2_u64.pow(52) - 1;

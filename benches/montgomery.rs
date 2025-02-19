@@ -1,9 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use montgomery_reduction::emmart::{self, cios_opt};
-use montgomery_reduction::{
-    acar, cios, fios, sampled_product, sampled_product_masked, school_method, set_round_to_zero,
-    sos, U256b52, U256b64, NP0, P, U52_NP0, U52_P,
-};
+use montgomery_reduction::arith::school_method;
+use montgomery_reduction::emmart;
+use montgomery_reduction::{acar, NP0, P, U52_NP0, U52_P};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -34,15 +32,15 @@ fn bench_montgomery(c: &mut Criterion) {
     println!("b = {:?}", b);
 
     group.bench_function("sos_random", |bencher| {
-        bencher.iter(|| sos(black_box(a), black_box(b), P, NP0))
+        bencher.iter(|| acar::sos(black_box(a), black_box(b), P, NP0))
     });
 
     group.bench_function("fios_random", |bencher| {
-        bencher.iter(|| fios(black_box(a), black_box(b), P, NP0))
+        bencher.iter(|| acar::fios(black_box(a), black_box(b), P, NP0))
     });
 
     group.bench_function("cios_random", |bencher| {
-        bencher.iter(|| cios(black_box(a), black_box(b), P, NP0))
+        bencher.iter(|| acar::cios(black_box(a), black_box(b), P, NP0))
     });
 
     group.bench_function("cios_opt_random", |bencher| {
@@ -50,23 +48,11 @@ fn bench_montgomery(c: &mut Criterion) {
     });
 
     group.bench_function("mul_school_method", |bencher| {
-        bencher.iter(|| school_method(black_box(U256b64(a)), black_box(U256b64(b))))
-    });
-    set_round_to_zero();
-    let a64 = U256b64(a);
-    let b64 = U256b64(b);
-    let a52: U256b52 = a64.into();
-    let b52: U256b52 = b64.into();
-    let a_float = a52.0.map(|x| x as f64);
-    let b_float = b52.0.map(|x| x as f64);
-
-    group.bench_function("mul_sampled_product_masked_random", |bencher| {
-        bencher.iter(|| sampled_product_masked(black_box(a_float), black_box(b_float)))
-    });
-    group.bench_function("mul_sampled_product_random", |bencher| {
-        bencher.iter(|| sampled_product(black_box(a_float), black_box(b_float)))
+        bencher.iter(|| school_method(black_box(a), black_box(b)))
     });
 
+    // SET ROUND TO ZERO BENCHES
+    emmart::set_round_to_zero();
     let a = [
         rng.random::<u64>(),
         rng.random::<u64>(),
@@ -81,16 +67,20 @@ fn bench_montgomery(c: &mut Criterion) {
         rng.random::<u64>(),
         rng.random::<u64>(),
     ];
-    set_round_to_zero();
+
+    let a_float = a.map(|x| x as f64);
+    let b_float = b.map(|x| x as f64);
+
+    group.bench_function("mul_sampled_product_masked_random", |bencher| {
+        bencher
+            .iter(|| emmart::paper::sampled_product_masked(black_box(a_float), black_box(b_float)))
+    });
+    group.bench_function("mul_sampled_product_random", |bencher| {
+        bencher.iter(|| emmart::paper::sampled_product(black_box(a_float), black_box(b_float)))
+    });
+
     group.bench_function("cios_opt_f64_random", |bencher| {
-        bencher.iter(|| {
-            cios_opt(
-                black_box(U256b52(a)),
-                black_box(U256b52(b)),
-                U256b52(U52_P),
-                U52_NP0,
-            )
-        })
+        bencher.iter(|| emmart::cios_opt(black_box(a), black_box(b), U52_P, U52_NP0))
     });
     // group.bench_function("cios_opt_u52_random", |bencher| {
     //     bencher.iter(|| {
@@ -103,34 +93,13 @@ fn bench_montgomery(c: &mut Criterion) {
     //     })
     // });
     group.bench_function("fios_opt_f64_random", |bencher| {
-        bencher.iter(|| {
-            emmart::fios_opt(
-                black_box(U256b52(a)),
-                black_box(U256b52(b)),
-                U256b52(U52_P),
-                U52_NP0,
-            )
-        })
+        bencher.iter(|| emmart::fios_opt(black_box(a), black_box(b), U52_P, U52_NP0))
     });
     group.bench_function("fios_opt_sub_f64_random", |bencher| {
-        bencher.iter(|| {
-            emmart::fios_opt_sub(
-                black_box(U256b52(a)),
-                black_box(U256b52(b)),
-                U256b52(U52_P),
-                U52_NP0,
-            )
-        })
+        bencher.iter(|| emmart::fios_opt_sub(black_box(a), black_box(b), U52_P, U52_NP0))
     });
     group.bench_function("cios_opt_sub_f64_random", |bencher| {
-        bencher.iter(|| {
-            emmart::cios_opt_sub(
-                black_box(U256b52(a)),
-                black_box(U256b52(b)),
-                U256b52(U52_P),
-                U52_NP0,
-            )
-        })
+        bencher.iter(|| emmart::cios_opt_sub(black_box(a), black_box(b), U52_P, U52_NP0))
     });
 
     // Set up for sampled_product_masked benchmark
