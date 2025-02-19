@@ -1,8 +1,7 @@
 use std::hint::black_box;
 
-use montgomery_reduction::{
-    emmart::fios_opt_sub_f64, set_round_to_zero, U256b52, U52_NP0, U52_P, U52_R2,
-};
+use montgomery_reduction::emmart::{fios_opt_sub_f64, set_round_to_zero, U256b52};
+use montgomery_reduction::{U52_NP0, U52_P};
 
 fn main() {
     set_round_to_zero();

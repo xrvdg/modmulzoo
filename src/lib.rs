@@ -3,12 +3,6 @@
 pub mod acar;
 pub mod emmart;
 
-// TODO This should already flow out the above mod?
-pub use acar::{cios, fios, sos};
-pub use emmart::{
-    sampled_product, sampled_product_masked, school_method, set_round_to_zero, U256b52, U256b64,
-};
-
 pub const NP0: u64 = 0xc2e1f593efffffff;
 
 pub const P: [u64; 4] = [
@@ -59,9 +53,8 @@ pub fn convert_limb_sizes(
     if input.is_empty() {
         return Vec::new();
     }
-
     // Calculate total bits and required output capacity
-    let out_len = (total_bits + destination_size as usize - 1) / destination_size as usize;
+    let out_len = total_bits.div_ceil(destination_size as usize);
     let mut output = Vec::with_capacity(out_len);
 
     // Create mask for destination size
@@ -88,7 +81,7 @@ pub fn convert_limb_sizes(
 
     // Handle remaining bits if any
     if bits_in_buffer > 0 {
-        let new_limb = (bit_buffer & dest_mask as u128) as u64;
+        let new_limb = (bit_buffer & dest_mask) as u64;
         output.push(new_limb);
     }
 
