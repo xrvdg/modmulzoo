@@ -1,87 +1,161 @@
-#![feature(bigint_helper_methods)]
-
-use num_traits::MulAdd;
 use quickcheck::Arbitrary;
 
-use crate::{convert_limb_sizes, MASK48, MASK52};
+use crate::{MASK48, MASK52};
 
-#[inline(always)]
-pub fn adds_u52(t: &mut [u64], mut carry: u64) {
-    for i in 0..t.len() {
-        // Performance drops heavily when introducing this check
-        // if carry == 0 {
-        //     break;
-        // }
-        let tmp = t[i] + carry;
-        (t[i], carry) = (tmp & MASK52, tmp >> 52);
+mod uint52 {
+    use crate::MASK52;
+
+    use super::U256b52;
+
+    #[inline(always)]
+    pub fn adds_u52(t: &mut [u64], mut carry: u64) {
+        for ti in t {
+            // Performance heavily affected by this carry check
+            // if carry == 0 {
+            //     break;
+            // }
+            let tmp = *ti + carry;
+            (*ti, carry) = (tmp & MASK52, tmp >> 52);
+        }
+    }
+
+    pub fn sos_u52(a: U256b52, b: U256b52, n: U256b52, n0: u64) -> [u64; 10] {
+        let a = a.0;
+        let b = b.0;
+        let n = n.0;
+        let mut t = [0_u64; 10];
+
+        // TODO: try to write an iterator version of this. I don't think you can't as you refer back to an element you just created
+
+        // multiplication a * b
+        for i in 0..a.len() {
+            let mut carry = 0;
+            for j in 0..b.len() {
+                (t[i + j], carry) = carrying_mul_add_u104(a[i], b[j], t[i + j], carry)
+            }
+            t[i + b.len()] = carry;
+        }
+
+        for i in 0..(n.len()) {
+            let mut carry = 0;
+            let m = t[i].wrapping_mul(n0) & MASK52;
+            for j in 0..n.len() {
+                (t[i + j], carry) = carrying_mul_add_u104(m, n[j], t[i + j], carry)
+            }
+            adds_u52(&mut t[(i + n.len())..], carry)
+        }
+
+        t
+    }
+
+    fn carry_add_u52(lhs: u64, carry: u64) -> (u64, u64) {
+        let tmp = lhs + carry;
+        (tmp & MASK52, tmp >> 52)
+    }
+
+    // Has excessive shifting and masking
+    pub fn cios_opt(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 7] {
+        let a = a.0;
+        let b = b.0;
+        let n = n.0;
+
+        let mut t = [0_u64; 7];
+        for i in 0..a.len() {
+            let mut carry = 0;
+            for j in 0..b.len() {
+                (t[j], carry) = carrying_mul_add_u104(a[i], b[j], t[j], carry);
+            }
+            (t[b.len()], t[b.len() + 1]) = carry_add_u52(t[b.len()], carry);
+
+            // Last entry can probably be skipped brings it closer to Yuval's. It's mostly the last
+            // carry add that makes the difference
+            // (t[b.len()], _) = carry_add(t[b.len()], carry);
+
+            let mut carry = 0;
+            let m = t[0].wrapping_mul(np0) & MASK52;
+            // Outside of the loop because the loop does shifting
+            (_, carry) = carrying_mul_add_u104(m, n[0], t[0], carry);
+
+            for j in 1..n.len() {
+                (t[j - 1], carry) = carrying_mul_add_u104(m, n[j], t[j], carry);
+            }
+            (t[n.len() - 1], carry) = carry_add_u52(t[n.len()], carry);
+            // Last shift can probably be skipped. This brings it very close to Yuval's numbers
+            (t[n.len()], _) = carry_add_u52(t[n.len() + 1], carry);
+        }
+        t
+    }
+
+    #[inline(always)]
+    pub fn carrying_mul_add_u104(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
+        let c: u128 = a as u128 * b as u128 + carry as u128 + add as u128;
+        (c as u64 & MASK52, (c >> 52) as u64)
+    }
+    #[cfg(test)]
+    mod tests {
+        use quickcheck_macros::quickcheck;
+
+        use crate::{subtraction_step_u52, U256b52, U52_NP0, U52_P, U52_R2};
+        #[quickcheck]
+        fn sos_round(a: U256b52) -> bool {
+            let a_tilde = super::sos_u52(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+            let a_round = super::sos_u52(
+                U256b52(a_tilde[5..].try_into().unwrap()),
+                U256b52([1, 0, 0, 0, 0]),
+                U256b52(U52_P),
+                U52_NP0,
+            );
+
+            let mut d = a.0;
+            let mut prev = d;
+            loop {
+                d = subtraction_step_u52(d, U52_P);
+                if d == prev {
+                    break;
+                }
+                prev = d;
+            }
+
+            d == subtraction_step_u52(a_round[5..].try_into().unwrap(), U52_P)
+        }
+
+        #[quickcheck]
+        fn cios_round(a: U256b52) -> bool {
+            let a_tilde = super::cios_opt(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
+            let a_round = super::cios_opt(
+                U256b52(a_tilde[..5].try_into().unwrap()),
+                U256b52([1, 0, 0, 0, 0]),
+                U256b52(U52_P),
+                U52_NP0,
+            );
+
+            let mut d = a.0;
+            let mut prev = d;
+            loop {
+                d = subtraction_step_u52(d, U52_P);
+                if d == prev {
+                    break;
+                }
+                prev = d;
+            }
+
+            d == subtraction_step_u52(a_round[..5].try_into().unwrap(), U52_P)
+        }
     }
 }
 
-pub fn sos(a: U256b52, b: U256b52, n: U256b52, n0: u64) -> [u64; 10] {
-    let a = a.0;
-    let b = b.0;
-    let n = n.0;
-    let mut t = [0_u64; 10];
-
-    // TODO: try to write an iterator version of this. I don't think you can't as you refer back to an element you just created
-
-    // multiplication a * b
+pub fn school_method(a: U256b64, b: U256b64) -> [u64; 8] {
+    let mut ab = [0_u64; 8];
+    let U256b64(a) = a;
+    let U256b64(b) = b;
     for i in 0..a.len() {
         let mut carry = 0;
         for j in 0..b.len() {
-            (t[i + j], carry) = carrying_mul_add_u104(a[i], b[j], t[i + j], carry)
+            (ab[i + j], carry) = carrying_mul_add(a[i], b[j], ab[i + j], carry)
         }
-        t[i + b.len()] = carry;
+        ab[i + b.len()] = carry;
     }
-
-    for i in 0..(n.len()) {
-        let mut carry = 0;
-        let m = t[i].wrapping_mul(n0) & MASK52;
-        for j in 0..n.len() {
-            (t[i + j], carry) = carrying_mul_add_u104(m, n[j], t[i + j], carry)
-        }
-        adds_u52(&mut t[(i + n.len())..], carry)
-    }
-
-    t
-}
-
-fn carry_add_u52(lhs: u64, carry: u64) -> (u64, u64) {
-    let tmp = lhs + carry;
-    (tmp & MASK52, tmp >> 52)
-}
-
-// Has excessive shifting and masking
-pub fn cios_opt(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 7] {
-    let a = a.0;
-    let b = b.0;
-    let n = n.0;
-
-    let mut t = [0_u64; 7];
-    for i in 0..a.len() {
-        let mut carry = 0;
-        for j in 0..b.len() {
-            (t[j], carry) = carrying_mul_add_u104(a[i], b[j], t[j], carry);
-        }
-        (t[b.len()], t[b.len() + 1]) = carry_add_u52(t[b.len()], carry);
-
-        // Last entry can probably be skipped brings it closer to Yuval's. It's mostly the last
-        // carry add that makes the difference
-        // (t[b.len()], _) = carry_add(t[b.len()], carry);
-
-        let mut carry = 0;
-        let m = t[0].wrapping_mul(np0) & MASK52;
-        // Outside of the loop because the loop does shifting
-        (_, carry) = carrying_mul_add_u104(m, n[0], t[0], carry);
-
-        for j in 1..n.len() {
-            (t[j - 1], carry) = carrying_mul_add_u104(m, n[j], t[j], carry);
-        }
-        (t[n.len() - 1], carry) = carry_add_u52(t[n.len()], carry);
-        // Last shift can probably be skipped. This brings it very close to Yuval's numbers
-        (t[n.len()], _) = carry_add_u52(t[n.len() + 1], carry);
-    }
-    t
+    ab
 }
 
 pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
@@ -254,9 +328,9 @@ pub fn fios_opt_sub_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6
     // Could reduce the round with one
     // Could we deal with the carries later? As in the next round of the multiplication
 
-    for i in 0..t.len() {
-        let tmp = t[i] + carry;
-        t[i] = tmp & MASK52;
+    for ti in &mut t {
+        let tmp = *ti + carry;
+        *ti = tmp & MASK52;
         carry = tmp >> 52;
     }
     t
@@ -309,26 +383,37 @@ pub fn fios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
 
     // This takes a 5ns
     let mut carry = 0;
-    // When we return we only look at the first 5
-    // Could reduce the round with one
-    // Could we deal with the carries later? As in the next round of the multiplication
-
-    for i in 0..t.len() {
-        let tmp = t[i] + carry;
-        t[i] = tmp & MASK52;
+    for ti in &mut t {
+        let tmp = *ti + carry;
+        *ti = tmp & MASK52;
         carry = tmp >> 52;
     }
     t
 }
 
-// TODO: how to deal with all the converions
-// Int to float is an expensive operation, or not if you do a casting?
-// TODO how to ensure that the right multiplication algorithm is used.
-// - First compare what the difference is
-fn full_product(a: f64, b: f64) -> (f64, f64) {
-    let p_hi = a.mul_add(b, 0.);
-    let p_lo: f64 = a.mul_add(b, -p_hi);
-    (p_lo, p_hi)
+// Intermediate steps in the paper to explain the algorithm, but not actually used in the implementation
+mod paper {
+    use super::{C1, C2, C3};
+
+    // TODO: how to deal with all the converions
+    // Int to float is an expensive operation, or not if you do a casting?
+    // TODO how to ensure that the right multiplication algorithm is used.
+    // - First compare what the difference is
+    fn full_product(a: f64, b: f64) -> (f64, f64) {
+        let p_hi = a.mul_add(b, 0.);
+        let p_lo: f64 = a.mul_add(b, -p_hi);
+        (p_lo, p_hi)
+    }
+
+    // As in the paper, but does not work as is
+    // The subtractions causes the value to be normalized again meaning
+    fn dpf_full_product(a: f64, b: f64) -> (f64, f64) {
+        let p_hi = a.mul_add(b, C1);
+        let p_lo = a.mul_add(b, C2 - p_hi);
+
+        // It will normalize the values again, which is what we don't want at this step
+        (p_lo - C3, p_hi - C1)
+    }
 }
 
 const fn pow_2(n: u32) -> f64 {
@@ -342,16 +427,6 @@ const fn pow_2(n: u32) -> f64 {
 const C1: f64 = pow_2(104); // 2.0^104
 const C2: f64 = pow_2(104) + pow_2(52); // 2.0^104 + 2.0^52
 const C3: f64 = pow_2(52); // 2.0^52
-
-// As in the paper, but does not work as is
-// The subtractions causes the value to be normalized again meaning
-fn dpf_full_product(a: f64, b: f64) -> (f64, f64) {
-    let p_hi = a.mul_add(b, C1);
-    let p_lo = a.mul_add(b, C2 - p_hi);
-
-    // It will normalize the values again, which is what we don't want at this step
-    (p_lo - C3, p_hi - C1)
-}
 
 // Working variant
 fn dpf_full_product_u64(a: f64, b: f64) -> (u64, u64) {
@@ -415,14 +490,12 @@ pub fn sampled_product(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
         }
     }
     let mut carry = 0;
-    for i in 0..col_sums.len() {
-        let tmp = col_sums[i] + carry;
-        col_sums[i] = tmp & MASK52;
+
+    for col_sum in &mut col_sums {
+        let tmp = *col_sum + carry;
+        *col_sum = tmp & MASK52;
         carry = tmp >> 52;
     }
-    // Kind of need to return a pair of high and lo
-    // or shift the whole thing
-    // Also didn't typecheck due to not using 5 which is needed for the U256 method
     col_sums
 }
 
@@ -441,23 +514,14 @@ pub fn sampled_product_masked(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
         }
     }
 
-    // This make non-redundant b52. Is that best keep it here or outside?
     let mut carry = 0;
 
-    // This loop is relatively cheap. Does it get fused into the upper one?
-    // Should we write it as such?
-    for i in 0..col_sums.len() {
-        let tmp = col_sums[i] + carry;
-        col_sums[i] = tmp & MASK52;
+    for col_sum in &mut col_sums {
+        let tmp = *col_sum + carry;
+        *col_sum = tmp & MASK52;
         carry = tmp >> 52;
     }
     col_sums
-}
-
-#[inline(always)]
-pub fn carrying_mul_add_u104(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
-    let c: u128 = a as u128 * b as u128 + carry as u128 + add as u128;
-    (c as u64 & MASK52, (c >> 52) as u64)
 }
 
 #[inline(always)]
@@ -479,20 +543,6 @@ pub fn carrying_mul_add(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
     (c as u64, (c >> 64) as u64)
 }
 
-pub fn school_method(a: U256b64, b: U256b64) -> [u64; 8] {
-    let mut ab = [0_u64; 8];
-    let U256b64(a) = a;
-    let U256b64(b) = b;
-    for i in 0..a.len() {
-        let mut carry = 0;
-        for j in 0..b.len() {
-            (ab[i + j], carry) = carrying_mul_add(a[i], b[j], ab[i + j], carry)
-        }
-        ab[i + b.len()] = carry;
-    }
-    ab
-}
-
 // Cost of getting it into the right from
 // Seeing that there is exponentiation could it be profitable to keep in a certain range?
 // Proper types
@@ -503,157 +553,6 @@ pub fn school_method(a: U256b64, b: U256b64) -> [u64; 8] {
 // you add 2^52 and mask it.
 
 // Looks like the value first needs to be converted to float
-
-fn convert_limb_debug() {
-    let s = vec![0];
-    let c = convert_limb_sizes(&s, 256, 64, 52);
-    println!("s: {s:?}");
-    println!("c: {c:?}");
-    let d = convert_limb_sizes(&c, 256, 52, 64);
-    println!("c: {d:?}");
-    let b = s == d;
-    print!("{b}")
-}
-fn sampled_product_masked_debug() {
-    set_round_to_zero();
-
-    let (a, b) = (U256b64([0, 0, 0, 1]), U256b64([0, 0, 1, 0]));
-    print!("a:\t");
-    print_bits(&a.0);
-    print!("b:\t");
-    print_bits(&b.0);
-    let s = school_method(a, b);
-    print!("s:\t");
-    print_bits(&s);
-    let (a52, b52): (U256b52, U256b52) = (a.into(), b.into());
-    print!("a52:\t");
-    print_bits(&a52.0);
-    print!("b52:\t");
-    print_bits(&b52.0);
-    let spm = sampled_product_masked(a52.0.map(|ai| ai as f64), b52.0.map(|bi| bi as f64));
-    print_bits(&spm);
-}
-
-fn dpf_debug() {
-    set_round_to_zero();
-    let (a, b): (u64, u64) = (1, 1);
-    println!("a: {:064b}, b: {:064b}", a, b);
-    let (ilo, ihi) = dpf_full_product(a as f64, b as f64);
-    println!("ia: {:064b}, ib: {:064b}", ilo as u64, ihi as u64);
-    let (wlo, whi) = a.widening_mul(b);
-    println!("wa: {:064b}, wb: {:064b}", wlo, whi);
-
-    println!("");
-    let (a, b): (u64, u64) = (2, 2251799813685248);
-    println!("a: {:064b}, b: {:064b}", a, b);
-    let (dlo, dhi) = dpf_full_product(a as f64, b as f64);
-    println!(
-        "dlo: {:064b}/{}/{}, dhi: {:064b}/{}/{}",
-        dlo as u64, dlo as u64, dlo, dhi as u64, dhi as u64, dhi
-    );
-    let (ulo, uhi) = dpf_full_product_u64(a as f64, b as f64);
-    println!("ulo: {:064b}, uhi: {:064b}", ulo as u64, uhi as u64);
-    let (wlo, whi) = a.widening_mul(b);
-    println!("wa: {:064b}, wb: {:064b}", wlo, whi);
-}
-
-fn int_mul_debug() {
-    set_round_to_zero();
-    println!("{:064b}", 2_u64.pow(52));
-    println!("{:064b}", 2251799813685249_u64);
-    println!("{}", 2_u64.pow(52) - 2251799813685249_u64);
-
-    let (a, b): (u64, u64) = (1, 2251799813685249_u64);
-    println!("a: {:064b}, b: {:064b}", a, b);
-    let (ilo, ihi) = int_full_product(a as f64, b as f64);
-    println!("ia: {:064b}, ib: {:064b}", ilo, ihi);
-    let (wlo, whi) = a.widening_mul(b);
-    println!("wa: {:064b}, wb: {:064b}", wlo, whi);
-    print!("\n");
-    let (a, b): (u64, u64) = (2, 2251799813685248);
-    println!("a: {:064b}, b: {:064b}", a, b);
-    let (ia, ib) = int_full_product(a as f64, b as f64);
-    println!("ia: {:064b}, ib: {:064b}", ia, ib);
-    let (wa, wb) = a.widening_mul(b);
-    println!("wa: {:064b}, wb: {:064b}", wa, wb);
-}
-
-fn earlier_experiment() {
-    let a = 2.0_f64.powi(52) + 4.;
-    print_float(a);
-    let b = 2.0_f64.powi(52) + 5.;
-    print_float(b);
-    print_float(a * b);
-
-    print_float(4.0.mul_add(5.0, 2.0_f64.powi(52)));
-
-    println!("int product: {:?}", full_product(4., 5.));
-
-    let a = f64::from_bits(5 + 2_u64.pow(62));
-    let b = f64::from_bits(4 + 2_u64.pow(62));
-    print_float(a);
-    print_float(b);
-
-    let a = 2.0_f64.powi(50) + 1.0;
-    let c = dpf_full_product(a, a);
-    println!("{:?}", c);
-    let d = int_full_product(a, a);
-    println!("{:?}", d);
-
-    let a = U256b52([
-        522065082635604,
-        3957429228622370,
-        3604049937975926,
-        1024102382665162,
-        1561280683024766,
-    ]);
-    let value = U256b64::from(a);
-    let end = U256b52::from(value);
-    println!("value: {value:?}");
-    println!("a:\t {a:?}");
-    println!("end:\t {end:?}");
-
-    let (a, b) = (U256b64([0, 0, 1, 0]), U256b64([0, 65535, 0, 0]));
-    println!("{a:?}\t{b:?}");
-    print_bits(&[0, 0, 1, 0]);
-    println!("");
-    print_bits(&[0, 65535, 0, 0]);
-    let c = school_method(a, b);
-    println!("{c:?}");
-    println!("b52");
-    let U256b52(a52) = a.into();
-    let U256b52(b52) = b.into();
-    print_bits(&a52);
-    println!("");
-    print_bits(&b52);
-    // float conversion works
-    let a52 = a52.map(|ai| ai as f64);
-    let b52 = b52.map(|bi| bi as f64);
-    println!("float {a52:?}\t{b52:?}");
-    let fres = sampled_product(a52, b52);
-    println!("{fres:?}");
-    let r: U256b64 = U256b52(fres[..5].try_into().unwrap()).into();
-    println!("{r:?}");
-}
-
-fn print_float(num: f64) {
-    let bits = num.to_bits();
-    let sign = (bits >> 63) & 1;
-    let exponent = (bits >> 52) & 0x7FF;
-    let mantissa = bits & 0xFFFFFFFFFFFFF;
-    println!(
-        // "{num}: \t sign: {:b}, exponent: {:011b}/{exponent}\t mantissa: {:052b}/{mantissa}",
-        "sign: {:b}, exponent: {:011b}/{exponent}\t mantissa: {:052b}/{mantissa}",
-        sign, exponent, mantissa
-    );
-}
-
-fn print_bits(nums: &[u64]) {
-    for (i, &num) in nums.iter().enumerate() {
-        print!("{num:b}\t");
-    }
-    println!("");
-}
 
 // Mention endianness
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -818,7 +717,7 @@ impl Arbitrary for U256b64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::subtraction_step;
+    use crate::convert_limb_sizes;
     use crate::subtraction_step_u52;
     use crate::U52_NP0;
     use crate::U52_P;
@@ -908,51 +807,6 @@ mod tests {
     }
 
     // This comparison doesn't make sense
-    #[quickcheck]
-    fn sos_round(a: U256b52) -> bool {
-        let a_tilde = super::sos(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
-        let a_round = super::sos(
-            U256b52(a_tilde[5..].try_into().unwrap()),
-            U256b52([1, 0, 0, 0, 0]),
-            U256b52(U52_P),
-            U52_NP0,
-        );
-
-        let mut d = a.0;
-        let mut prev = d;
-        loop {
-            d = subtraction_step_u52(d, U52_P);
-            if d == prev {
-                break;
-            }
-            prev = d;
-        }
-
-        d == subtraction_step_u52(a_round[5..].try_into().unwrap(), U52_P)
-    }
-
-    #[quickcheck]
-    fn cios_round(a: U256b52) -> bool {
-        let a_tilde = super::cios_opt(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);
-        let a_round = super::cios_opt(
-            U256b52(a_tilde[..5].try_into().unwrap()),
-            U256b52([1, 0, 0, 0, 0]),
-            U256b52(U52_P),
-            U52_NP0,
-        );
-
-        let mut d = a.0;
-        let mut prev = d;
-        loop {
-            d = subtraction_step_u52(d, U52_P);
-            if d == prev {
-                break;
-            }
-            prev = d;
-        }
-
-        d == subtraction_step_u52(a_round[..5].try_into().unwrap(), U52_P)
-    }
 
     #[quickcheck]
     fn cios_f64_sub_round(a: U256b52) -> bool {
