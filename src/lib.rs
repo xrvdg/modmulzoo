@@ -91,19 +91,3 @@ pub fn convert_limb_sizes(
 
 const MASK52: u64 = 2_u64.pow(52) - 1;
 const MASK48: u64 = 2_u64.pow(48) - 1;
-
-pub fn subtraction_step_u52<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
-    let mut borrow: i64 = 0;
-    let mut c = [0; N];
-    for i in 0..N {
-        let tmp = a[i] as i128 - b[i] as i128 + borrow as i128;
-        c[i] = (tmp as u64) & MASK52;
-        borrow = (tmp >> 52) as i64
-    }
-
-    if borrow != 0 {
-        a
-    } else {
-        c
-    }
-}

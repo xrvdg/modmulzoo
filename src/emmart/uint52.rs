@@ -87,7 +87,7 @@ mod tests {
     use quickcheck_macros::quickcheck;
 
     use super::U256b52;
-    use crate::{subtraction_step_u52, U52_NP0, U52_P, U52_R2};
+    use crate::{emmart::subtraction_step_u52, U52_NP0, U52_P, U52_R2};
     #[quickcheck]
     fn sos_round(a: U256b52) -> bool {
         let a_tilde = super::sos_u52(a, U256b52(U52_R2), U256b52(U52_P), U52_NP0);

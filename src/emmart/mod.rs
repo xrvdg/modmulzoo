@@ -4,6 +4,22 @@ use crate::{MASK48, MASK52};
 mod paper;
 mod uint52;
 
+pub fn subtraction_step_u52<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
+    let mut borrow: i64 = 0;
+    let mut c = [0; N];
+    for i in 0..N {
+        let tmp = a[i] as i128 - b[i] as i128 + borrow as i128;
+        c[i] = (tmp as u64) & MASK52;
+        borrow = (tmp >> 52) as i64
+    }
+
+    if borrow != 0 {
+        a
+    } else {
+        c
+    }
+}
+
 pub fn cios_opt_f64(a: U256b52, b: U256b52, n: U256b52, np0: u64) -> [u64; 6] {
     let a = a.0;
     let b = b.0;
@@ -433,7 +449,7 @@ impl Arbitrary for U256b64 {
 #[cfg(test)]
 mod tests {
 
-    use crate::subtraction_step_u52;
+    use crate::emmart::subtraction_step_u52;
     use crate::U52_NP0;
     use crate::U52_P;
     use crate::U52_R2;

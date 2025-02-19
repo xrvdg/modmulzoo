@@ -1,3 +1,4 @@
+/// Functions that are in the paper or related to it, but currently not directly used.
 use super::{make_initial, C1, C2, C3};
 use crate::MASK52;
 
@@ -51,16 +52,11 @@ pub fn carrying_mul_add_fu104(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64
     (lo & MASK52, hi)
 }
 
-const N: usize = 5;
 // Runs faster than the masked variant
-pub fn sampled_product(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
-    // TODO make these const across the code base
-    // Does require doing a compile time computation
-
+pub fn sampled_product(a: [f64; 5], b: [f64; 5]) -> [u64; 10] {
+    const N: usize = 5;
     let mut col_sums: [u64; 2 * N] = [0; 2 * N];
 
-    // Since our N is fixed this can be made a compile time constant
-    // For a known size this is probably mixed in
     for i in 0..N {
         col_sums[i] = make_initial(i + 1, i);
         col_sums[2 * N - 1 - i] = make_initial(i, i + 1);
@@ -68,12 +64,9 @@ pub fn sampled_product(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
 
     for i in 0..a.len() {
         for j in 0..b.len() {
-            // These two multiplications can be shared between implementations
-            // Shows what is common and what is different
-            // This cannot be a vector operation
             let p_hi = a[i].mul_add(b[j], C1);
             let p_lo = a[i].mul_add(b[j], C2 - p_hi);
-            // Looks like this could be vectorized
+            // OPTIMIZATION: can be vectorized
             col_sums[i + j + 1] = col_sums[i + j + 1].wrapping_add(p_hi.to_bits());
             col_sums[i + j] = col_sums[i + j].wrapping_add(p_lo.to_bits());
         }
@@ -88,16 +81,16 @@ pub fn sampled_product(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
     col_sums
 }
 
-// Masking works but likely make use of the M-pipeline which we want to
-// keep free for another implementation
-pub fn sampled_product_masked(a: [f64; N], b: [f64; N]) -> [u64; 2 * N] {
-    let mut col_sums: [u64; 10] = [0; 2 * N];
+/// Masking variant of sampled_product_masked
+pub fn sampled_product_masked(a: [f64; 5], b: [f64; 5]) -> [u64; 10] {
+    const N: usize = 5;
+    let mut col_sums: [u64; 2 * N] = [0; 2 * N];
 
     for i in 0..a.len() {
         for j in 0..b.len() {
             let p_hi = a[i].mul_add(b[j], C1);
             let p_lo = a[i].mul_add(b[j], C2 - p_hi);
-            // Looks like this could be vectorized
+            // OPTIMIZTION: can be vectorized
             col_sums[i + j + 1] += p_hi.to_bits() & MASK52;
             col_sums[i + j] += p_lo.to_bits() & MASK52;
         }
@@ -141,9 +134,6 @@ mod tests {
         (lo | hi << 52, hi >> 12) == a.widening_mul(b)
     }
 
-    // Test if school multiplication is correct
-    // School multiplication can be tested with u8 and u32 and that should point out if it works.
-    // Maybe generalize sampled_product, later we can make it such that it is optimized for a certain size without any overhead
     #[quickcheck]
     fn long_multiplication(a: U256b64, b: U256b64) -> bool {
         set_round_to_zero();
