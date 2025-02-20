@@ -76,6 +76,48 @@ fn bench_emmart(c: &mut Criterion) {
         rng.random::<u64>(),
         rng.random::<u64>(),
     ];
+    let c = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+    let d = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+    let e = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+    let f = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+    let g = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+    let h = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
 
     let a_float = a.map(|x| x as f64);
     let b_float = b.map(|x| x as f64);
@@ -88,15 +130,55 @@ fn bench_emmart(c: &mut Criterion) {
         bencher.iter(|| emmart::paper::sampled_product(black_box(a_float), black_box(b_float)))
     });
 
-    group.bench_function("cios_opt_f64_random", |bencher| {
+    group.bench_function("cios_opt_random", |bencher| {
         bencher.iter(|| emmart::cios_opt(black_box(a), black_box(b), U52_P, U52_NP0))
     });
 
-    group.bench_function("fios_opt_f64_random", |bencher| {
+    group.bench_function("fios_opt_random", |bencher| {
         bencher.iter(|| emmart::fios_opt(black_box(a), black_box(b), U52_P, U52_NP0))
     });
-    group.bench_function("fios_opt_sub_f64_random", |bencher| {
+    group.bench_function("fios_opt_sub_random", |bencher| {
         bencher.iter(|| emmart::fios_opt_sub(black_box(a), black_box(b), U52_P, U52_NP0))
+    });
+    group.bench_function("fios_opt_sub_sat_random", |bencher| {
+        bencher.iter(|| {
+            emmart::fios_opt_sub_sat(
+                black_box(a),
+                black_box(b),
+                black_box(c),
+                black_box(d),
+                U52_P,
+                U52_NP0,
+            )
+        })
+    });
+    group.bench_function("fios_opt_sub_simd_random", |bencher| {
+        bencher.iter(|| {
+            emmart::fios_opt_sub_simd(
+                black_box(a),
+                black_box(b),
+                black_box(c),
+                black_box(d),
+                U52_P,
+                U52_NP0,
+            )
+        })
+    });
+    group.bench_function("fios_opt_sub_simd_sat_random", |bencher| {
+        bencher.iter(|| {
+            emmart::fios_opt_sub_simd_sat(
+                black_box(a),
+                black_box(b),
+                black_box(c),
+                black_box(d),
+                black_box(e),
+                black_box(f),
+                black_box(g),
+                black_box(h),
+                U52_P,
+                U52_NP0,
+            )
+        })
     });
     group.bench_function("cios_opt_sub_f64_random", |bencher| {
         bencher.iter(|| emmart::cios_opt_sub(black_box(a), black_box(b), U52_P, U52_NP0))

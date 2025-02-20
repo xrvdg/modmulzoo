@@ -1,4 +1,5 @@
 #![feature(bigint_helper_methods)]
+#![feature(portable_simd)]
 
 pub mod acar;
 pub mod arith;
