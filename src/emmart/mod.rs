@@ -1,7 +1,11 @@
 use std::{
-    ops::{BitAnd, Mul},
-    simd::{self, num::SimdFloat, Simd, StdFloat, ToBytes},
+    ops::BitAnd,
+    simd::{num::SimdFloat, Simd, StdFloat},
 };
+
+use seq_macro::seq;
+
+use crate::{acar::cios_opt_seq, NP0, P};
 
 /// Make sure to call set_round_to_zero before using any of the functions in this module
 pub mod paper;
@@ -403,6 +407,69 @@ pub fn fios_opt_sub_simd_sat(
     }
 
     resolve_simd_sat(t)
+}
+
+// #[inline(always)]
+pub fn fios_opt_sub_simd_sat_seq(
+    a: [u64; 5],
+    b: [u64; 5],
+    c: [u64; 5],
+    d: [u64; 5],
+    e: [u64; 5],
+    f: [u64; 5],
+    g: [u64; 5],
+    h: [u64; 5],
+    i: [u64; 4],
+    j: [u64; 4],
+    n: [u64; 5],
+    np0: u64,
+) -> ([[u64; 6]; 4], [u64; 6]) {
+    let mut t: [Simd<u64, 4>; 6] = [Simd::splat(0); 6];
+    for i in 0..t.len() - 1 {
+        t[i] = Simd::splat(make_initial(2 + 2 * i, 2 * i))
+    }
+    let sb0 = Simd::from_array([b[0] as f64, d[0] as f64, f[0] as f64, h[0] as f64]);
+
+    let snd = cios_opt_seq(i, j, P, NP0);
+
+    seq!(i in 0..5 {
+        // Does this give optimal assembly?
+        // Probably a transpose would improve
+        let sai = Simd::from_array([a[i] as f64, c[i] as f64, e[i] as f64, g[i] as f64]);
+        // a_i * B
+        t[n.len()] = Simd::splat(make_initial(2 * (n.len() - 1 - i), 2 * (n.len() - i)));
+        // This seems to be a better fit for a scalar add
+        let p_hi = sai.mul_add(sb0, Simd::splat(C1));
+        let p_lo = sai.mul_add(sb0, Simd::splat(C2) - p_hi);
+
+        t[0] = t[0] + p_lo.to_bits();
+        t[1] = t[1] + p_hi.to_bits();
+        // This should have been scalar
+        let m = (t[0] * Simd::splat(np0)).bitand(Simd::splat(MASK52));
+        let m = Simd::from_array([m[0] as f64, m[1] as f64, m[2] as f64, m[3] as f64]);
+        // Outside of the loop because the loop does division by shifting
+        let p_hi = m.mul_add(Simd::splat(n[0] as f64), Simd::splat(C1));
+        let p_lo = m.mul_add(Simd::splat(n[0] as f64), Simd::splat(C2) - p_hi);
+        // Only interested in the carry bits of t[0], that's why we are not writing it back to
+        // t[0]
+        let carry_t0 = (t[0] + p_lo.to_bits()) >> 52;
+        t[1] += p_hi.to_bits() + carry_t0;
+
+        for j in 1..b.len() {
+            let sbj = Simd::from_array([b[j] as f64, d[j] as f64, f[j] as f64, h[j] as f64]);
+            // Multiplication with scalar
+            let ab_hi = sai.mul_add(sbj, Simd::splat(C1));
+            let ab_lo = sai.mul_add(sbj, Simd::splat(C2) - ab_hi);
+            // Multiplication with scalar
+            let mn_hi = m.mul_add(Simd::splat(n[j] as f64), Simd::splat(C1));
+            let mn_lo = m.mul_add(Simd::splat(n[j] as f64), Simd::splat(C2) - mn_hi);
+            t[j + 1] = t[j + 1] + ab_hi.to_bits() + mn_hi.to_bits();
+            t[j - 1] = t[j] + ab_lo.to_bits() + mn_lo.to_bits();
+        }
+        t[n.len() - 1] = t[n.len()];
+    });
+
+    (resolve_simd_sat(t), snd)
 }
 
 /// FIOS variant with the subtraction optimization

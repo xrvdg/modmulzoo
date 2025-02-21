@@ -12,6 +12,8 @@ lto = true
 
 [dependencies]
 num-traits = "0.2.19"
+rand = "0.9"
+seq-macro = "0.3.5"
 
 [dev-dependencies]
 criterion = "0.5"

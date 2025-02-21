@@ -27,6 +27,19 @@ fn bench_acar(c: &mut Criterion) {
         rng.random::<u64>(),
     ];
 
+    let c = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+    let d = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+
     println!("Random test values:");
     println!("a = {:?}", a);
     println!("b = {:?}", b);
@@ -45,6 +58,23 @@ fn bench_acar(c: &mut Criterion) {
 
     group.bench_function("cios_opt_random", |bencher| {
         bencher.iter(|| acar::cios_opt(black_box(a), black_box(b), P, NP0))
+    });
+
+    group.bench_function("cios_opt_seq_random", |bencher| {
+        bencher.iter(|| acar::cios_opt_seq(black_box(a), black_box(b), P, NP0))
+    });
+
+    group.bench_function("cios_opt_sat_random", |bencher| {
+        bencher.iter(|| {
+            acar::cios_opt_sat(
+                black_box(a),
+                black_box(b),
+                black_box(c),
+                black_box(d),
+                P,
+                NP0,
+            )
+        })
     });
 
     group.bench_function("mul_school_method", |bencher| {
@@ -118,6 +148,18 @@ fn bench_emmart(c: &mut Criterion) {
         rng.random::<u64>(),
         rng.random::<u64>(),
     ];
+    let i = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+    let j = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
 
     let a_float = a.map(|x| x as f64);
     let b_float = b.map(|x| x as f64);
@@ -175,6 +217,24 @@ fn bench_emmart(c: &mut Criterion) {
                 black_box(f),
                 black_box(g),
                 black_box(h),
+                U52_P,
+                U52_NP0,
+            )
+        })
+    });
+    group.bench_function("fios_opt_sub_simd_sat_seq_random", |bencher| {
+        bencher.iter(|| {
+            emmart::fios_opt_sub_simd_sat_seq(
+                black_box(a),
+                black_box(b),
+                black_box(c),
+                black_box(d),
+                black_box(e),
+                black_box(f),
+                black_box(g),
+                black_box(h),
+                black_box(i),
+                black_box(j),
                 U52_P,
                 U52_NP0,
             )
