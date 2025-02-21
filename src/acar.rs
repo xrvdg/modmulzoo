@@ -137,6 +137,70 @@ pub fn cios_opt(a: U256, b: U256, n: U256, np0: u64) -> [u64; 6] {
     t
 }
 
+use seq_macro::seq;
+// cios_opt is cios where the division is combined with the multiplication
+#[inline(always)]
+pub fn cios_opt_seq(a: U256, b: U256, n: U256, np0: u64) -> [u64; 6] {
+    let mut t = [0_u64; 6];
+    seq! (i in 0..4
+        {
+            let mut carry = 0;
+            for j in 0..b.len() {
+                (t[j], carry) = carrying_mul_add(a[i], b[j], t[j], carry);
+            }
+            (t[b.len()], t[b.len() + 1]) = carry_add(t[b.len()], carry);
+
+            let mut carry = 0;
+            let m = t[0].wrapping_mul(np0);
+            (t[0], carry) = carrying_mul_add(m, n[0], t[0], carry);
+
+            for j in 1..n.len() {
+                (t[j - 1], carry) = carrying_mul_add(m, n[j], t[j], carry);
+            }
+            (t[n.len() - 1], carry) = carry_add(t[n.len()], carry);
+            // Last shift can probably be skipped. This brings it very close to Yuval's numbers
+            (t[n.len()], _) = carry_add(t[n.len() + 1], carry);
+        }
+    );
+    t
+}
+
+// Does not provide any improvements
+// Likely because both multipliers are used for the 128 multiplication
+pub fn cios_opt_sat(a: U256, b: U256, c: U256, d: U256, n: U256, np0: u64) -> [[u64; 6]; 2] {
+    let mut out = [[0; 6]; 2];
+
+    for i in 0..a.len() {
+        let mut carry = 0;
+        let mut carry_cd = 0;
+        for j in 0..b.len() {
+            (out[0][j], carry) = carrying_mul_add(a[i], b[j], out[0][j], carry);
+            (out[1][j], carry_cd) = carrying_mul_add(c[i], d[j], out[1][j], carry_cd);
+        }
+        (out[0][b.len()], out[0][b.len() + 1]) = carry_add(out[0][b.len()], carry);
+        (out[1][d.len()], out[1][d.len() + 1]) = carry_add(out[1][d.len()], carry_cd);
+
+        let mut carry = 0;
+        let m = out[0][0].wrapping_mul(np0);
+        (out[0][0], carry) = carrying_mul_add(m, n[0], out[0][0], carry);
+
+        let mut carry_cd = 0;
+        let m_cd = out[1][0].wrapping_mul(np0);
+        (out[1][0], carry_cd) = carrying_mul_add(m_cd, n[0], out[1][0], carry_cd);
+
+        for j in 1..n.len() {
+            (out[0][j - 1], carry) = carrying_mul_add(m, n[j], out[0][j], carry);
+            (out[1][j - 1], carry_cd) = carrying_mul_add(m_cd, n[j], out[1][j], carry_cd);
+        }
+        (out[0][n.len() - 1], carry) = carry_add(out[0][n.len()], carry);
+        (out[0][n.len()], _) = carry_add(out[0][n.len() + 1], carry);
+        (out[1][n.len() - 1], carry_cd) = carry_add(out[1][n.len()], carry_cd);
+        (out[1][n.len()], _) = carry_add(out[1][n.len() + 1], carry_cd);
+    }
+
+    out
+}
+
 // FIOS is like CIOS where the inner loops for a*b and t+m*n fused.
 // Due to this fusion the there are too many adds to fill the free spaces after multiplication
 // Therefore adds is needed again
@@ -195,6 +259,7 @@ mod tests {
 
         cios(a, b, P, NP0)[..4] == sos(a, b, P, NP0)[4..]
     }
+
     #[quickcheck]
     fn cios_ciosopt(a: U256b64, b: U256b64) -> bool {
         let a = a.0;
@@ -203,9 +268,28 @@ mod tests {
     }
 
     #[quickcheck]
+    fn cios_ciosoptseq(a: U256b64, b: U256b64) -> bool {
+        let a = a.0;
+        let b = b.0;
+        cios(a, b, P, NP0)[..5] == cios_opt_seq(a, b, P, NP0)[..5]
+    }
+
+    #[quickcheck]
     fn fios_ciosopt(a: U256b64, b: U256b64) -> bool {
         let a = a.0;
         let b = b.0;
         fios(a, b, P, NP0)[..5] == cios_opt(a, b, P, NP0)[..5]
+    }
+
+    #[quickcheck]
+    fn ciossat_ciosopt(a: U256b64, b: U256b64, c: U256b64, d: U256b64) -> bool {
+        let a = a.0;
+        let b = b.0;
+        let c = c.0;
+        let d = d.0;
+
+        let res = cios_opt_sat(a, b, c, d, P, NP0);
+
+        res[0][..5] == cios_opt(a, b, P, NP0)[..5] && res[1][..5] == cios_opt(c, d, P, NP0)[..5]
     }
 }

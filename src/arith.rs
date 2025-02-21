@@ -23,6 +23,12 @@ pub fn carrying_mul_add(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
 }
 
 #[inline(always)]
+pub fn carrying_mul_add_sat(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
+    let c: u128 = a as u128 * b as u128 + carry as u128 + add as u128;
+    (c as u64, (c >> 64) as u64)
+}
+
+#[inline(always)]
 pub fn carry_add(lhs: u64, carry: u64) -> (u64, u64) {
     let (sum, carry) = lhs.overflowing_add(carry);
     (sum, carry.into())
