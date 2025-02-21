@@ -5,6 +5,13 @@ use montgomery_reduction::{acar, NP0, P, U52_NP0, U52_P};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
+use ark_ff::{Field, Fp256, MontBackend, MontConfig};
+#[derive(MontConfig)]
+#[modulus = "21888242871839275222246405745257275088548364400416034343698204186575808495617"]
+#[generator = "5"]
+pub struct BN254Config;
+pub type Field256 = Fp256<MontBackend<BN254Config, 4>>;
+
 fn bench_acar(c: &mut Criterion) {
     let mut group = c.benchmark_group("Acar");
 
@@ -43,6 +50,13 @@ fn bench_acar(c: &mut Criterion) {
     println!("Random test values:");
     println!("a = {:?}", a);
     println!("b = {:?}", b);
+
+    let ark_a = Field256::new(ark_ff::BigInt(a));
+    let ark_b = Field256::new(ark_ff::BigInt(b));
+
+    group.bench_function("ark_ff", |bencher| {
+        bencher.iter(|| black_box(ark_a) * black_box(ark_b))
+    });
 
     group.bench_function("sos_random", |bencher| {
         bencher.iter(|| acar::sos(black_box(a), black_box(b), P, NP0))
