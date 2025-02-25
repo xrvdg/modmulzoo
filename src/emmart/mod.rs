@@ -419,18 +419,20 @@ pub fn fios_opt_sub_simd_sat_seq(
     f: [u64; 5],
     g: [u64; 5],
     h: [u64; 5],
-    i: [u64; 4],
-    j: [u64; 4],
+    w: [u64; 4],
+    x: [u64; 4],
+    y: [u64; 4],
+    z: [u64; 4],
     n: [u64; 5],
     np0: u64,
-) -> ([[u64; 6]; 4], [u64; 6]) {
+) -> ([[u64; 6]; 4], [u64; 6], [u64; 6]) {
     let mut t: [Simd<u64, 4>; 6] = [Simd::splat(0); 6];
     for i in 0..t.len() - 1 {
         t[i] = Simd::splat(make_initial(2 + 2 * i, 2 * i))
     }
     let sb0 = Simd::from_array([b[0] as f64, d[0] as f64, f[0] as f64, h[0] as f64]);
 
-    let snd = cios_opt_seq(i, j, P, NP0);
+    let snd = crate::acar::cios_opt_seq(w, x, P, NP0);
 
     seq!(i in 0..5 {
         // Does this give optimal assembly?
@@ -468,8 +470,9 @@ pub fn fios_opt_sub_simd_sat_seq(
         }
         t[n.len() - 1] = t[n.len()];
     });
+    let trd = crate::acar::cios_opt_seq(y, z, P, NP0);
 
-    (resolve_simd_sat(t), snd)
+    (resolve_simd_sat(t), snd, trd)
 }
 
 /// FIOS variant with the subtraction optimization
@@ -528,9 +531,13 @@ fn make_initial(low_count: usize, high_count: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use crate::arith;
     use crate::emmart::modulus_u52;
     use crate::emmart::subtraction_step_u52;
     use crate::gen::U256b52;
+    use crate::gen::U256b64;
+    use crate::P;
+    use crate::R2;
     use crate::U52_NP0;
     use crate::U52_P;
     use crate::U52_R2;
@@ -628,6 +635,49 @@ mod tests {
                 == subtraction_step_u52(a_round[2][..5].try_into().unwrap(), U52_P)
             && modulus_u52(d.0, U52_P)
                 == subtraction_step_u52(a_round[3][..5].try_into().unwrap(), U52_P)
+    }
+
+    #[quickcheck]
+    fn fios_f64_sub_simd_sat_seq_round(
+        a: U256b52,
+        b: U256b52,
+        c: U256b52,
+        d: U256b52,
+        e: U256b64,
+        f: U256b64,
+    ) -> bool {
+        set_round_to_zero();
+        let (a_tilde, snd, trd) = super::fios_opt_sub_simd_sat_seq(
+            a.0, U52_R2, b.0, U52_R2, c.0, U52_R2, d.0, U52_R2, e.0, R2, f.0, R2, U52_P, U52_NP0,
+        );
+        let (a_round, snd_round, trd_round) = super::fios_opt_sub_simd_sat_seq(
+            a_tilde[0][..5].try_into().unwrap(),
+            [1, 0, 0, 0, 0],
+            a_tilde[1][..5].try_into().unwrap(),
+            [1, 0, 0, 0, 0],
+            a_tilde[2][..5].try_into().unwrap(),
+            [1, 0, 0, 0, 0],
+            a_tilde[3][..5].try_into().unwrap(),
+            [1, 0, 0, 0, 0],
+            snd[..4].try_into().unwrap(),
+            [1, 0, 0, 0],
+            trd[..4].try_into().unwrap(),
+            [1, 0, 0, 0],
+            U52_P,
+            U52_NP0,
+        );
+
+        modulus_u52(a.0, U52_P) == subtraction_step_u52(a_round[0][..5].try_into().unwrap(), U52_P)
+            && modulus_u52(b.0, U52_P)
+                == subtraction_step_u52(a_round[1][..5].try_into().unwrap(), U52_P)
+            && modulus_u52(c.0, U52_P)
+                == subtraction_step_u52(a_round[2][..5].try_into().unwrap(), U52_P)
+            && modulus_u52(d.0, U52_P)
+                == subtraction_step_u52(a_round[3][..5].try_into().unwrap(), U52_P)
+            && arith::modulus(e.0, P)
+                == arith::subtraction_step(snd_round[..4].try_into().unwrap(), P)
+            && arith::modulus(f.0, P)
+                == arith::subtraction_step(trd_round[..4].try_into().unwrap(), P)
     }
 
     #[quickcheck]
