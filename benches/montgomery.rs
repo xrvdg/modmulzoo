@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use montgomery_reduction::arith::school_method;
-use montgomery_reduction::emmart;
 use montgomery_reduction::{acar, NP0, P, U52_NP0, U52_P};
+use montgomery_reduction::{emmart, F52_P};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -175,6 +175,19 @@ fn bench_emmart(c: &mut Criterion) {
         rng.random::<u64>(),
     ];
 
+    let k = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+    let l = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+
     let a_float = a.map(|x| x as f64);
     let b_float = b.map(|x| x as f64);
 
@@ -210,14 +223,7 @@ fn bench_emmart(c: &mut Criterion) {
     });
     group.bench_function("fios_opt_sub_simd_random", |bencher| {
         bencher.iter(|| {
-            emmart::fios_opt_sub_simd(
-                black_box(a),
-                black_box(b),
-                black_box(c),
-                black_box(d),
-                U52_P,
-                U52_NP0,
-            )
+            emmart::fios_opt_sub_simd(black_box(a), black_box(b), black_box(c), black_box(d))
         })
     });
     group.bench_function("fios_opt_sub_simd_sat_random", |bencher| {
@@ -249,6 +255,24 @@ fn bench_emmart(c: &mut Criterion) {
                 black_box(h),
                 black_box(i),
                 black_box(j),
+                black_box(k),
+                black_box(l),
+                U52_P,
+                U52_NP0,
+            )
+        })
+    });
+    group.bench_function("fios_opt_sub_simd_seq_random", |bencher| {
+        bencher.iter(|| {
+            emmart::fios_opt_sub_simd_seq(
+                black_box(a),
+                black_box(b),
+                black_box(c),
+                black_box(d),
+                black_box(i),
+                black_box(j),
+                black_box(k),
+                black_box(l),
                 U52_P,
                 U52_NP0,
             )

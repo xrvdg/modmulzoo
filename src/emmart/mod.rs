@@ -6,7 +6,7 @@ use std::{
 
 use seq_macro::seq;
 
-use crate::{acar::cios_opt_seq, NP0, P};
+use crate::{acar, F52_P, NP0, P, U52_NP0};
 
 /// Make sure to call set_round_to_zero before using any of the functions in this module
 pub mod paper;
@@ -298,14 +298,13 @@ pub fn fios_opt_sub(a: [u64; 5], b: [u64; 5], n: [u64; 5], np0: u64) -> [u64; 6]
     resolve(t)
 }
 
+#[inline(always)]
 pub fn fios_opt_sub_simd(
     a: [u64; 5],
     b: [u64; 5],
     c: [u64; 5],
     d: [u64; 5],
     // n and np are known at compile time so the transformation can be done already
-    n: [u64; 5],
-    np0: u64,
 ) -> [[u64; 6]; 2] {
     let mut t: [Simd<u64, 2>; 6] = [Simd::splat(0); 6];
     for i in 0..t.len() - 1 {
@@ -322,7 +321,10 @@ pub fn fios_opt_sub_simd(
         let sai = Simd::from_array([a[i], c[i]]);
         let sai: Simd<f64, 2> = unsafe { vcvtq_f64_u64(sai.into()).into() };
         // a_i * B
-        t[n.len()] = Simd::splat(make_initial(2 * (n.len() - 1 - i), 2 * (n.len() - i)));
+        t[b.len()] = Simd::splat(make_initial(
+            2 * (F52_P.len() - 1 - i),
+            2 * (F52_P.len() - i),
+        ));
         // This seems to be a better fit for a scalar add
         unsafe { asm!("#scalar multiplication") }
         let p_hi = sai.mul_add(sb0, Simd::splat(C1));
@@ -332,15 +334,15 @@ pub fn fios_opt_sub_simd(
         t[1] = t[1] + p_hi.to_bits();
         // This should have been scalar
         unsafe { asm!("#M-creation") }
-        let m = (t[0] * Simd::splat(np0)).bitand(Simd::splat(MASK52));
+        let m = (t[0] * Simd::splat(U52_NP0)).bitand(Simd::splat(MASK52));
         unsafe { asm!("#M-conversion") }
         let m: Simd<f64, 2> = unsafe { vcvtq_f64_u64(m.into()).into() };
         // let m = Simd::from_array([m[0] as f64, m[1] as f64]);
         // Outside of the loop because the loop does division by shifting
 
         unsafe { asm!("#n0") }
-        let p_hi = m.mul_add(Simd::splat(n[0] as f64), Simd::splat(C1));
-        let p_lo = m.mul_add(Simd::splat(n[0] as f64), Simd::splat(C2) - p_hi);
+        let p_hi = m.mul_add(Simd::splat(F52_P[0]), Simd::splat(C1));
+        let p_lo = m.mul_add(Simd::splat(F52_P[0]), Simd::splat(C2) - p_hi);
         // Only interested in the carry bits of t[0], that's why we are not writing it back to
         // t[0]
         let carry_t0 = (t[0] + p_lo.to_bits()) >> 52;
@@ -351,14 +353,14 @@ pub fn fios_opt_sub_simd(
             let sbj: Simd<f64, 2> = unsafe { vcvtq_f64_u64(sbj.into()).into() };
             let ab_hi = sai.mul_add(sbj, Simd::splat(C1));
             let ab_lo = sai.mul_add(sbj, Simd::splat(C2) - ab_hi);
-            // Multiplication with scalar
-            unsafe { asm!("#nj") }
-            let mn_hi = m.mul_add(Simd::splat(n[j] as f64), Simd::splat(C1));
-            let mn_lo = m.mul_add(Simd::splat(n[j] as f64), Simd::splat(C2) - mn_hi);
+            // Multiplication with scalar was handled correctly by the compiler no it seems to
+            // have to the splat into acccount
+            let mn_hi = m.mul_add(Simd::splat(F52_P[j]), Simd::splat(C1));
+            let mn_lo = m.mul_add(Simd::splat(F52_P[j]), Simd::splat(C2) - mn_hi);
             t[j + 1] = t[j + 1] + ab_hi.to_bits() + mn_hi.to_bits();
             t[j - 1] = t[j] + ab_lo.to_bits() + mn_lo.to_bits();
         }
-        t[n.len() - 1] = t[n.len()];
+        t[b.len() - 1] = t[b.len()];
     }
 
     resolve_simd(t)
@@ -483,7 +485,7 @@ pub fn fios_opt_sub_simd_sat_seq(
         }
         t[n.len() - 1] = t[n.len()];
     });
-    let trd = crate::acar::cios_opt_seq(y, z, P, NP0);
+    let trd = acar::cios_opt_seq(y, z, P, NP0);
 
     (resolve_simd_sat(t), snd, trd)
 }
@@ -611,6 +613,7 @@ mod tests {
     use crate::emmart::subtraction_step_u52;
     use crate::gen::U256b52;
     use crate::gen::U256b64;
+    use crate::F52_P;
     use crate::P;
     use crate::R2;
     use crate::U52_NP0;
@@ -669,14 +672,12 @@ mod tests {
     #[quickcheck]
     fn fios_f64_sub_simd_round(a: U256b52, b: U256b52) -> bool {
         set_round_to_zero();
-        let a_tilde = super::fios_opt_sub_simd(a.0, U52_R2, b.0, U52_R2, U52_P, U52_NP0);
+        let a_tilde = super::fios_opt_sub_simd(a.0, U52_R2, b.0, U52_R2);
         let a_round = super::fios_opt_sub_simd(
             a_tilde[0][..5].try_into().unwrap(),
             [1, 0, 0, 0, 0],
             a_tilde[1][..5].try_into().unwrap(),
             [1, 0, 0, 0, 0],
-            U52_P,
-            U52_NP0,
         );
 
         modulus_u52(a.0, U52_P) == subtraction_step_u52(a_round[0][..5].try_into().unwrap(), U52_P)
