@@ -1,7 +1,10 @@
+#![feature(portable_simd)]
+use std::simd::Simd;
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use montgomery_reduction::arith::school_method;
+use montgomery_reduction::emmart;
 use montgomery_reduction::{acar, NP0, P, U52_NP0, U52_P};
-use montgomery_reduction::{emmart, F52_P};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -226,6 +229,11 @@ fn bench_emmart(c: &mut Criterion) {
             emmart::fios_opt_sub_simd(black_box(a), black_box(b), black_box(c), black_box(d))
         })
     });
+    group.bench_function("cios_opt_sub_simd_random", |bencher| {
+        bencher.iter(|| {
+            emmart::cios_opt_sub_simd(black_box(a), black_box(b), black_box(c), black_box(d))
+        })
+    });
     group.bench_function("fios_opt_sub_simd_sat_random", |bencher| {
         bencher.iter(|| {
             emmart::fios_opt_sub_simd_sat(
@@ -278,10 +286,14 @@ fn bench_emmart(c: &mut Criterion) {
             )
         })
     });
-    group.bench_function("cios_opt_sub_f64_random", |bencher| {
-        bencher.iter(|| emmart::cios_opt_sub(black_box(a), black_box(b), U52_P, U52_NP0))
+    group.bench_function("cios_opt_sub_random", |bencher| {
+        bencher.iter(|| emmart::cios_opt_sub(black_box(a), black_box(b)))
     });
 
+    let resolve = [Simd::splat(rng.random()); 6];
+    group.bench_function("resolve_simd", |bencher| {
+        bencher.iter(|| emmart::resolve_simd(resolve))
+    });
     // Set up for sampled_product_masked benchmark
 
     group.finish();
@@ -291,7 +303,8 @@ criterion_group!(
     name = benches;
     config = Criterion::default()
         .sample_size(5000)
-        .warm_up_time(std::time::Duration::new(3,0))
+        // Warm up is warm because it literally warms up the pi
+        // .warm_up_time(std::time::Duration::new(3,0))
         .measurement_time(std::time::Duration::new(10,0));
     targets = bench_acar, bench_emmart
 );

@@ -80,7 +80,7 @@ fn resolve(mut t: [u64; 6]) -> [u64; 6] {
 }
 
 #[inline(always)]
-fn resolve_simd(t: [Simd<u64, 2>; 6]) -> [[u64; 6]; 2] {
+pub fn resolve_simd(t: [Simd<u64, 2>; 6]) -> [[u64; 6]; 2] {
     let mut out = [[0; 6]; 2];
     let mut carry = Simd::splat(0);
     for i in 0..t.len() {
@@ -153,14 +153,14 @@ pub fn cios_opt(a: [u64; 5], b: [u64; 5], n: [u64; 5], np0: u64) -> [u64; 6] {
 
 /// Like cios_opt above but with the subtraction optimisation
 /// `t` is initialised with the - sum of exponents
-pub fn cios_opt_sub(a: [u64; 5], b: [u64; 5], n: [u64; 5], np0: u64) -> [u64; 6] {
+pub fn cios_opt_sub(a: [u64; 5], b: [u64; 5]) -> [u64; 6] {
     let mut t = [0_u64; 6];
     for i in 0..t.len() - 1 {
         t[i] = make_initial(2 + 2 * i, 2 * i);
     }
 
     for i in 0..a.len() {
-        t[n.len()] = make_initial(10 - 2 - 2 * i, 10 - 2 * i);
+        t[F52_P.len()] = make_initial(10 - 2 - 2 * i, 10 - 2 * i);
         // a_i * B
         for j in 0..b.len() {
             let p_hi = (a[i] as f64).mul_add(b[j] as f64, C1);
@@ -169,23 +169,64 @@ pub fn cios_opt_sub(a: [u64; 5], b: [u64; 5], n: [u64; 5], np0: u64) -> [u64; 6]
             t[j] = t[j].wrapping_add(p_lo.to_bits());
         }
 
-        let m = (t[0].wrapping_mul(np0) & MASK52) as f64;
+        let m = (t[0].wrapping_mul(U52_NP0) & MASK52) as f64;
         // Outside of the loop because the loop does shifting
-        let p_hi = m.mul_add(n[0] as f64, C1);
-        let p_lo = m.mul_add(n[0] as f64, C2 - p_hi);
+        let p_hi = m.mul_add(F52_P[0] as f64, C1);
+        let p_lo = m.mul_add(F52_P[0] as f64, C2 - p_hi);
         t[0] = t[0].wrapping_add(p_lo.to_bits());
         t[1] = t[1].wrapping_add((p_hi.to_bits()) + (t[0] >> 52));
 
-        for j in 1..n.len() {
-            let p_hi = m.mul_add(n[j] as f64, C1);
-            let p_lo = m.mul_add(n[j] as f64, C2 - p_hi);
+        for j in 1..F52_P.len() {
+            let p_hi = m.mul_add(F52_P[j] as f64, C1);
+            let p_lo = m.mul_add(F52_P[j] as f64, C2 - p_hi);
             t[j + 1] = t[j + 1].wrapping_add(p_hi.to_bits());
             t[j - 1] = t[j].wrapping_add(p_lo.to_bits());
         }
-        t[n.len() - 1] = t[n.len()];
+        t[F52_P.len() - 1] = t[F52_P.len()];
     }
 
     resolve(t)
+}
+
+pub fn cios_opt_sub_simd(a: [u64; 5], b: [u64; 5], c: [u64; 5], d: [u64; 5]) -> [[u64; 6]; 2] {
+    let mut t: [Simd<u64, 2>; 6] = [Simd::splat(0); 6];
+    for i in 0..t.len() - 1 {
+        t[i] = Simd::splat(make_initial(2 + 2 * i, 2 * i));
+    }
+
+    for i in 0..a.len() {
+        t[F52_P.len()] = Simd::splat(make_initial(10 - 2 - 2 * i, 10 - 2 * i));
+        let sai = Simd::from_array([a[i], c[i]]);
+        let sai: Simd<f64, 2> = unsafe { vcvtq_f64_u64(sai.into()).into() };
+        // a_i * B
+        for j in 0..b.len() {
+            let sbj = Simd::from_array([b[j], d[j]]);
+            let sbj: Simd<f64, 2> = unsafe { vcvtq_f64_u64(sbj.into()).into() };
+            let p_hi = sai.mul_add(sbj, Simd::splat(C1));
+            let p_lo = sai.mul_add(sbj, Simd::splat(C2) - p_hi);
+            t[j + 1] = t[j + 1] + p_hi.to_bits();
+            t[j] = t[j] + p_lo.to_bits();
+        }
+
+        let m = (t[0] * Simd::splat(U52_NP0)).bitand(Simd::splat(MASK52));
+        let m: Simd<f64, 2> = unsafe { vcvtq_f64_u64(m.into()).into() };
+
+        // Outside of the loop because the loop does shifting
+        let p_hi = m.mul_add(Simd::splat(F52_P[0]), Simd::splat(C1));
+        let p_lo = m.mul_add(Simd::splat(F52_P[0]), Simd::splat(C2) - p_hi);
+        t[0] = t[0] + p_lo.to_bits();
+        t[1] = (t[1] + p_hi.to_bits()) + (t[0] >> 52);
+
+        for j in 1..F52_P.len() {
+            let p_hi = m.mul_add(Simd::splat(F52_P[j]), Simd::splat(C1));
+            let p_lo = m.mul_add(Simd::splat(F52_P[j]), Simd::splat(C2) - p_hi);
+            t[j + 1] = t[j + 1] + p_hi.to_bits();
+            t[j - 1] = t[j] + p_lo.to_bits();
+        }
+        t[F52_P.len() - 1] = t[F52_P.len()];
+    }
+
+    resolve_simd(t)
 }
 
 pub fn fios_opt_sub_sat(
@@ -260,7 +301,6 @@ pub fn fios_opt_sub_sat(
 // FIOS variant of the above cios_opt_sub
 // Batch all the subtractions on t[i] together
 // Best performing f64 version on the RPi
-#[inline(always)]
 pub fn fios_opt_sub(a: [u64; 5], b: [u64; 5], n: [u64; 5], np0: u64) -> [u64; 6] {
     let mut t = [0_u64; 6];
     for i in 0..t.len() - 1 {
@@ -298,7 +338,6 @@ pub fn fios_opt_sub(a: [u64; 5], b: [u64; 5], n: [u64; 5], np0: u64) -> [u64; 6]
     resolve(t)
 }
 
-#[inline(always)]
 pub fn fios_opt_sub_simd(
     a: [u64; 5],
     b: [u64; 5],
@@ -326,21 +365,16 @@ pub fn fios_opt_sub_simd(
             2 * (F52_P.len() - i),
         ));
         // This seems to be a better fit for a scalar add
-        unsafe { asm!("#scalar multiplication") }
         let p_hi = sai.mul_add(sb0, Simd::splat(C1));
         let p_lo = sai.mul_add(sb0, Simd::splat(C2) - p_hi);
 
         t[0] = t[0] + p_lo.to_bits();
         t[1] = t[1] + p_hi.to_bits();
         // This should have been scalar
-        unsafe { asm!("#M-creation") }
         let m = (t[0] * Simd::splat(U52_NP0)).bitand(Simd::splat(MASK52));
-        unsafe { asm!("#M-conversion") }
         let m: Simd<f64, 2> = unsafe { vcvtq_f64_u64(m.into()).into() };
         // let m = Simd::from_array([m[0] as f64, m[1] as f64]);
         // Outside of the loop because the loop does division by shifting
-
-        unsafe { asm!("#n0") }
         let p_hi = m.mul_add(Simd::splat(F52_P[0]), Simd::splat(C1));
         let p_lo = m.mul_add(Simd::splat(F52_P[0]), Simd::splat(C2) - p_hi);
         // Only interested in the carry bits of t[0], that's why we are not writing it back to
@@ -626,13 +660,8 @@ mod tests {
     #[quickcheck]
     fn cios_f64_sub_round(a: U256b52) -> bool {
         set_round_to_zero();
-        let a_tilde = super::cios_opt_sub(a.0, U52_R2, U52_P, U52_NP0);
-        let a_round = super::cios_opt_sub(
-            a_tilde[..5].try_into().unwrap(),
-            [1, 0, 0, 0, 0],
-            U52_P,
-            U52_NP0,
-        );
+        let a_tilde = super::cios_opt_sub(a.0, U52_R2);
+        let a_round = super::cios_opt_sub(a_tilde[..5].try_into().unwrap(), [1, 0, 0, 0, 0]);
 
         modulus_u52(a.0, U52_P) == subtraction_step_u52(a_round[..5].try_into().unwrap(), U52_P)
     }
@@ -674,6 +703,22 @@ mod tests {
         set_round_to_zero();
         let a_tilde = super::fios_opt_sub_simd(a.0, U52_R2, b.0, U52_R2);
         let a_round = super::fios_opt_sub_simd(
+            a_tilde[0][..5].try_into().unwrap(),
+            [1, 0, 0, 0, 0],
+            a_tilde[1][..5].try_into().unwrap(),
+            [1, 0, 0, 0, 0],
+        );
+
+        modulus_u52(a.0, U52_P) == subtraction_step_u52(a_round[0][..5].try_into().unwrap(), U52_P)
+            && modulus_u52(b.0, U52_P)
+                == subtraction_step_u52(a_round[1][..5].try_into().unwrap(), U52_P)
+    }
+
+    #[quickcheck]
+    fn cios_f64_sub_simd_round(a: U256b52, b: U256b52) -> bool {
+        set_round_to_zero();
+        let a_tilde = super::cios_opt_sub_simd(a.0, U52_R2, b.0, U52_R2);
+        let a_round = super::cios_opt_sub_simd(
             a_tilde[0][..5].try_into().unwrap(),
             [1, 0, 0, 0, 0],
             a_tilde[1][..5].try_into().unwrap(),
