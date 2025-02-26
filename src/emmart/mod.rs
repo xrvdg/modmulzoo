@@ -1,4 +1,5 @@
 use std::{
+    arch::{aarch64::vcvtq_f64_u64, asm},
     ops::BitAnd,
     simd::{num::SimdFloat, Simd, StdFloat},
 };
@@ -302,6 +303,7 @@ pub fn fios_opt_sub_simd(
     b: [u64; 5],
     c: [u64; 5],
     d: [u64; 5],
+    // n and np are known at compile time so the transformation can be done already
     n: [u64; 5],
     np0: u64,
 ) -> [[u64; 6]; 2] {
@@ -309,24 +311,34 @@ pub fn fios_opt_sub_simd(
     for i in 0..t.len() - 1 {
         t[i] = Simd::splat(make_initial(2 + 2 * i, 2 * i))
     }
-    let sb0 = Simd::from_array([b[0] as f64, d[0] as f64]);
+
+    let sb0 = Simd::from_array([b[0], d[0]]);
+    // Using this code removes the generalisability
+    let sb0: Simd<f64, 2> = unsafe { vcvtq_f64_u64(sb0.into()).into() };
 
     for i in 0..a.len() {
         // Does this give optimal assembly?
         // Probably a transpose would improve
-        let sai = Simd::from_array([a[i] as f64, c[i] as f64]);
+        let sai = Simd::from_array([a[i], c[i]]);
+        let sai: Simd<f64, 2> = unsafe { vcvtq_f64_u64(sai.into()).into() };
         // a_i * B
         t[n.len()] = Simd::splat(make_initial(2 * (n.len() - 1 - i), 2 * (n.len() - i)));
         // This seems to be a better fit for a scalar add
+        unsafe { asm!("#scalar multiplication") }
         let p_hi = sai.mul_add(sb0, Simd::splat(C1));
         let p_lo = sai.mul_add(sb0, Simd::splat(C2) - p_hi);
 
         t[0] = t[0] + p_lo.to_bits();
         t[1] = t[1] + p_hi.to_bits();
         // This should have been scalar
+        unsafe { asm!("#M-creation") }
         let m = (t[0] * Simd::splat(np0)).bitand(Simd::splat(MASK52));
-        let m = Simd::from_array([m[0] as f64, m[1] as f64]);
+        unsafe { asm!("#M-conversion") }
+        let m: Simd<f64, 2> = unsafe { vcvtq_f64_u64(m.into()).into() };
+        // let m = Simd::from_array([m[0] as f64, m[1] as f64]);
         // Outside of the loop because the loop does division by shifting
+
+        unsafe { asm!("#n0") }
         let p_hi = m.mul_add(Simd::splat(n[0] as f64), Simd::splat(C1));
         let p_lo = m.mul_add(Simd::splat(n[0] as f64), Simd::splat(C2) - p_hi);
         // Only interested in the carry bits of t[0], that's why we are not writing it back to
@@ -335,11 +347,12 @@ pub fn fios_opt_sub_simd(
         t[1] += p_hi.to_bits() + carry_t0;
 
         for j in 1..b.len() {
-            let sbj = Simd::from_array([b[j] as f64, d[j] as f64]);
-            // Multiplication with scalar
+            let sbj = Simd::from_array([b[j], d[j]]);
+            let sbj: Simd<f64, 2> = unsafe { vcvtq_f64_u64(sbj.into()).into() };
             let ab_hi = sai.mul_add(sbj, Simd::splat(C1));
             let ab_lo = sai.mul_add(sbj, Simd::splat(C2) - ab_hi);
             // Multiplication with scalar
+            unsafe { asm!("#nj") }
             let mn_hi = m.mul_add(Simd::splat(n[j] as f64), Simd::splat(C1));
             let mn_lo = m.mul_add(Simd::splat(n[j] as f64), Simd::splat(C2) - mn_hi);
             t[j + 1] = t[j + 1] + ab_hi.to_bits() + mn_hi.to_bits();
@@ -493,7 +506,8 @@ pub fn fios_opt_sub_simd_seq(
     }
     let sb0 = Simd::from_array([b[0] as f64, d[0] as f64]);
 
-    let snd = crate::acar::cios_opt_seq(w, x, P, NP0);
+    // let snd = crate::acar::cios_opt_seq(w, x, P, NP0);
+    let snd = [0; 6];
 
     seq!(i in 0..5 {
         // Does this give optimal assembly?
