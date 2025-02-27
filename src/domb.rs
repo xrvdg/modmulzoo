@@ -67,16 +67,16 @@ fn smult(s: u64, v: [u64; 5]) -> [u64; 6] {
     let mut t: [u64; 6] = [0; 6];
 
     // This should be combined with the vmult in the algorithm
-    // for i in 1..t.len() - 1 {
-    //     t[i] = emmart::make_initial(1, 1)
-    // }
-    // t[0] = emmart::make_initial(1, 0);
-    // t[5] = emmart::make_initial(0, 1);
+    t[0] = emmart::make_initial(1, 0);
+    for i in 1..t.len() - 1 {
+        t[i] = emmart::make_initial(1, 1)
+    }
+    t[5] = emmart::make_initial(0, 1);
 
     for i in 0..v.len() {
         let (sum, carry) = mult(s, v[i]);
-        t[i] = t[i].wrapping_add(sum & MASK52);
-        t[i + 1] = t[i + 1].wrapping_add(carry & MASK52);
+        t[i] = t[i].wrapping_add(sum);
+        t[i + 1] = t[i + 1].wrapping_add(carry);
     }
     t
 }
