@@ -69,7 +69,7 @@ pub fn set_round_to_zero() {
 /// Resolve into non-redundant form meaning that there are no carries in the
 /// high [52..] part
 #[inline(always)]
-fn resolve(mut t: [u64; 6]) -> [u64; 6] {
+pub fn resolve<const N: usize>(mut t: [u64; N]) -> [u64; N] {
     let mut carry = 0;
     for i in 0..t.len() {
         let tmp = t[i] + carry;
@@ -171,14 +171,14 @@ pub fn cios_opt_sub(a: [u64; 5], b: [u64; 5]) -> [u64; 6] {
 
         let m = (t[0].wrapping_mul(U52_NP0) & MASK52) as f64;
         // Outside of the loop because the loop does shifting
-        let p_hi = m.mul_add(F52_P[0] as f64, C1);
-        let p_lo = m.mul_add(F52_P[0] as f64, C2 - p_hi);
+        let p_hi = m.mul_add(F52_P[0], C1);
+        let p_lo = m.mul_add(F52_P[0], C2 - p_hi);
         t[0] = t[0].wrapping_add(p_lo.to_bits());
         t[1] = t[1].wrapping_add((p_hi.to_bits()) + (t[0] >> 52));
 
         for j in 1..F52_P.len() {
-            let p_hi = m.mul_add(F52_P[j] as f64, C1);
-            let p_lo = m.mul_add(F52_P[j] as f64, C2 - p_hi);
+            let p_hi = m.mul_add(F52_P[j], C1);
+            let p_lo = m.mul_add(F52_P[j], C2 - p_hi);
             t[j + 1] = t[j + 1].wrapping_add(p_hi.to_bits());
             t[j - 1] = t[j].wrapping_add(p_lo.to_bits());
         }
@@ -630,12 +630,12 @@ const fn pow_2(n: u32) -> f64 {
     f64::from_bits(exp)
 }
 
-const C1: f64 = pow_2(104); // 2.0^104
-const C2: f64 = pow_2(104) + pow_2(52); // 2.0^104 + 2.0^52
+pub(crate) const C1: f64 = pow_2(104); // 2.0^104
+pub(crate) const C2: f64 = pow_2(104) + pow_2(52); // 2.0^104 + 2.0^52
 const C3: f64 = pow_2(52); // 2.0^52
 
 #[inline]
-fn make_initial(low_count: usize, high_count: usize) -> u64 {
+pub const fn make_initial(low_count: usize, high_count: usize) -> u64 {
     let val = high_count * 0x467 + low_count * 0x433;
     -((val as i64 & 0xFFF) << 52) as u64
 }
@@ -647,7 +647,6 @@ mod tests {
     use crate::emmart::subtraction_step_u52;
     use crate::gen::U256b52;
     use crate::gen::U256b64;
-    use crate::F52_P;
     use crate::P;
     use crate::R2;
     use crate::U52_NP0;
