@@ -1,5 +1,5 @@
 use crate::{
-    emmart::{self, paper::sampled_product, MASK52},
+    emmart::{self, make_initial, MASK52},
     U52_NP0, U52_P,
 };
 
@@ -43,23 +43,26 @@ fn mult(a: u64, b: u64) -> (u64, u64) {
     (p_lo.to_bits(), p_hi.to_bits())
 }
 
-#[inline(always)]
-fn vmult(va: [u64; 5], vb: [u64; 5]) -> [u64; 10] {
-    let mut t: [u64; 10] = [0; 10];
+pub fn vmult(a: [u64; 5], b: [u64; 5]) -> [u64; 10] {
+    const N: usize = 5;
+    let mut col_sums: [u64; 2 * N] = [0; 2 * N];
 
-    // for i in 0..10 {
-    //     t[i] = emmart::make_initial(i + 1, i);
-    //     t[2 * 5 - 1 - i] = emmart::make_initial(i, i + 1);
-    // }
+    for i in 0..N {
+        col_sums[i] = make_initial(i + 1, i);
+        col_sums[2 * N - 1 - i] = make_initial(i, i + 1);
+    }
 
-    for i in 0..va.len() {
-        for j in 0..vb.len() {
-            let (sum, carry) = mult(va[i], vb[j]);
-            t[i + j] = t[i + j].wrapping_add(sum & MASK52);
-            t[i + j + 1] = t[i + j + 1].wrapping_add(carry & MASK52);
+    for i in 0..a.len() {
+        for j in 0..b.len() {
+            let p_hi = (a[i] as f64).mul_add(b[j] as f64, emmart::C1);
+            let p_lo = (a[i] as f64).mul_add(b[j] as f64, emmart::C2 - p_hi);
+            // OPTIMIZATION: can be vectorized
+            col_sums[i + j + 1] = col_sums[i + j + 1].wrapping_add(p_hi.to_bits());
+            col_sums[i + j] = col_sums[i + j].wrapping_add(p_lo.to_bits());
         }
     }
-    t
+
+    col_sums
 }
 
 #[inline(always)]
@@ -92,10 +95,10 @@ fn parallel(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     // Continuation can happen after the first three rounds
     // That could be a way of describing it, but it will likely create anonymous functions what we don't want
     // However that could be a way to write the algorithm and then let the code be generated from there.
-    let mut t = sampled_product(a.map(|x| x as f64), b.map(|x| x as f64));
+    let mut t = vmult(a, b);
     // println!("t: {t:?}");
 
-    // Should now not be needed
+    // Can be a loop, or use seq to unroll it
     t[1] += t[0] >> 52;
     t[2] += t[1] >> 52;
     t[3] += t[2] >> 52;
@@ -104,7 +107,6 @@ fn parallel(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     let r1 = smult(t[1] & MASK52, RHO_3);
     let r2 = smult(t[2] & MASK52, RHO_2);
     let r3 = smult(t[3] & MASK52, RHO_1);
-    // Need an extra rho
 
     let s: [u64; 6] = t[4..].try_into().unwrap();
     // These additions can pause after the first one has given the result to start multiplying.
