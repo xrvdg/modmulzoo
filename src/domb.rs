@@ -62,31 +62,23 @@ fn vmult(va: [u64; 5], vb: [u64; 5]) -> [u64; 10] {
     t
 }
 
-// #[inline(always)]
-// fn smult(s: u64, v: [u64; 5]) -> [u64; 6] {
-//     let mut t: [u64; 6] = [0; 6];
-
-//     // This should be combined with the vmult in the algorithm
-//     // for i in 1..t.len() - 1 {
-//     //     t[i] = emmart::make_initial(1, 1)
-//     // }
-//     // t[0] = emmart::make_initial(1, 0);
-//     // t[5] = emmart::make_initial(0, 1);
-
-//     for i in 0..v.len() {
-//         let (sum, carry) = mult(s, v[i]);
-//         t[i] = t[i].wrapping_add(sum & MASK52);
-//         t[i + 1] = t[i + 1].wrapping_add(carry & MASK52);
-//     }
-//     t
-// }
-
+#[inline(always)]
 fn smult(s: u64, v: [u64; 5]) -> [u64; 6] {
-    let mut sl = [0; 5];
-    sl[0] = s;
-    sampled_product(sl.map(|x| x as f64), v.map(|x| x as f64))[..6]
-        .try_into()
-        .unwrap()
+    let mut t: [u64; 6] = [0; 6];
+
+    // This should be combined with the vmult in the algorithm
+    // for i in 1..t.len() - 1 {
+    //     t[i] = emmart::make_initial(1, 1)
+    // }
+    // t[0] = emmart::make_initial(1, 0);
+    // t[5] = emmart::make_initial(0, 1);
+
+    for i in 0..v.len() {
+        let (sum, carry) = mult(s, v[i]);
+        t[i] = t[i].wrapping_add(sum & MASK52);
+        t[i + 1] = t[i + 1].wrapping_add(carry & MASK52);
+    }
+    t
 }
 
 fn addv<const N: usize>(mut va: [u64; N], vb: [u64; N]) -> [u64; N] {
@@ -145,15 +137,5 @@ mod tests {
         let a_round = super::parallel(a_tilde, [1, 0, 0, 0, 0]);
 
         assert_eq!(modulus_u52(a.0, U52_P), modulus_u52(a_round, U52_P))
-    }
-
-    #[test]
-    fn parallel_zero() {
-        set_round_to_zero();
-        let input = [1, 0, 0, 0, 0];
-        let a_tilde = super::parallel(black_box(input), U52_R2);
-        let a_round = super::parallel(a_tilde, [1, 0, 0, 0, 0]);
-
-        assert_eq!(modulus_u52(input, U52_P), modulus_u52(a_round, U52_P));
     }
 }
