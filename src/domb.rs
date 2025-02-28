@@ -165,9 +165,9 @@ pub fn parallel_sub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     let mut t: [u64; 10] = [0; 10];
     // vmult
     for i in 0..5 {
-        t[i] = make_initial(i + 1 + 4 * heaviside(i as isize - 4), i);
+        t[i] = make_initial(i + 1 + 5 * heaviside(i as isize - 4), i);
         let j = 10 - 1 - i;
-        t[j] = make_initial(i + 4 * (1 - heaviside(j as isize - 9)), i + 1 + 4 * 1);
+        t[j] = make_initial(i + 5 * (1 - heaviside(j as isize - 9)), i + 1 + 5 * 1);
     }
 
     let mut t = vmultadd_noinit(a, b, t);
@@ -195,7 +195,7 @@ pub fn parallel_sub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     let s = addv(r3, addv(addv(s, r0), addv(r1, r2)));
 
     let m = s[0].wrapping_mul(U52_NP0) & MASK52;
-    emmart::resolve(addv(s, smult(m, U52_P)))[1..]
+    emmart::resolve(addv(s, smult_noinit(m, U52_P)))[1..]
         .try_into()
         .unwrap()
     // Could resolve it here, but can also delay the resolving if it stays then instead of max number of addition in algo it will be max number + first step
