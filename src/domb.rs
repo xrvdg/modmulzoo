@@ -66,9 +66,7 @@ pub fn vmult(a: [u64; 5], b: [u64; 5]) -> [u64; 10] {
 }
 
 #[inline(always)]
-pub fn vmult_noinit(a: [u64; 5], b: [u64; 5]) -> [u64; 10] {
-    let mut t: [u64; 10] = [0; 10];
-
+pub fn vmultadd_noinit(a: [u64; 5], b: [u64; 5], mut t: [u64; 10]) -> [u64; 10] {
     for i in 0..a.len() {
         for j in 0..b.len() {
             let p_hi = (a[i] as f64).mul_add(b[j] as f64, emmart::C1);
@@ -82,9 +80,8 @@ pub fn vmult_noinit(a: [u64; 5], b: [u64; 5]) -> [u64; 10] {
     t
 }
 
-/// Heaviside step function for x>= 1
-const fn heaviside1(x: usize) -> usize {
-    (x >= 1) as usize
+const fn heaviside(x: isize) -> usize {
+    (x >= 0) as usize
 }
 
 #[inline(always)]
@@ -161,23 +158,20 @@ pub fn parallel_ref(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     // or for certainity 2x number of additions in algo
 }
 
+// Performs a lot better on MacOS (22ns vs 28 ns) but loses 2-3 ns on the Raspberry Pi compared to parallel_ref
 pub fn parallel_sub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     // Continuation can happen after the first three rounds
     // That could be a way of describing it, but it will likely create anonymous functions what we don't want
-    let mut t = [0; 10];
+    let mut t: [u64; 10] = [0; 10];
+    // vmult
     for i in 0..5 {
-        t[i] = make_initial(i + 1, i);
-        t[10 - 1 - i] = make_initial(i, i + 1);
+        t[i] = make_initial(i + 1 + 4 * heaviside(i as isize - 4), i);
+        let j = 10 - 1 - i;
+        t[j] = make_initial(i + 4 * (1 - heaviside(j as isize - 9)), i + 1 + 4 * 1);
     }
 
-    let mut t = addv(vmult_noinit(a, b), t);
+    let mut t = vmultadd_noinit(a, b, t);
 
-    // This should be combined with the vmult in the algorithm
-    t[4] = t[4].wrapping_add(emmart::make_initial(4 * 1, 0));
-    for i in 5..t.len() - 1 {
-        t[i] = t[i].wrapping_add(emmart::make_initial(4 * 1, 4 * 1));
-    }
-    t[9] = t[9].wrapping_add(emmart::make_initial(0, 4 * 1));
     // println!("t: {t:?}");
 
     // combining the initials might not even have a benefit in it's current form. The first add would otherwise

@@ -348,6 +348,10 @@ fn bench_domb(c: &mut Criterion) {
         bencher.iter(|| domb::parallel_ref(black_box(domb_a), black_box(domb_b)))
     });
 
+    group.bench_function("parallel_f64_sub", |bencher| {
+        bencher.iter(|| domb::parallel_sub(black_box(domb_a), black_box(domb_b)))
+    });
+
     group.finish();
 }
 
@@ -356,7 +360,7 @@ criterion_group!(
     config = Criterion::default()
         .sample_size(5000)
         // Warm up is warm because it literally warms up the pi
-        // .warm_up_time(std::time::Duration::new(3,0))
+        .warm_up_time(std::time::Duration::new(1,0))
         .measurement_time(std::time::Duration::new(10,0));
     targets = bench_acar, bench_emmart, bench_domb
 );
