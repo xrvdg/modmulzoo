@@ -299,10 +299,25 @@ pub fn parallel_simd_sub(a: [[u64; 5]; 2], b: [[u64; 5]; 2]) -> [[u64; 5]; 2] {
 
     let m = (s[0] * Simd::splat(U52_NP0)).bitand(Simd::splat(MASK52));
     // This needs to be optimized in two ways, The final resolve_simd should be combined with addition
-    emmart::resolve_simd(addv_simd(s, smult_noinit_simd(m, U52_P)))
-        .map(|v| v[1..].try_into().unwrap())
+    let mp = smult_noinit_simd(m, U52_P);
+    resolve_simd_add_truncate(s, mp)
     // Could resolve it here, but can also delay the resolving if it stays then instead of max number of addition in algo it will be max number + first step
     // or for certainity 2x number of additions in algo
+}
+
+#[inline(always)]
+pub fn resolve_simd_add_truncate(s: [Simd<u64, 2>; 6], mp: [Simd<u64, 2>; 6]) -> [[u64; 5]; 2] {
+    {
+        let t = addv_simd(s, mp);
+        let mut out = [[0; 5]; 2];
+        let mut carry = t[0] >> 52;
+        for i in 0..5 {
+            let tmp = t[i + 1] + carry;
+            [out[0][i], out[1][i]] = tmp.bitand(Simd::splat(MASK52)).to_array();
+            carry = tmp >> 52;
+        }
+        out
+    }
 }
 #[cfg(test)]
 mod tests {
