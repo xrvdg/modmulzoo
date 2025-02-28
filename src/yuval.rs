@@ -42,7 +42,7 @@ const fn wadd(lhs: u64, rhs: u64, acc: u128, c: bool) -> (u128, bool) {
 }
 
 #[inline]
-// Test of dit correct is
+// Taken from Yuval Domb ingoyama repo
 pub fn mul_logjumps_unr_2(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     let (c00hi, c00lo) = mult(a[0], b[0]);
     let (c01hi, c01lo) = mult(a[0], b[1]);
@@ -213,7 +213,6 @@ mod tests {
         let d = modulus(a, P);
         let actual = modulus(a_round, P);
 
-        // Yes, quickcheck supports assert_eq! for better error reporting
         assert_eq!(d, actual,);
     }
 
@@ -228,7 +227,6 @@ mod tests {
         let d = modulus(a, P);
         let actual = modulus(a_round, P);
 
-        // Yes, quickcheck supports assert_eq! for better error reporting
         assert_eq!(d, actual,);
     }
 }
