@@ -80,8 +80,8 @@ pub fn resolve<const N: usize>(mut t: [u64; N]) -> [u64; N] {
 }
 
 #[inline(always)]
-pub fn resolve_simd(t: [Simd<u64, 2>; 6]) -> [[u64; 6]; 2] {
-    let mut out = [[0; 6]; 2];
+pub fn resolve_simd<const N: usize>(t: [Simd<u64, 2>; N]) -> [[u64; N]; 2] {
+    let mut out = [[0; N]; 2];
     let mut carry = Simd::splat(0);
     for i in 0..t.len() {
         let tmp = t[i] + carry;
