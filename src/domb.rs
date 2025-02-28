@@ -66,6 +66,28 @@ pub fn vmult(a: [u64; 5], b: [u64; 5]) -> [u64; 10] {
 }
 
 #[inline(always)]
+pub fn vmult_noinit(a: [u64; 5], b: [u64; 5]) -> [u64; 10] {
+    let mut t: [u64; 10] = [0; 10];
+
+    for i in 0..a.len() {
+        for j in 0..b.len() {
+            let p_hi = (a[i] as f64).mul_add(b[j] as f64, emmart::C1);
+            let p_lo = (a[i] as f64).mul_add(b[j] as f64, emmart::C2 - p_hi);
+            // OPTIMIZATION: can be vectorized
+            t[i + j + 1] = t[i + j + 1].wrapping_add(p_hi.to_bits());
+            t[i + j] = t[i + j].wrapping_add(p_lo.to_bits());
+        }
+    }
+
+    t
+}
+
+/// Heaviside step function for x>= 1
+const fn heaviside1(x: usize) -> usize {
+    (x >= 1) as usize
+}
+
+#[inline(always)]
 fn smult(s: u64, v: [u64; 5]) -> [u64; 6] {
     let mut t: [u64; 6] = [0; 6];
 
@@ -85,9 +107,21 @@ fn smult(s: u64, v: [u64; 5]) -> [u64; 6] {
 }
 
 #[inline(always)]
+fn smult_noinit(s: u64, v: [u64; 5]) -> [u64; 6] {
+    let mut t: [u64; 6] = [0; 6];
+
+    for i in 0..v.len() {
+        let (sum, carry) = mult(s, v[i]);
+        t[i] = t[i].wrapping_add(sum);
+        t[i + 1] = t[i + 1].wrapping_add(carry);
+    }
+    t
+}
+
+#[inline(always)]
 fn addv<const N: usize>(mut va: [u64; N], vb: [u64; N]) -> [u64; N] {
     for i in 0..va.len() {
-        va[i] += vb[i];
+        va[i] = va[i].wrapping_add(vb[i]);
     }
     va
 }
@@ -130,8 +164,20 @@ pub fn parallel_ref(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
 pub fn parallel_sub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     // Continuation can happen after the first three rounds
     // That could be a way of describing it, but it will likely create anonymous functions what we don't want
-    // However that could be a way to write the algorithm and then let the code be generated from there.
-    let mut t = vmult(a, b);
+    let mut t = [0; 10];
+    for i in 0..5 {
+        t[i] = make_initial(i + 1, i);
+        t[10 - 1 - i] = make_initial(i, i + 1);
+    }
+
+    let mut t = addv(vmult_noinit(a, b), t);
+
+    // This should be combined with the vmult in the algorithm
+    t[4] = t[4].wrapping_add(emmart::make_initial(4 * 1, 0));
+    for i in 5..t.len() - 1 {
+        t[i] = t[i].wrapping_add(emmart::make_initial(4 * 1, 4 * 1));
+    }
+    t[9] = t[9].wrapping_add(emmart::make_initial(0, 4 * 1));
     // println!("t: {t:?}");
 
     // combining the initials might not even have a benefit in it's current form. The first add would otherwise
@@ -144,10 +190,10 @@ pub fn parallel_sub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     t[3] += t[2] >> 52;
     t[4] += t[3] >> 52;
     // These multiplications can be interleaved, each step is independ
-    let r0 = smult(t[0] & MASK52, RHO_4);
-    let r1 = smult(t[1] & MASK52, RHO_3);
-    let r2 = smult(t[2] & MASK52, RHO_2);
-    let r3 = smult(t[3] & MASK52, RHO_1);
+    let r0 = smult_noinit(t[0] & MASK52, RHO_4);
+    let r1 = smult_noinit(t[1] & MASK52, RHO_3);
+    let r2 = smult_noinit(t[2] & MASK52, RHO_2);
+    let r3 = smult_noinit(t[3] & MASK52, RHO_1);
 
     let s: [u64; 6] = t[4..].try_into().unwrap();
     // These additions can pause after the first one has given the result to start multiplying.
@@ -178,6 +224,15 @@ mod tests {
         set_round_to_zero();
         let a_tilde = super::parallel_ref(a.0, U52_R2);
         let a_round = super::parallel_ref(a_tilde, [1, 0, 0, 0, 0]);
+
+        assert_eq!(modulus_u52(a.0, U52_P), modulus_u52(a_round, U52_P))
+    }
+
+    #[quickcheck]
+    fn parallel_sub_round(a: U256b52) {
+        set_round_to_zero();
+        let a_tilde = super::parallel_sub(a.0, U52_R2);
+        let a_round = super::parallel_sub(a_tilde, [1, 0, 0, 0, 0]);
 
         assert_eq!(modulus_u52(a.0, U52_P), modulus_u52(a_round, U52_P))
     }
