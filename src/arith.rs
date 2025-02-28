@@ -13,6 +13,14 @@ pub fn school_method(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
     ab
 }
 
+pub fn smul(s: u64, v: [u64; 4]) -> [u64; 5] {
+    let mut ab = [0_u64; 5];
+    for j in 0..v.len() {
+        (ab[j], ab[j + 1]) = carrying_mul_add(s, v[j], ab[j], 0)
+    }
+    ab
+}
+
 // first is result, second is carry (S,C)
 // This order is common in the Rust std library, but it differs from the order common in papers.
 // Could have used the intrinsic version, but this doesn't give any warnings

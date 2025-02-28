@@ -1,4 +1,4 @@
-use crate::arith::school_method;
+use crate::arith::{self, school_method};
 
 pub const U64_P: [u64; 4] = [
     0x43e1f593f0000001,
@@ -155,11 +155,6 @@ pub fn mul_logjumps_unr_2(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     [r2 as u64, (r2 >> 64) as u64, r3 as u64, (r3 >> 64) as u64]
 }
 
-fn smul(s: u64, v: [u64; 4]) -> [u64; 5] {
-    let sv = [s, 0, 0, 0];
-    school_method(sv, v)[..5].try_into().unwrap()
-}
-
 /// Adds two u64 arrays together, treating them as multi-precision integers
 ///
 /// # Arguments
@@ -187,13 +182,13 @@ fn addv<const N: usize>(mut a: [u64; N], b: [u64; N]) -> [u64; N] {
 pub fn parallel(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     let t = school_method(a, b);
 
-    let r1 = smul(t[0], U64_I3);
-    let r2 = smul(t[1], U64_I2);
-    let r3 = smul(t[2], U64_I1);
+    let r1 = arith::smul(t[0], U64_I3);
+    let r2 = arith::smul(t[1], U64_I2);
+    let r3 = arith::smul(t[2], U64_I1);
 
     let s = addv(addv(t[3..].try_into().unwrap(), r1), addv(r2, r3));
     let m = U64_MU0.wrapping_mul(s[0]);
-    let mp = smul(m, U64_P);
+    let mp = arith::smul(m, U64_P);
     addv(s, mp)[1..].try_into().unwrap()
 }
 
