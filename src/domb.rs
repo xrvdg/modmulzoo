@@ -43,13 +43,13 @@ fn mult(a: u64, b: u64) -> (u64, u64) {
     (p_lo.to_bits(), p_hi.to_bits())
 }
 
+#[inline(always)]
 pub fn vmult(a: [u64; 5], b: [u64; 5]) -> [u64; 10] {
-    const N: usize = 5;
-    let mut col_sums: [u64; 2 * N] = [0; 2 * N];
+    let mut t = [0; 10];
 
-    for i in 0..N {
-        col_sums[i] = make_initial(i + 1, i);
-        col_sums[2 * N - 1 - i] = make_initial(i, i + 1);
+    for i in 0..5 {
+        t[i] = make_initial(i + 1, i);
+        t[10 - 1 - i] = make_initial(i, i + 1);
     }
 
     for i in 0..a.len() {
@@ -57,12 +57,12 @@ pub fn vmult(a: [u64; 5], b: [u64; 5]) -> [u64; 10] {
             let p_hi = (a[i] as f64).mul_add(b[j] as f64, emmart::C1);
             let p_lo = (a[i] as f64).mul_add(b[j] as f64, emmart::C2 - p_hi);
             // OPTIMIZATION: can be vectorized
-            col_sums[i + j + 1] = col_sums[i + j + 1].wrapping_add(p_hi.to_bits());
-            col_sums[i + j] = col_sums[i + j].wrapping_add(p_lo.to_bits());
+            t[i + j + 1] = t[i + j + 1].wrapping_add(p_hi.to_bits());
+            t[i + j] = t[i + j].wrapping_add(p_lo.to_bits());
         }
     }
 
-    col_sums
+    t
 }
 
 #[inline(always)]
@@ -84,6 +84,7 @@ fn smult(s: u64, v: [u64; 5]) -> [u64; 6] {
     t
 }
 
+#[inline(always)]
 fn addv<const N: usize>(mut va: [u64; N], vb: [u64; N]) -> [u64; N] {
     for i in 0..va.len() {
         va[i] += vb[i];
@@ -91,18 +92,58 @@ fn addv<const N: usize>(mut va: [u64; N], vb: [u64; N]) -> [u64; N] {
     va
 }
 
-fn parallel(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
+pub fn parallel_ref(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     // Continuation can happen after the first three rounds
     // That could be a way of describing it, but it will likely create anonymous functions what we don't want
     // However that could be a way to write the algorithm and then let the code be generated from there.
     let mut t = vmult(a, b);
     // println!("t: {t:?}");
 
+    // combining the initials might not even have a benefit in it's current form. The first add would otherwise
+    // Still might save another combination but it requires stringing the accumulator value. Is that something
+    // desirable or undesirable? If we don't the multiplications can start earlier
+
     // Can be a loop, or use seq to unroll it
     t[1] += t[0] >> 52;
     t[2] += t[1] >> 52;
     t[3] += t[2] >> 52;
     t[4] += t[3] >> 52;
+    // These multiplications can be interleaved, each step is independ
+    let r0 = smult(t[0] & MASK52, RHO_4);
+    let r1 = smult(t[1] & MASK52, RHO_3);
+    let r2 = smult(t[2] & MASK52, RHO_2);
+    let r3 = smult(t[3] & MASK52, RHO_1);
+
+    let s: [u64; 6] = t[4..].try_into().unwrap();
+    // These additions can pause after the first one has given the result to start multiplying.
+    // but for the floating point it doesn't matter that much as the addition is done on the same pipe
+    let s = addv(r3, addv(addv(s, r0), addv(r1, r2)));
+
+    let m = s[0].wrapping_mul(U52_NP0) & MASK52;
+    emmart::resolve(addv(s, smult(m, U52_P)))[1..]
+        .try_into()
+        .unwrap()
+    // Could resolve it here, but can also delay the resolving if it stays then instead of max number of addition in algo it will be max number + first step
+    // or for certainity 2x number of additions in algo
+}
+
+pub fn parallel_sub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
+    // Continuation can happen after the first three rounds
+    // That could be a way of describing it, but it will likely create anonymous functions what we don't want
+    // However that could be a way to write the algorithm and then let the code be generated from there.
+    let mut t = vmult(a, b);
+    // println!("t: {t:?}");
+
+    // combining the initials might not even have a benefit in it's current form. The first add would otherwise
+    // Still might save another combination but it requires stringing the accumulator value. Is that something
+    // desirable or undesirable? If we don't the multiplications can start earlier
+
+    // Can be a loop, or use seq to unroll it
+    t[1] += t[0] >> 52;
+    t[2] += t[1] >> 52;
+    t[3] += t[2] >> 52;
+    t[4] += t[3] >> 52;
+    // These multiplications can be interleaved, each step is independ
     let r0 = smult(t[0] & MASK52, RHO_4);
     let r1 = smult(t[1] & MASK52, RHO_3);
     let r2 = smult(t[2] & MASK52, RHO_2);
@@ -135,8 +176,8 @@ mod tests {
     #[quickcheck]
     fn parallel_round(a: U256b52) {
         set_round_to_zero();
-        let a_tilde = super::parallel(a.0, U52_R2);
-        let a_round = super::parallel(a_tilde, [1, 0, 0, 0, 0]);
+        let a_tilde = super::parallel_ref(a.0, U52_R2);
+        let a_round = super::parallel_ref(a_tilde, [1, 0, 0, 0, 0]);
 
         assert_eq!(modulus_u52(a.0, U52_P), modulus_u52(a_round, U52_P))
     }

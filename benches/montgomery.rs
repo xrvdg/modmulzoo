@@ -5,6 +5,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use montgomery_reduction::arith::school_method;
 use montgomery_reduction::emmart;
 use montgomery_reduction::{acar, NP0, P, U52_NP0, U52_P};
+use montgomery_reduction::{domb, yuval, U52_R2};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -294,7 +295,58 @@ fn bench_emmart(c: &mut Criterion) {
     group.bench_function("resolve_simd", |bencher| {
         bencher.iter(|| emmart::resolve_simd(resolve))
     });
-    // Set up for sampled_product_masked benchmark
+
+    group.finish();
+}
+
+fn bench_domb(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Domb");
+
+    // Generate and print a random seed
+    let seed: u64 = rand::random();
+    println!("Using random seed for parallel benchmarks: {}", seed);
+    let mut rng = StdRng::seed_from_u64(seed);
+
+    // Generate random test cases for yuval (u64 arrays of length 4)
+    let yuval_a = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+    let yuval_b = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+
+    // Generate random test cases for domb (u64 arrays of length 5)
+    let domb_a = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+    let domb_b = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+
+    // Benchmark yuval parallel implementation
+    group.bench_function("parallel", |bencher| {
+        bencher.iter(|| yuval::parallel(black_box(yuval_a), black_box(yuval_b)))
+    });
+
+    emmart::set_round_to_zero();
+    // Benchmark domb parallel implementation
+    group.bench_function("parallel_f64", |bencher| {
+        bencher.iter(|| domb::parallel_ref(black_box(domb_a), black_box(domb_b)))
+    });
 
     group.finish();
 }
@@ -306,6 +358,6 @@ criterion_group!(
         // Warm up is warm because it literally warms up the pi
         // .warm_up_time(std::time::Duration::new(3,0))
         .measurement_time(std::time::Duration::new(10,0));
-    targets = bench_acar, bench_emmart
+    targets = bench_acar, bench_emmart, bench_domb
 );
 criterion_main!(benches);
