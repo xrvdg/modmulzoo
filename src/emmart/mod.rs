@@ -647,6 +647,7 @@ mod tests {
     use crate::emmart::subtraction_step_u52;
     use crate::gen::U256b52;
     use crate::gen::U256b64;
+    use crate::subarray;
     use crate::P;
     use crate::R2;
     use crate::U52_NP0;
@@ -660,23 +661,19 @@ mod tests {
     fn cios_f64_sub_round(a: U256b52) -> bool {
         set_round_to_zero();
         let a_tilde = super::cios_opt_sub(a.0, U52_R2);
-        let a_round = super::cios_opt_sub(a_tilde[..5].try_into().unwrap(), [1, 0, 0, 0, 0]);
+        let a_round = super::cios_opt_sub(subarray!(a_tilde, 0, 5), [1, 0, 0, 0, 0]);
 
-        modulus_u52(a.0, U52_P) == subtraction_step_u52(a_round[..5].try_into().unwrap(), U52_P)
+        modulus_u52(a.0, U52_P) == subtraction_step_u52(subarray!(a_round, 0, 5), U52_P)
     }
 
     #[quickcheck]
     fn fios_f64_sub_round(a: U256b52) -> bool {
         set_round_to_zero();
         let a_tilde = super::fios_opt_sub(a.0, U52_R2, U52_P, U52_NP0);
-        let a_round = super::fios_opt_sub(
-            a_tilde[..5].try_into().unwrap(),
-            [1, 0, 0, 0, 0],
-            U52_P,
-            U52_NP0,
-        );
+        let a_round =
+            super::fios_opt_sub(subarray!(a_tilde, 0, 5), [1, 0, 0, 0, 0], U52_P, U52_NP0);
 
-        modulus_u52(a.0, U52_P) == subtraction_step_u52(a_round[..5].try_into().unwrap(), U52_P)
+        modulus_u52(a.0, U52_P) == subtraction_step_u52(subarray!(a_round, 0, 5), U52_P)
     }
 
     #[quickcheck]
@@ -684,17 +681,16 @@ mod tests {
         set_round_to_zero();
         let a_tilde = super::fios_opt_sub_sat(a.0, U52_R2, b.0, U52_R2, U52_P, U52_NP0);
         let a_round = super::fios_opt_sub_sat(
-            a_tilde[0][..5].try_into().unwrap(),
+            subarray!(a_tilde[0], 0, 5),
             [1, 0, 0, 0, 0],
-            a_tilde[1][..5].try_into().unwrap(),
+            subarray!(a_tilde[1], 0, 5),
             [1, 0, 0, 0, 0],
             U52_P,
             U52_NP0,
         );
 
-        modulus_u52(a.0, U52_P) == subtraction_step_u52(a_round[0][..5].try_into().unwrap(), U52_P)
-            && modulus_u52(b.0, U52_P)
-                == subtraction_step_u52(a_round[1][..5].try_into().unwrap(), U52_P)
+        modulus_u52(a.0, U52_P) == subtraction_step_u52(subarray!(a_round[0], 0, 5), U52_P)
+            && modulus_u52(b.0, U52_P) == subtraction_step_u52(subarray!(a_round[1], 0, 5), U52_P)
     }
 
     #[quickcheck]
@@ -702,15 +698,14 @@ mod tests {
         set_round_to_zero();
         let a_tilde = super::fios_opt_sub_simd(a.0, U52_R2, b.0, U52_R2);
         let a_round = super::fios_opt_sub_simd(
-            a_tilde[0][..5].try_into().unwrap(),
+            subarray!(a_tilde[0], 0, 5),
             [1, 0, 0, 0, 0],
-            a_tilde[1][..5].try_into().unwrap(),
+            subarray!(a_tilde[1], 0, 5),
             [1, 0, 0, 0, 0],
         );
 
-        modulus_u52(a.0, U52_P) == subtraction_step_u52(a_round[0][..5].try_into().unwrap(), U52_P)
-            && modulus_u52(b.0, U52_P)
-                == subtraction_step_u52(a_round[1][..5].try_into().unwrap(), U52_P)
+        modulus_u52(a.0, U52_P) == subtraction_step_u52(subarray!(a_round[0], 0, 5), U52_P)
+            && modulus_u52(b.0, U52_P) == subtraction_step_u52(subarray!(a_round[1], 0, 5), U52_P)
     }
 
     #[quickcheck]
@@ -718,15 +713,14 @@ mod tests {
         set_round_to_zero();
         let a_tilde = super::cios_opt_sub_simd(a.0, U52_R2, b.0, U52_R2);
         let a_round = super::cios_opt_sub_simd(
-            a_tilde[0][..5].try_into().unwrap(),
+            subarray!(a_tilde[0], 0, 5),
             [1, 0, 0, 0, 0],
-            a_tilde[1][..5].try_into().unwrap(),
+            subarray!(a_tilde[1], 0, 5),
             [1, 0, 0, 0, 0],
         );
 
-        modulus_u52(a.0, U52_P) == subtraction_step_u52(a_round[0][..5].try_into().unwrap(), U52_P)
-            && modulus_u52(b.0, U52_P)
-                == subtraction_step_u52(a_round[1][..5].try_into().unwrap(), U52_P)
+        modulus_u52(a.0, U52_P) == subtraction_step_u52(subarray!(a_round[0], 0, 5), U52_P)
+            && modulus_u52(b.0, U52_P) == subtraction_step_u52(subarray!(a_round[1], 0, 5), U52_P)
     }
 
     #[quickcheck]
@@ -736,25 +730,22 @@ mod tests {
             a.0, U52_R2, b.0, U52_R2, c.0, U52_R2, d.0, U52_R2, U52_P, U52_NP0,
         );
         let a_round = super::fios_opt_sub_simd_sat(
-            a_tilde[0][..5].try_into().unwrap(),
+            subarray!(a_tilde[0], 0, 5),
             [1, 0, 0, 0, 0],
-            a_tilde[1][..5].try_into().unwrap(),
+            subarray!(a_tilde[1], 0, 5),
             [1, 0, 0, 0, 0],
-            a_tilde[2][..5].try_into().unwrap(),
+            subarray!(a_tilde[2], 0, 5),
             [1, 0, 0, 0, 0],
-            a_tilde[3][..5].try_into().unwrap(),
+            subarray!(a_tilde[3], 0, 5),
             [1, 0, 0, 0, 0],
             U52_P,
             U52_NP0,
         );
 
-        modulus_u52(a.0, U52_P) == subtraction_step_u52(a_round[0][..5].try_into().unwrap(), U52_P)
-            && modulus_u52(b.0, U52_P)
-                == subtraction_step_u52(a_round[1][..5].try_into().unwrap(), U52_P)
-            && modulus_u52(c.0, U52_P)
-                == subtraction_step_u52(a_round[2][..5].try_into().unwrap(), U52_P)
-            && modulus_u52(d.0, U52_P)
-                == subtraction_step_u52(a_round[3][..5].try_into().unwrap(), U52_P)
+        modulus_u52(a.0, U52_P) == subtraction_step_u52(subarray!(a_round[0], 0, 5), U52_P)
+            && modulus_u52(b.0, U52_P) == subtraction_step_u52(subarray!(a_round[1], 0, 5), U52_P)
+            && modulus_u52(c.0, U52_P) == subtraction_step_u52(subarray!(a_round[2], 0, 5), U52_P)
+            && modulus_u52(d.0, U52_P) == subtraction_step_u52(subarray!(a_round[3], 0, 5), U52_P)
     }
 
     #[quickcheck]
@@ -771,60 +762,45 @@ mod tests {
             a.0, U52_R2, b.0, U52_R2, c.0, U52_R2, d.0, U52_R2, e.0, R2, f.0, R2, U52_P, U52_NP0,
         );
         let (a_round, snd_round, trd_round) = super::fios_opt_sub_simd_sat_seq(
-            a_tilde[0][..5].try_into().unwrap(),
+            subarray!(a_tilde[0], 0, 5),
             [1, 0, 0, 0, 0],
-            a_tilde[1][..5].try_into().unwrap(),
+            subarray!(a_tilde[1], 0, 5),
             [1, 0, 0, 0, 0],
-            a_tilde[2][..5].try_into().unwrap(),
+            subarray!(a_tilde[2], 0, 5),
             [1, 0, 0, 0, 0],
-            a_tilde[3][..5].try_into().unwrap(),
+            subarray!(a_tilde[3], 0, 5),
             [1, 0, 0, 0, 0],
-            snd[..4].try_into().unwrap(),
+            subarray!(snd, 0, 4),
             [1, 0, 0, 0],
-            trd[..4].try_into().unwrap(),
+            subarray!(trd, 0, 4),
             [1, 0, 0, 0],
             U52_P,
             U52_NP0,
         );
 
-        modulus_u52(a.0, U52_P) == subtraction_step_u52(a_round[0][..5].try_into().unwrap(), U52_P)
-            && modulus_u52(b.0, U52_P)
-                == subtraction_step_u52(a_round[1][..5].try_into().unwrap(), U52_P)
-            && modulus_u52(c.0, U52_P)
-                == subtraction_step_u52(a_round[2][..5].try_into().unwrap(), U52_P)
-            && modulus_u52(d.0, U52_P)
-                == subtraction_step_u52(a_round[3][..5].try_into().unwrap(), U52_P)
-            && arith::modulus(e.0, P)
-                == arith::subtraction_step(snd_round[..4].try_into().unwrap(), P)
-            && arith::modulus(f.0, P)
-                == arith::subtraction_step(trd_round[..4].try_into().unwrap(), P)
+        modulus_u52(a.0, U52_P) == subtraction_step_u52(subarray!(a_round[0], 0, 5), U52_P)
+            && modulus_u52(b.0, U52_P) == subtraction_step_u52(subarray!(a_round[1], 0, 5), U52_P)
+            && modulus_u52(c.0, U52_P) == subtraction_step_u52(subarray!(a_round[2], 0, 5), U52_P)
+            && modulus_u52(d.0, U52_P) == subtraction_step_u52(subarray!(a_round[3], 0, 5), U52_P)
+            && arith::modulus(e.0, P) == arith::subtraction_step(subarray!(snd_round, 0, 4), P)
+            && arith::modulus(f.0, P) == arith::subtraction_step(subarray!(trd_round, 0, 4), P)
     }
 
     #[quickcheck]
     fn fios_f64_round(a: U256b52) -> bool {
         set_round_to_zero();
         let a_tilde = super::fios_opt(a.0, U52_R2, U52_P, U52_NP0);
-        let a_round = super::fios_opt(
-            a_tilde[..5].try_into().unwrap(),
-            [1, 0, 0, 0, 0],
-            U52_P,
-            U52_NP0,
-        );
+        let a_round = super::fios_opt(subarray!(a_tilde, 0, 5), [1, 0, 0, 0, 0], U52_P, U52_NP0);
 
-        modulus_u52(a.0, U52_P) == subtraction_step_u52(a_round[..5].try_into().unwrap(), U52_P)
+        modulus_u52(a.0, U52_P) == subtraction_step_u52(subarray!(a_round, 0, 5), U52_P)
     }
 
     #[quickcheck]
     fn cios_f64_round(a: U256b52) -> bool {
         set_round_to_zero();
         let a_tilde = super::cios_opt(a.0, U52_R2, U52_P, U52_NP0);
-        let a_round = super::cios_opt(
-            a_tilde[..5].try_into().unwrap(),
-            [1, 0, 0, 0, 0],
-            U52_P,
-            U52_NP0,
-        );
+        let a_round = super::cios_opt(subarray!(a_tilde, 0, 5), [1, 0, 0, 0, 0], U52_P, U52_NP0);
 
-        modulus_u52(a.0, U52_P) == subtraction_step_u52(a_round[..5].try_into().unwrap(), U52_P)
+        modulus_u52(a.0, U52_P) == subtraction_step_u52(subarray!(a_round, 0, 5), U52_P)
     }
 }

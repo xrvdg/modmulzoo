@@ -78,16 +78,13 @@ pub fn carrying_mul_add_u104(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64)
 mod tests {
     use quickcheck_macros::quickcheck;
 
+    use crate::subarray;
     use crate::{emmart::subtraction_step_u52, gen::U256b52, U52_NP0, U52_P, U52_R2};
+
     #[quickcheck]
     fn sos_round(a: U256b52) -> bool {
         let a_tilde = super::sos_u52(a.0, U52_R2, U52_P, U52_NP0);
-        let a_round = super::sos_u52(
-            a_tilde[5..].try_into().unwrap(),
-            [1, 0, 0, 0, 0],
-            U52_P,
-            U52_NP0,
-        );
+        let a_round = super::sos_u52(subarray!(a_tilde, 5, 5), [1, 0, 0, 0, 0], U52_P, U52_NP0);
 
         let mut d = a.0;
         let mut prev = d;
@@ -99,18 +96,13 @@ mod tests {
             prev = d;
         }
 
-        d == subtraction_step_u52(a_round[5..].try_into().unwrap(), U52_P)
+        d == subtraction_step_u52(subarray!(a_round, 5, 5), U52_P)
     }
 
     #[quickcheck]
     fn cios_round(a: U256b52) -> bool {
         let a_tilde = super::cios_opt(a.0, U52_R2, U52_P, U52_NP0);
-        let a_round = super::cios_opt(
-            a_tilde[..5].try_into().unwrap(),
-            [1, 0, 0, 0, 0],
-            U52_P,
-            U52_NP0,
-        );
+        let a_round = super::cios_opt(subarray!(a_tilde, 0, 5), [1, 0, 0, 0, 0], U52_P, U52_NP0);
 
         let mut d = a.0;
         let mut prev = d;
@@ -122,6 +114,6 @@ mod tests {
             prev = d;
         }
 
-        d == subtraction_step_u52(a_round[..5].try_into().unwrap(), U52_P)
+        d == subtraction_step_u52(subarray!(a_round, 0, 5), U52_P)
     }
 }

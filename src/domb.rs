@@ -11,6 +11,8 @@ use crate::{
     U52_NP0, U52_P,
 };
 
+use crate::subarray;
+
 const RHO_1: [u64; 5] = [
     0x82e644ee4c3d2,
     0xf93893c98b1de,
@@ -157,6 +159,7 @@ fn smult_noinit_simd(s: Simd<u64, 2>, v: [u64; 5]) -> [Simd<u64, 2>; 6] {
 }
 
 #[inline(always)]
+/// Wrapping addition
 fn addv<const N: usize>(mut va: [u64; N], vb: [u64; N]) -> [u64; N] {
     for i in 0..va.len() {
         va[i] = va[i].wrapping_add(vb[i]);
@@ -189,13 +192,12 @@ pub fn parallel_ref(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     let r2 = smult(t[2] & MASK52, RHO_2);
     let r3 = smult(t[3] & MASK52, RHO_1);
 
-    let s: [u64; 6] = t[4..].try_into().unwrap();
+    let s = subarray!(t, 4, 6);
     let s = addv(r3, addv(addv(s, r0), addv(r1, r2)));
 
     let m = s[0].wrapping_mul(U52_NP0) & MASK52;
-    emmart::resolve(addv(s, smult(m, U52_P)))[1..]
-        .try_into()
-        .unwrap()
+    let resolved = emmart::resolve(addv(s, smult(m, U52_P)));
+    subarray!(resolved, 1, 5)
 }
 
 // Performs a lot better on MacOS (22ns vs 28 ns) but loses 2-3 ns on the Raspberry Pi compared to parallel_ref
@@ -219,13 +221,12 @@ pub fn parallel_sub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     let r2 = smult_noinit(t[2] & MASK52, RHO_2);
     let r3 = smult_noinit(t[3] & MASK52, RHO_1);
 
-    let s: [u64; 6] = t[4..].try_into().unwrap();
+    let s = subarray!(t, 4, 6);
     let s = addv(r3, addv(addv(s, r0), addv(r1, r2)));
 
     let m = s[0].wrapping_mul(U52_NP0) & MASK52;
-    emmart::resolve(addv(s, smult_noinit(m, U52_P)))[1..]
-        .try_into()
-        .unwrap()
+    let resolved = emmart::resolve(addv(s, smult_noinit(m, U52_P)));
+    subarray!(resolved, 1, 5)
 }
 
 pub fn parallel_simd_sub(a: [[u64; 5]; 2], b: [[u64; 5]; 2]) -> [[u64; 5]; 2] {
@@ -251,8 +252,7 @@ pub fn parallel_simd_sub(a: [[u64; 5]; 2], b: [[u64; 5]; 2]) -> [[u64; 5]; 2] {
     let r2 = smult_noinit_simd(t[2].bitand(Simd::splat(MASK52)), RHO_2);
     let r3 = smult_noinit_simd(t[3].bitand(Simd::splat(MASK52)), RHO_1);
 
-    let s: [Simd<u64, 2>; 6] = t[4..].try_into().unwrap();
-
+    let s = [t[4], t[5], t[6], t[7], t[8], t[9]];
     // This can also be a fiveway-add in a loop, but I think the compiler already takes care of this.
     let s = addv_simd(r3, addv_simd(addv_simd(s, r0), addv_simd(r1, r2)));
 
@@ -273,6 +273,7 @@ pub fn resolve_simd_add_truncate(s: [Simd<u64, 2>; 6], mp: [Simd<u64, 2>; 6]) ->
     }
     out
 }
+
 #[cfg(test)]
 mod tests {
     use std::{hint::black_box, simd::Simd};

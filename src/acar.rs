@@ -233,7 +233,7 @@ mod tests {
     use crate::{
         arith::{modulus, subtraction_step},
         gen::U256b64,
-        NP0, P, R2,
+        subarray, NP0, P, R2,
     };
     use quickcheck_macros::quickcheck;
 
@@ -242,9 +242,9 @@ mod tests {
     fn cios_roundtrip(a: U256b64) -> bool {
         let a = a.0;
         // Montgomery form
-        let a_tilde: [u64; 4] = cios(a, R2, P, NP0)[..4].try_into().unwrap();
+        let a_tilde: [u64; 4] = subarray!(cios(a, R2, P, NP0), 0, 4);
         // and back
-        let a_round: [u64; 4] = cios(a_tilde, [1, 0, 0, 0], P, NP0)[..4].try_into().unwrap();
+        let a_round: [u64; 4] = subarray!(cios(a_tilde, [1, 0, 0, 0], P, NP0), 0, 4);
 
         let d = modulus(a, P);
 

@@ -1,4 +1,5 @@
 use crate::arith::{self, school_method};
+use crate::subarray;
 
 pub const U64_P: [u64; 4] = [
     0x43e1f593f0000001,
@@ -186,10 +187,10 @@ pub fn parallel(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     let r2 = arith::smul(t[1], U64_I2);
     let r3 = arith::smul(t[2], U64_I1);
 
-    let s = addv(addv(t[3..].try_into().unwrap(), r1), addv(r2, r3));
+    let s = addv(addv(subarray!(t, 3, 5), r1), addv(r2, r3));
     let m = U64_MU0.wrapping_mul(s[0]);
     let mp = arith::smul(m, U64_P);
-    addv(s, mp)[1..].try_into().unwrap()
+    subarray!(addv(s, mp), 1, 4)
 }
 
 #[cfg(test)]
