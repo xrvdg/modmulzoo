@@ -4,6 +4,8 @@ use std::{
     simd::{num::SimdFloat, Simd, StdFloat},
 };
 
+use seq_macro::seq;
+
 use crate::{
     emmart::{self, make_initial, MASK52},
     U52_NP0, U52_P,
@@ -71,14 +73,14 @@ pub fn vmult(a: [u64; 5], b: [u64; 5]) -> [u64; 10] {
 
 #[inline(always)]
 pub fn vmultadd_noinit(a: [u64; 5], b: [u64; 5], mut t: [u64; 10]) -> [u64; 10] {
-    for i in 0..a.len() {
-        for j in 0..b.len() {
+    seq!(i in 0..5 {
+        seq!(j in 0..5 {
             let p_hi = (a[i] as f64).mul_add(b[j] as f64, emmart::C1);
             let p_lo = (a[i] as f64).mul_add(b[j] as f64, emmart::C2 - p_hi);
             t[i + j + 1] = t[i + j + 1].wrapping_add(p_hi.to_bits());
             t[i + j] = t[i + j].wrapping_add(p_lo.to_bits());
-        }
-    }
+        });
+    });
 
     t
 }
@@ -89,18 +91,18 @@ pub fn vmultadd_noinit_simd(
     b: [[u64; 5]; 2],
     mut t: [Simd<u64, 2>; 10],
 ) -> [Simd<u64, 2>; 10] {
-    // TODO: One of these loops doesn't get unrolled
-    for i in 0..5 {
+    // Manually unrolling these loop does not result in any performance increase
+    seq!( i in 0..5 {
         let avi = Simd::from_array([a[0][i] as f64, a[1][i] as f64]);
-        for j in 0..5 {
+        seq!(j in 0..5 {
             // TODO: use vector ucvtf?
             let bvj = Simd::from_array([b[0][j] as f64, b[1][j] as f64]);
             let p_hi = (avi).mul_add(bvj, Simd::splat(emmart::C1));
             let p_lo = (avi).mul_add(bvj, Simd::splat(emmart::C2) - p_hi);
             t[i + j + 1] = t[i + j + 1] + p_hi.to_bits();
             t[i + j] = t[i + j] + p_lo.to_bits();
-        }
-    }
+        });
+    });
 
     t
 }
@@ -211,7 +213,7 @@ pub fn parallel_sub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     t[2] += t[1] >> 52;
     t[3] += t[2] >> 52;
     t[4] += t[3] >> 52;
-    // These multiplications can be interleaved, each step is independ
+    // These multiplications can be interleaved, each step is independent
     let r0 = smult_noinit(t[0] & MASK52, RHO_4);
     let r1 = smult_noinit(t[1] & MASK52, RHO_3);
     let r2 = smult_noinit(t[2] & MASK52, RHO_2);
