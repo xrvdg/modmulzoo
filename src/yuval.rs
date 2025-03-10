@@ -39,7 +39,7 @@ const fn mult(lhs: u64, rhs: u64) -> (u64, u64) {
 const fn wadd(lhs: u64, rhs: u64, acc: u128, c: bool) -> (u128, bool) {
     let (reslo, c) = (acc as u64).carrying_add(rhs, c);
     let (reshi, c) = ((acc >> 64) as u64).carrying_add(lhs, c);
-    ((reshi as u128) << 64 | reslo as u128, c)
+    (((reshi as u128) << 64) | reslo as u128, c)
 }
 
 #[inline]
@@ -82,10 +82,10 @@ pub fn mul_logjumps_unr_2(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     (r2, _) = wadd(0u64, c21hi, r2, c);
 
     (r1, c) = wadd(c02hi, c02lo, r1, false);
-    (r2, c) = wadd(c13hi, c13lo, r2, c); // ignore c - limited to input < p
+    (r2, _) = wadd(c13hi, c13lo, r2, c); // ignore c - limited to input < p
 
     (r1, c) = wadd(c20hi, c20lo, r1, false);
-    (r2, c) = wadd(c31hi, c31lo, r2, c); // ignore c - limited to input < p
+    (r2, _) = wadd(c31hi, c31lo, r2, c); // ignore c - limited to input < p
 
     (r1, c) = wadd(c03lo, 0u64, r1, false);
     (r2, c) = wadd(c23lo, c03hi, r2, c);
@@ -196,10 +196,10 @@ pub fn parallel(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
 #[cfg(test)]
 mod tests {
     use crate::{
-        arith::{modulus, subtraction_step},
+        arith::modulus,
         gen::U256b64,
         yuval::{mul_logjumps_unr_2, parallel},
-        NP0, P, R2,
+        P, R2,
     };
     use quickcheck_macros::quickcheck;
 

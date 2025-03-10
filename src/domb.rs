@@ -101,8 +101,8 @@ pub fn vmultadd_noinit_simd(
             let bvj = Simd::from_array([b[0][j] as f64, b[1][j] as f64]);
             let p_hi = (avi).mul_add(bvj, Simd::splat(emmart::C1));
             let p_lo = (avi).mul_add(bvj, Simd::splat(emmart::C2) - p_hi);
-            t[i + j + 1] = t[i + j + 1] + p_hi.to_bits();
-            t[i + j] = t[i + j] + p_lo.to_bits();
+            t[i + j + 1] += p_hi.to_bits();
+            t[i + j] += p_lo.to_bits();
         });
     });
 
@@ -151,8 +151,8 @@ fn smult_noinit_simd(s: Simd<u64, 2>, v: [u64; 5]) -> [Simd<u64, 2>; 6] {
     for i in 0..v.len() {
         let p_hi = s.mul_add(Simd::splat(v[i] as f64), Simd::splat(emmart::C1));
         let p_lo = s.mul_add(Simd::splat(v[i] as f64), Simd::splat(emmart::C2) - p_hi);
-        t[i + 1] = t[i + 1] + p_hi.to_bits();
-        t[i] = t[i] + p_lo.to_bits();
+        t[i + 1] += p_hi.to_bits();
+        t[i] += p_lo.to_bits();
     }
 
     t
@@ -173,7 +173,7 @@ fn addv_simd<const N: usize>(
     vb: [Simd<u64, 2>; N],
 ) -> [Simd<u64, 2>; N] {
     for i in 0..va.len() {
-        va[i] = va[i] + vb[i];
+        va[i] += vb[i];
     }
     va
 }
@@ -276,10 +276,9 @@ pub fn resolve_simd_add_truncate(s: [Simd<u64, 2>; 6], mp: [Simd<u64, 2>; 6]) ->
 
 #[cfg(test)]
 mod tests {
-    use std::{hint::black_box, simd::Simd};
 
     use crate::{
-        emmart::{modulus_u52, set_round_to_zero, subtraction_step_u52},
+        emmart::{modulus_u52, set_round_to_zero},
         gen::U256b52,
         U52_P, U52_R2,
     };

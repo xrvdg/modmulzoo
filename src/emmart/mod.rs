@@ -1,5 +1,5 @@
 use std::{
-    arch::{aarch64::vcvtq_f64_u64, asm},
+    arch::aarch64::vcvtq_f64_u64,
     ops::BitAnd,
     simd::{num::SimdFloat, Simd, StdFloat},
 };
@@ -204,8 +204,8 @@ pub fn cios_opt_sub_simd(a: [u64; 5], b: [u64; 5], c: [u64; 5], d: [u64; 5]) -> 
             let sbj: Simd<f64, 2> = unsafe { vcvtq_f64_u64(sbj.into()).into() };
             let p_hi = sai.mul_add(sbj, Simd::splat(C1));
             let p_lo = sai.mul_add(sbj, Simd::splat(C2) - p_hi);
-            t[j + 1] = t[j + 1] + p_hi.to_bits();
-            t[j] = t[j] + p_lo.to_bits();
+            t[j + 1] += p_hi.to_bits();
+            t[j] += p_lo.to_bits();
         }
 
         let m = (t[0] * Simd::splat(U52_NP0)).bitand(Simd::splat(MASK52));
@@ -368,8 +368,8 @@ pub fn fios_opt_sub_simd(
         let p_hi = sai.mul_add(sb0, Simd::splat(C1));
         let p_lo = sai.mul_add(sb0, Simd::splat(C2) - p_hi);
 
-        t[0] = t[0] + p_lo.to_bits();
-        t[1] = t[1] + p_hi.to_bits();
+        t[0] += p_lo.to_bits();
+        t[1] += p_hi.to_bits();
         // This should have been scalar
         let m = (t[0] * Simd::splat(U52_NP0)).bitand(Simd::splat(MASK52));
         let m: Simd<f64, 2> = unsafe { vcvtq_f64_u64(m.into()).into() };
@@ -428,8 +428,8 @@ pub fn fios_opt_sub_simd_sat(
         let p_hi = sai.mul_add(sb0, Simd::splat(C1));
         let p_lo = sai.mul_add(sb0, Simd::splat(C2) - p_hi);
 
-        t[0] = t[0] + p_lo.to_bits();
-        t[1] = t[1] + p_hi.to_bits();
+        t[0] += p_lo.to_bits();
+        t[1] += p_hi.to_bits();
         // This should have been scalar
         let m = (t[0] * Simd::splat(np0)).bitand(Simd::splat(MASK52));
         let m = Simd::from_array([m[0] as f64, m[1] as f64, m[2] as f64, m[3] as f64]);
@@ -493,8 +493,8 @@ pub fn fios_opt_sub_simd_sat_seq(
         let p_hi = sai.mul_add(sb0, Simd::splat(C1));
         let p_lo = sai.mul_add(sb0, Simd::splat(C2) - p_hi);
 
-        t[0] = t[0] + p_lo.to_bits();
-        t[1] = t[1] + p_hi.to_bits();
+        t[0] += p_lo.to_bits();
+        t[1] += p_hi.to_bits();
         // This should have been scalar
         let m = (t[0] * Simd::splat(np0)).bitand(Simd::splat(MASK52));
         let m = Simd::from_array([m[0] as f64, m[1] as f64, m[2] as f64, m[3] as f64]);
@@ -542,8 +542,7 @@ pub fn fios_opt_sub_simd_seq(
     }
     let sb0 = Simd::from_array([b[0] as f64, d[0] as f64]);
 
-    // let snd = crate::acar::cios_opt_seq(w, x, P, NP0);
-    let snd = [0; 6];
+    let snd = crate::acar::cios_opt_seq(w, x, P, NP0);
 
     seq!(i in 0..5 {
         // Does this give optimal assembly?
@@ -555,8 +554,8 @@ pub fn fios_opt_sub_simd_seq(
         let p_hi = sai.mul_add(sb0, Simd::splat(C1));
         let p_lo = sai.mul_add(sb0, Simd::splat(C2) - p_hi);
 
-        t[0] = t[0] + p_lo.to_bits();
-        t[1] = t[1] + p_hi.to_bits();
+        t[0] += p_lo.to_bits();
+        t[1] += p_hi.to_bits();
         // This should have been scalar
         let m = (t[0] * Simd::splat(np0)).bitand(Simd::splat(MASK52));
         let m = Simd::from_array([m[0] as f64, m[1] as f64]);
