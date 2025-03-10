@@ -7,7 +7,7 @@ use std::{
 use seq_macro::seq;
 
 use crate::{
-    emmart::{self, make_initial, MASK52},
+    emmart::{self, make_initial, set_fpcr, set_round_to_zero, MASK52},
     U52_NP0, U52_P,
 };
 
@@ -200,7 +200,19 @@ pub fn parallel_ref(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     subarray!(resolved, 1, 5)
 }
 
+pub fn parallel_sub_fpcr(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
+    let fpcr = set_round_to_zero();
+    let res = parallel_sub(a, b);
+    set_fpcr(fpcr);
+    res
+}
+
+pub fn parallel_sub_stub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
+    parallel_sub(a, b)
+}
+
 // Performs a lot better on MacOS (22ns vs 28 ns) but loses 2-3 ns on the Raspberry Pi compared to parallel_ref
+#[inline(always)]
 pub fn parallel_sub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     let mut t: [u64; 10] = [0; 10];
     for i in 0..5 {

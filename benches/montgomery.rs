@@ -299,6 +299,25 @@ fn bench_emmart(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_fpcr(c: &mut Criterion) {
+    let mut group = c.benchmark_group("fpcr");
+
+    // Benchmark set_round_to_zero
+    group.bench_function("set_round_to_zero", |bencher| {
+        bencher.iter(|| emmart::set_round_to_zero())
+    });
+
+    // Benchmark setting and then resetting FPCR
+    group.bench_function("set_and_reset_fpcr", |bencher| {
+        bencher.iter(|| {
+            let original_fpcr = black_box(emmart::set_round_to_zero());
+            emmart::set_fpcr(original_fpcr);
+        })
+    });
+
+    group.finish();
+}
+
 fn bench_domb(c: &mut Criterion) {
     let mut group = c.benchmark_group("Domb");
 
@@ -349,7 +368,11 @@ fn bench_domb(c: &mut Criterion) {
     });
 
     group.bench_function("parallel_f64_sub", |bencher| {
-        bencher.iter(|| domb::parallel_sub(black_box(domb_a), black_box(domb_b)))
+        bencher.iter(|| domb::parallel_sub_stub(black_box(domb_a), black_box(domb_b)))
+    });
+
+    group.bench_function("parallel_f64_sub_fpcr", |bencher| {
+        bencher.iter(|| domb::parallel_sub_fpcr(black_box(domb_a), black_box(domb_b)))
     });
 
     group.bench_function("parallel_f64_sub_simd", |bencher| {
@@ -368,6 +391,6 @@ criterion_group!(
         // Warm up is warm because it literally warms up the pi
         .warm_up_time(std::time::Duration::new(1,0))
         .measurement_time(std::time::Duration::new(10,0));
-    targets = bench_acar, bench_emmart, bench_domb
+    targets = bench_acar, bench_emmart, bench_domb, bench_fpcr
 );
 criterion_main!(benches);

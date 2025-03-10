@@ -47,21 +47,42 @@ pub fn modulus_u52<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
 
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-pub fn set_round_to_zero() {
+pub fn set_round_to_zero() -> u64 {
+    let fpcr: u64;
     unsafe {
         // Set RMode (bits 22-23) to 0b11 for round toward zero
         core::arch::asm!(
-            "mrs {tmp}, fpcr",             // Read current FPCR
-            "orr {tmp}, {tmp}, #0b11<<22", // Set RMode bits to 11 using bit shift notation
+            "mrs {fpcr}, fpcr",             // Read current FPCR
+            "orr {tmp}, {fpcr}, #0b11<<22", // Set RMode bits to 11 using bit shift notation
             "msr fpcr, {tmp}",             // Write back to FPCR
-            tmp = out(reg) _
+            tmp = out(reg) _,
+            fpcr = out(reg) fpcr,
         );
+    }
+    fpcr
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+#[inline]
+pub fn set_round_to_zero() -> u64 {
+    // No-op or panic depending on your needs for non-ARM platforms
+    unimplemented!("Round to zero is only implemented for ARM64");
+}
+
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+pub fn set_fpcr(fpcr: u64) {
+    unsafe {
+        core::arch::asm!(
+            "msr fpcr, {fpcr}",
+            fpcr = in(reg) fpcr
+        )
     }
 }
 
 #[cfg(not(target_arch = "aarch64"))]
 #[inline]
-pub fn set_round_to_zero() {
+pub fn set_fpcr() -> u64 {
     // No-op or panic depending on your needs for non-ARM platforms
     unimplemented!("Round to zero is only implemented for ARM64");
 }
