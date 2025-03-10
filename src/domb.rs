@@ -211,6 +211,40 @@ pub fn parallel_sub_stub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     parallel_sub(a, b)
 }
 
+#[inline(always)]
+fn convert_limb_64_52_shl2(limbs: [u64; 4]) -> [u64; 5] {
+    let [l0, l1, l2, l3] = limbs;
+
+    [
+        (l0 << 2) & MASK52,
+        ((l0 >> 50) | (l1 << 14)) & MASK52,
+        ((l1 >> 38) | (l2 << 26)) & MASK52,
+        ((l2 >> 26) | (l3 << 38)) & MASK52,
+        l3 >> 14,
+    ]
+}
+
+// Would it be worth fusing this with resolve?
+#[inline(always)]
+fn convert_limb_52_64(limbs: [u64; 5]) -> [u64; 4] {
+    let [l0, l1, l2, l3, l4] = limbs;
+    [
+        l0 | (l1 << 52),
+        ((l1 >> 12) | (l2 << 40)),
+        ((l2 >> 24) | (l3 << 28)),
+        ((l3 >> 36) | (l4 << 16)),
+    ]
+}
+
+pub fn parallel_sub_R256(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
+    let fpcr = set_round_to_zero();
+    let a = convert_limb_64_52_shl2(a);
+    let b = convert_limb_64_52_shl2(b);
+    let res = convert_limb_52_64(parallel_sub(a, b));
+    set_fpcr(fpcr);
+    res
+}
+
 // Performs a lot better on MacOS (22ns vs 28 ns) but loses 2-3 ns on the Raspberry Pi compared to parallel_ref
 #[inline(always)]
 pub fn parallel_sub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
@@ -290,9 +324,10 @@ pub fn resolve_simd_add_truncate(s: [Simd<u64, 2>; 6], mp: [Simd<u64, 2>; 6]) ->
 mod tests {
 
     use crate::{
+        arith,
         emmart::{modulus_u52, set_round_to_zero},
-        gen::U256b52,
-        U52_P, U52_R2,
+        gen::{U256b52, U256b64},
+        yuval, P, R2, U52_P, U52_R2,
     };
     use quickcheck_macros::quickcheck;
 
@@ -326,5 +361,21 @@ mod tests {
 
         assert_eq!(modulus_u52(a.0, U52_P), modulus_u52(a_round[0], U52_P));
         assert_eq!(modulus_u52(b.0, U52_P), modulus_u52(a_round[1], U52_P));
+    }
+
+    #[quickcheck]
+    fn parallel_sub_U256_round(a: U256b64) {
+        let a_tilde = super::parallel_sub_R256(a.0, R2);
+        let a_round = super::parallel_sub_R256(a_tilde, [1, 0, 0, 0]);
+
+        assert_eq!(arith::modulus(a.0, P), arith::modulus(a_round, P));
+    }
+
+    #[quickcheck]
+    fn parallel_sub_U256_eq(a: U256b64) {
+        let a_float = super::parallel_sub_R256(a.0, R2);
+        let a_uint = yuval::parallel(a.0, R2);
+
+        assert_eq!(arith::modulus(a_float, P), arith::modulus(a_uint, P));
     }
 }

@@ -1,0 +1,7 @@
+---
+description: Use a tool (cargo add) instead of modifying Cargo.toml
+globs: Cargo.toml
+alwaysApply: true
+---
+Before adding a crate include a link to the crate for me to manually verify. The link should be clickable from Cursor AI chat window. 
+To add a create use `cargo add` instead of modiying Cargo.toml to add a dependency to the project.

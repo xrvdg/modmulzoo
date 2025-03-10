@@ -375,6 +375,10 @@ fn bench_domb(c: &mut Criterion) {
         bencher.iter(|| domb::parallel_sub_fpcr(black_box(domb_a), black_box(domb_b)))
     });
 
+    group.bench_function("parallel_f64_R256", |bencher| {
+        bencher.iter(|| domb::parallel_sub_R256(black_box(yuval_a), black_box(yuval_b)))
+    });
+
     group.bench_function("parallel_f64_sub_simd", |bencher| {
         bencher.iter(|| {
             domb::parallel_simd_sub(black_box([domb_a, domb_b]), black_box([domb_b, domb_a]))
