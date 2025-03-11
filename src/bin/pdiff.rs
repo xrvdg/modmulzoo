@@ -1,0 +1,140 @@
+use montgomery_reduction::{arith, domb, yuval, P, R2};
+use rand::Rng;
+use std::collections::HashMap;
+
+fn generate_random_input() -> [u64; 4] {
+    let mut rng = rand::rng();
+
+    [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>() & (2_u64.pow(63) - 1),
+    ]
+}
+
+fn main() {
+    println!("Testing differences between parallel_sub_r256 and yuval::parallel");
+    println!("============================================================");
+
+    // Create a histogram to track frequency of p count diffs
+    let mut p_diff_histogram: HashMap<u64, u32> = HashMap::new();
+    let mut p_domb_histogram: HashMap<u64, u32> = HashMap::new();
+    let mut p_yuval_histogram: HashMap<u64, u32> = HashMap::new();
+    let num_test_cases = 10_000_000;
+
+    // Statistics tracking
+    let mut equal_modp_count = 0;
+    let mut equal_result_count = 0;
+
+    println!("Generating and testing {} random cases...", num_test_cases);
+
+    // Generate and test random inputs
+    for _ in 0..num_test_cases {
+        let input = generate_random_input();
+        let input2 = generate_random_input();
+
+        // Calculate results using both methods
+        let result_domb = domb::parallel_sub_r256(input, input2);
+        let result_yuval = yuval::parallel(input, input2);
+
+        // Calculate modular values
+        let (mod_domb, count_domb) = arith::modulus_count(result_domb, P);
+        let (mod_yuval, count_yuval) = arith::modulus_count(result_yuval, P);
+
+        *p_yuval_histogram.entry(count_yuval).or_insert(0) += 1;
+        *p_domb_histogram.entry(count_domb).or_insert(0) += 1;
+        // Are they equal modulo P?
+        assert_eq!(mod_domb, mod_yuval);
+        if mod_domb == mod_yuval {
+            equal_modp_count += 1;
+        }
+
+        // Are the raw results equal?
+        let equal_result = result_domb == result_yuval;
+        if equal_result {
+            equal_result_count += 1;
+        }
+
+        // Count how many P's difference there is
+        let p_count = count_domb.abs_diff(count_yuval);
+
+        // Update histogram
+        *p_diff_histogram.entry(p_count).or_insert(0) += 1;
+
+        // Print progress every 100 cases
+    }
+
+    // Print summary statistics
+    println!("\nSummary:");
+    println!("Total test cases: {}", num_test_cases);
+    println!(
+        "Equal modulo P: {} ({:.2}%)",
+        equal_modp_count,
+        (equal_modp_count as f64 / num_test_cases as f64) * 100.0
+    );
+    println!(
+        "Equal raw result: {} ({:.2}%)",
+        equal_result_count,
+        (equal_result_count as f64 / num_test_cases as f64) * 100.0
+    );
+
+    // Print histogram
+    println!("\nP Count Difference Histogram:");
+    println!(
+        "| {:^10} | {:^10} | {:^10} |",
+        "P Count", "Frequency", "Percentage"
+    );
+    println!("|{:-<12}|{:-<12}|{:-<12}|", "", "", "");
+
+    // Convert histogram to a vector for sorting
+    let mut histogram_vec: Vec<(u64, u32)> = p_diff_histogram.into_iter().collect();
+    histogram_vec.sort_by_key(|&(count, _)| count);
+
+    for (p_count, frequency) in histogram_vec {
+        let percentage = (frequency as f64 / num_test_cases as f64) * 100.0;
+        println!(
+            "| {:<10} | {:<10} | {:>8.2}% |",
+            p_count, frequency, percentage
+        );
+    }
+
+    // Print histogram
+    println!("\nP Count Unsigned Histogram:");
+    println!(
+        "| {:^10} | {:^10} | {:^10} |",
+        "P Count", "Frequency", "Percentage"
+    );
+    println!("|{:-<12}|{:-<12}|{:-<12}|", "", "", "");
+
+    // Convert histogram to a vector for sorting
+    let mut histogram_vec: Vec<(u64, u32)> = p_yuval_histogram.into_iter().collect();
+    histogram_vec.sort_by_key(|&(count, _)| count);
+
+    for (p_count, frequency) in histogram_vec {
+        let percentage = (frequency as f64 / num_test_cases as f64) * 100.0;
+        println!(
+            "| {:<10} | {:<10} | {:>8.2}% |",
+            p_count, frequency, percentage
+        );
+    }
+    // Print histogram
+    println!("\nP Count Float Histogram:");
+    println!(
+        "| {:^10} | {:^10} | {:^10} |",
+        "P Count", "Frequency", "Percentage"
+    );
+    println!("|{:-<12}|{:-<12}|{:-<12}|", "", "", "");
+
+    // Convert histogram to a vector for sorting
+    let mut histogram_vec: Vec<(u64, u32)> = p_domb_histogram.into_iter().collect();
+    histogram_vec.sort_by_key(|&(count, _)| count);
+
+    for (p_count, frequency) in histogram_vec {
+        let percentage = (frequency as f64 / num_test_cases as f64) * 100.0;
+        println!(
+            "| {:<10} | {:<10} | {:>8.2}% |",
+            p_count, frequency, percentage
+        );
+    }
+}
