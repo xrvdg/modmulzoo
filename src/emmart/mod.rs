@@ -59,7 +59,10 @@ pub fn set_round_to_zero() -> u64 {
             fpcr = out(reg) fpcr,
         );
     }
-    fpcr
+
+    // Prevent the compiler from moving it around.
+    // However this can't necessarily be relied on
+    std::hint::black_box(fpcr)
 }
 
 #[cfg(not(target_arch = "aarch64"))]
@@ -72,6 +75,7 @@ pub fn set_round_to_zero() -> u64 {
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
 pub fn set_fpcr(fpcr: u64) {
+    std::hint::black_box(fpcr);
     unsafe {
         core::arch::asm!(
             "msr fpcr, {fpcr}",

@@ -5,7 +5,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use montgomery_reduction::arith::school_method;
 use montgomery_reduction::emmart;
 use montgomery_reduction::{acar, NP0, P, U52_NP0, U52_P};
-use montgomery_reduction::{domb, yuval, U52_R2};
+use montgomery_reduction::{domb, yuval};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -375,13 +375,13 @@ fn bench_domb(c: &mut Criterion) {
         bencher.iter(|| domb::parallel_sub_fpcr(black_box(domb_a), black_box(domb_b)))
     });
 
-    group.bench_function("parallel_f64_R256", |bencher| {
-        bencher.iter(|| domb::parallel_sub_R256(black_box(yuval_a), black_box(yuval_b)))
+    group.bench_function("parallel_f64_r256", |bencher| {
+        bencher.iter(|| domb::parallel_sub_r256(black_box(yuval_a), black_box(yuval_b)))
     });
 
-    group.bench_function("parallel_f64_simd_R256", |bencher| {
+    group.bench_function("parallel_f64_simd_r256", |bencher| {
         bencher.iter(|| {
-            domb::parallel_sub_simd_R256(
+            domb::parallel_sub_simd_r256(
                 black_box([yuval_a, yuval_b]),
                 black_box([yuval_a, yuval_b]),
             )

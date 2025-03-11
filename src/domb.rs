@@ -285,7 +285,12 @@ fn convert_limb_52_64_simd(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
     ]
 }
 
-pub fn parallel_sub_R256(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
+pub fn parallel_sub_r256(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
+    // Both these prevent it from moving around
+    // Black box can't be trusted to hold even though it is likely in practice
+    // let fpcr = std::hint::black_box(set_round_to_zero());
+    // Second seems to work, but
+    // let fpcr = set_round_to_zero_never_inline();
     let fpcr = set_round_to_zero();
     let a = convert_limb_64_52_shl2(a);
     let b = convert_limb_64_52_shl2(b);
@@ -324,7 +329,7 @@ pub fn parallel_sub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     subarray!(resolved, 1, 5)
 }
 
-pub fn parallel_sub_simd_R256(a: [[u64; 4]; 2], b: [[u64; 4]; 2]) -> [[u64; 4]; 2] {
+pub fn parallel_sub_simd_r256(a: [[u64; 4]; 2], b: [[u64; 4]; 2]) -> [[u64; 4]; 2] {
     let fpcr = set_round_to_zero();
     let a = convert_limb_64_52_shl2_simd(convert_to_simd(a));
     let b = convert_limb_64_52_shl2_simd(convert_to_simd(b));
@@ -500,29 +505,29 @@ mod tests {
     }
 
     #[quickcheck]
-    fn parallel_sub_simd_R256_round(a: U256b64, b: U256b64) {
+    fn parallel_sub_simd_r256_round(a: U256b64, b: U256b64) {
         let a_arrays = [a.0, b.0];
         let r2_arrays = [R2, R2];
-        let a_tilde = super::parallel_sub_simd_R256(a_arrays, r2_arrays);
+        let a_tilde = super::parallel_sub_simd_r256(a_arrays, r2_arrays);
 
         let ones_arrays = [[1, 0, 0, 0], [1, 0, 0, 0]];
-        let a_round = super::parallel_sub_simd_R256(a_tilde, ones_arrays);
+        let a_round = super::parallel_sub_simd_r256(a_tilde, ones_arrays);
 
         assert_eq!(arith::modulus(a.0, P), arith::modulus(a_round[0], P));
         // assert_eq!(arith::modulus(b.0, P), arith::modulus(a_round[1], P));
     }
 
     #[quickcheck]
-    fn parallel_sub_U256_round(a: U256b64) {
-        let a_tilde = super::parallel_sub_R256(a.0, R2);
-        let a_round = super::parallel_sub_R256(a_tilde, [1, 0, 0, 0]);
+    fn parallel_sub_r256_round(a: U256b64) {
+        let a_tilde = super::parallel_sub_r256(a.0, R2);
+        let a_round = super::parallel_sub_r256(a_tilde, [1, 0, 0, 0]);
 
         assert_eq!(arith::modulus(a.0, P), arith::modulus(a_round, P));
     }
 
     #[quickcheck]
-    fn parallel_sub_U256_eq(a: U256b64) {
-        let a_float = super::parallel_sub_R256(a.0, R2);
+    fn parallel_sub_r256_eq(a: U256b64) {
+        let a_float = super::parallel_sub_r256(a.0, R2);
         let a_uint = yuval::parallel(a.0, R2);
 
         assert_eq!(arith::modulus(a_float, P), arith::modulus(a_uint, P));
