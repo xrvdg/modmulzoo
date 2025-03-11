@@ -88,7 +88,7 @@ pub fn vmultadd_noinit(a: [u64; 5], b: [u64; 5], mut t: [u64; 10]) -> [u64; 10] 
 }
 
 #[inline(always)]
-pub fn vmultadd_noinit_simd(
+pub fn trans_vmultadd_noinit_simd(
     a: [[u64; 5]; 2],
     b: [[u64; 5]; 2],
     mut t: [Simd<u64, 2>; 10],
@@ -99,6 +99,27 @@ pub fn vmultadd_noinit_simd(
         seq!(j in 0..5 {
             // TODO: use vector ucvtf?
             let bvj = Simd::from_array([b[0][j] as f64, b[1][j] as f64]);
+            let p_hi = (avi).mul_add(bvj, Simd::splat(emmart::C1));
+            let p_lo = (avi).mul_add(bvj, Simd::splat(emmart::C2) - p_hi);
+            t[i + j + 1] += p_hi.to_bits();
+            t[i + j] += p_lo.to_bits();
+        });
+    });
+
+    t
+}
+
+#[inline(always)]
+pub fn vmultadd_noinit_simd(
+    a: [Simd<u64, 2>; 5],
+    b: [Simd<u64, 2>; 5],
+    mut t: [Simd<u64, 2>; 10],
+) -> [Simd<u64, 2>; 10] {
+    // Manually unrolling these loop does not result in any performance increase
+    seq!( i in 0..5 {
+        let avi: Simd<f64, 2> = unsafe { vcvtq_f64_u64(a[i].into()).into() };
+        seq!(j in 0..5 {
+            let bvj: Simd<f64, 2> = unsafe { vcvtq_f64_u64(b[j].into()).into() };
             let p_hi = (avi).mul_add(bvj, Simd::splat(emmart::C1));
             let p_lo = (avi).mul_add(bvj, Simd::splat(emmart::C2) - p_hi);
             t[i + j + 1] += p_hi.to_bits();
@@ -224,9 +245,37 @@ fn convert_limb_64_52_shl2(limbs: [u64; 4]) -> [u64; 5] {
     ]
 }
 
+pub fn convert_limb_64_52_shl2_simd_stub(limbs: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
+    convert_limb_64_52_shl2_simd(limbs)
+}
+
+#[inline(always)]
+fn convert_limb_64_52_shl2_simd(limbs: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
+    let [l0, l1, l2, l3] = limbs;
+    [
+        (l0 << 2) & Simd::splat(MASK52),
+        ((l0 >> 50) | (l1 << 14)) & Simd::splat(MASK52),
+        ((l1 >> 38) | (l2 << 26)) & Simd::splat(MASK52),
+        ((l2 >> 26) | (l3 << 38)) & Simd::splat(MASK52),
+        l3 >> 14,
+    ]
+}
+
 // Would it be worth fusing this with resolve?
 #[inline(always)]
 fn convert_limb_52_64(limbs: [u64; 5]) -> [u64; 4] {
+    let [l0, l1, l2, l3, l4] = limbs;
+    [
+        l0 | (l1 << 52),
+        ((l1 >> 12) | (l2 << 40)),
+        ((l2 >> 24) | (l3 << 28)),
+        ((l3 >> 36) | (l4 << 16)),
+    ]
+}
+
+// THis can probably be combined and monomorphised, but that would require an into most likely
+#[inline(always)]
+fn convert_limb_52_64_simd(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
     let [l0, l1, l2, l3, l4] = limbs;
     [
         l0 | (l1 << 52),
@@ -275,7 +324,11 @@ pub fn parallel_sub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     subarray!(resolved, 1, 5)
 }
 
-pub fn parallel_simd_sub(a: [[u64; 5]; 2], b: [[u64; 5]; 2]) -> [[u64; 5]; 2] {
+pub fn parallel_sub_simd_R256(a: [[u64; 4]; 2], b: [[u64; 4]; 2]) -> [[u64; 4]; 2] {
+    let fpcr = set_round_to_zero();
+    let a = convert_limb_64_52_shl2_simd(convert_to_simd(a));
+    let b = convert_limb_64_52_shl2_simd(convert_to_simd(b));
+
     let mut t: [Simd<u64, 2>; 10] = [Simd::splat(0); 10];
     for i in 0..5 {
         t[i] = Simd::splat(make_initial(i + 1 + 5 * heaviside(i as isize - 4), i));
@@ -304,12 +357,53 @@ pub fn parallel_simd_sub(a: [[u64; 5]; 2], b: [[u64; 5]; 2]) -> [[u64; 5]; 2] {
 
     let m = (s[0] * Simd::splat(U52_NP0)).bitand(Simd::splat(MASK52));
     let mp = smult_noinit_simd(m, U52_P);
-    resolve_simd_add_truncate(s, mp)
+
+    let resolve = resolve_simd_add_truncate(s, mp);
+    let convert_limb = convert_limb_52_64_simd(resolve);
+    let res = convert_from_simd(convert_limb);
+
+    set_fpcr(fpcr);
+    res
+}
+
+pub fn parallel_simd_sub(a: [[u64; 5]; 2], b: [[u64; 5]; 2]) -> [[u64; 5]; 2] {
+    let mut t: [Simd<u64, 2>; 10] = [Simd::splat(0); 10];
+    for i in 0..5 {
+        t[i] = Simd::splat(make_initial(i + 1 + 5 * heaviside(i as isize - 4), i));
+        let j = 10 - 1 - i;
+        t[j] = Simd::splat(make_initial(
+            i + 5 * (1 - heaviside(j as isize - 9)),
+            i + 1 + 5 * 1,
+        ));
+    }
+
+    let mut t = trans_vmultadd_noinit_simd(a, b, t);
+
+    t[1] += t[0] >> 52;
+    t[2] += t[1] >> 52;
+    t[3] += t[2] >> 52;
+    t[4] += t[3] >> 52;
+    // These multiplications can be interleaved, each step is independ
+    let r0 = smult_noinit_simd(t[0].bitand(Simd::splat(MASK52)), RHO_4);
+    let r1 = smult_noinit_simd(t[1].bitand(Simd::splat(MASK52)), RHO_3);
+    let r2 = smult_noinit_simd(t[2].bitand(Simd::splat(MASK52)), RHO_2);
+    let r3 = smult_noinit_simd(t[3].bitand(Simd::splat(MASK52)), RHO_1);
+
+    let s = [t[4], t[5], t[6], t[7], t[8], t[9]];
+    // This can also be a fiveway-add in a loop, but I think the compiler already takes care of this.
+    let s = addv_simd(r3, addv_simd(addv_simd(s, r0), addv_simd(r1, r2)));
+
+    let m = (s[0] * Simd::splat(U52_NP0)).bitand(Simd::splat(MASK52));
+    let mp = smult_noinit_simd(m, U52_P);
+    resolve_simd_add_truncate_trans(s, mp)
 }
 
 // Has no performance improvements over resolve_simd(addv_simd) and then manually truncating it.
 #[inline(always)]
-pub fn resolve_simd_add_truncate(s: [Simd<u64, 2>; 6], mp: [Simd<u64, 2>; 6]) -> [[u64; 5]; 2] {
+pub fn resolve_simd_add_truncate_trans(
+    s: [Simd<u64, 2>; 6],
+    mp: [Simd<u64, 2>; 6],
+) -> [[u64; 5]; 2] {
     let mut out = [[0; 5]; 2];
     let mut carry = (s[0] + mp[0]) >> 52;
     for i in 0..5 {
@@ -318,6 +412,48 @@ pub fn resolve_simd_add_truncate(s: [Simd<u64, 2>; 6], mp: [Simd<u64, 2>; 6]) ->
         carry = tmp >> 52;
     }
     out
+}
+
+#[inline(always)]
+pub fn resolve_simd_add_truncate(s: [Simd<u64, 2>; 6], mp: [Simd<u64, 2>; 6]) -> [Simd<u64, 2>; 5] {
+    let mut out = [Simd::splat(0); 5];
+    let mut carry = (s[0] + mp[0]) >> 52;
+    for i in 0..5 {
+        let tmp = s[i + 1] + mp[i + 1] + carry;
+        out[i] = tmp.bitand(Simd::splat(MASK52));
+        carry = tmp >> 52;
+    }
+    out
+}
+
+#[inline(never)]
+pub fn convert_to_simd_stub(limbs: [[u64; 4]; 2]) -> [Simd<u64, 2>; 4] {
+    convert_to_simd(limbs)
+}
+
+#[inline(always)]
+// TODO: mention in name that it does SIMD
+pub fn convert_to_simd(limbs: [[u64; 4]; 2]) -> [Simd<u64, 2>; 4] {
+    // This does not issue multiple ldp and zip which might be marginally faster.
+    [
+        Simd::from_array([limbs[0][0], limbs[1][0]]),
+        Simd::from_array([limbs[0][1], limbs[1][1]]),
+        Simd::from_array([limbs[0][2], limbs[1][2]]),
+        Simd::from_array([limbs[0][3], limbs[1][3]]),
+    ]
+}
+
+#[inline(always)]
+pub fn convert_from_simd(limbs: [Simd<u64, 2>; 4]) -> [[u64; 4]; 2] {
+    let mut result = [[0; 4]; 2];
+
+    for i in 0..limbs.len() {
+        let tmp = limbs[i].to_array();
+        result[0][i] = tmp[0];
+        result[1][i] = tmp[1];
+    }
+
+    result
 }
 
 #[cfg(test)]
@@ -361,6 +497,19 @@ mod tests {
 
         assert_eq!(modulus_u52(a.0, U52_P), modulus_u52(a_round[0], U52_P));
         assert_eq!(modulus_u52(b.0, U52_P), modulus_u52(a_round[1], U52_P));
+    }
+
+    #[quickcheck]
+    fn parallel_sub_simd_R256_round(a: U256b64, b: U256b64) {
+        let a_arrays = [a.0, b.0];
+        let r2_arrays = [R2, R2];
+        let a_tilde = super::parallel_sub_simd_R256(a_arrays, r2_arrays);
+
+        let ones_arrays = [[1, 0, 0, 0], [1, 0, 0, 0]];
+        let a_round = super::parallel_sub_simd_R256(a_tilde, ones_arrays);
+
+        assert_eq!(arith::modulus(a.0, P), arith::modulus(a_round[0], P));
+        // assert_eq!(arith::modulus(b.0, P), arith::modulus(a_round[1], P));
     }
 
     #[quickcheck]
