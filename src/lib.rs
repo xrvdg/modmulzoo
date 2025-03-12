@@ -7,6 +7,7 @@ pub mod domb;
 pub mod emmart;
 mod gen;
 pub mod yuval;
+pub mod interleaved;
 
 pub const NP0: u64 = 0xc2e1f593efffffff;
 
