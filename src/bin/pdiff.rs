@@ -1,16 +1,36 @@
+/// Explore the differences between the single step unsigned and floating point algorithm
+/// and how many excessive Ps they contain.
 use montgomery_reduction::{arith, domb, yuval, P, R2};
+use num_bigint::BigUint;
 use rand::Rng;
 use std::collections::HashMap;
 
 fn generate_random_input() -> [u64; 4] {
     let mut rng = rand::rng();
+    let to_biguint = |v: &[u64]| {
+        BigUint::from_bytes_le(&v.iter().flat_map(|b| b.to_le_bytes()).collect::<Vec<u8>>())
+    };
+    let max = BigUint::new(vec![u32::max_value(); 8]) - 2_u32 * to_biguint(&P);
 
-    [
+    let mut val = [
         rng.random::<u64>(),
         rng.random::<u64>(),
         rng.random::<u64>(),
-        rng.random::<u64>() & (2_u64.pow(63) - 1),
-    ]
+        rng.random::<u64>(),
+    ];
+
+    // The random generator in num_bigint doesn't work past rand 0.7. Therefore we sample a random value and if it's
+    // above our maximum we'll sample again.
+    while to_biguint(&val) > max {
+        val = [
+            rng.random::<u64>(),
+            rng.random::<u64>(),
+            rng.random::<u64>(),
+            rng.random::<u64>(),
+        ];
+    }
+
+    val
 }
 
 fn main() {
