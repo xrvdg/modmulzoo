@@ -47,6 +47,9 @@ pub fn modulus_u52<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
 
 #[cfg(target_arch = "aarch64")]
 #[inline(never)]
+/// Set the floating point rounding mode to round to zero
+///
+/// inline(never) to prevent to compiler from reordering
 pub fn set_round_to_zero() -> u64 {
     let fpcr: u64;
     unsafe {
@@ -60,8 +63,9 @@ pub fn set_round_to_zero() -> u64 {
         );
     }
 
-    // Prevent the compiler from moving it around.
-    // However this can't necessarily be relied on
+    // Defense-in-depth but can't be relied on
+    // From the documentation:
+    // Programs cannot rely on black_box for correctness, beyond it behaving as the identity function. As such, it must not be relied upon to control critical program behavior.
     std::hint::black_box(fpcr)
 }
 
@@ -73,8 +77,17 @@ pub fn set_round_to_zero() -> u64 {
 
 #[cfg(target_arch = "aarch64")]
 #[inline(never)]
-// Combination of inline(never) and black box to prevent this statement to
+/// Set the floating point control register (FPCR) to a specified value
+///
+/// This function allows direct control of the ARM64 FPCR register, which controls
+/// floating point behavior including rounding modes, exception handling, and other
+/// floating point settings.
+///
+/// inline(never) to prevent the compiler from reordering this operation
 pub fn set_fpcr(fpcr: u64) {
+    // Defense-in-depth but can't be relied on
+    // From the documentation:
+    // Programs cannot rely on black_box for correctness, beyond it behaving as the identity function. As such, it must not be relied upon to control critical program behavior.
     std::hint::black_box(fpcr);
     unsafe {
         core::arch::asm!(
