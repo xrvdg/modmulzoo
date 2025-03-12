@@ -508,7 +508,7 @@ mod tests {
         let a_round = super::parallel_sub_simd_r256(a_tilde, ones_arrays);
 
         assert_eq!(arith::modulus(a.0, P), arith::modulus(a_round[0], P));
-        // assert_eq!(arith::modulus(b.0, P), arith::modulus(a_round[1], P));
+        assert_eq!(arith::modulus(b.0, P), arith::modulus(a_round[1], P));
     }
 
     #[quickcheck]
