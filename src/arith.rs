@@ -87,18 +87,3 @@ pub fn modulus<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
     }
     d
 }
-
-pub fn modulus_count<const N: usize>(a: [u64; N], b: [u64; N]) -> ([u64; N], u64) {
-    let mut d = a;
-    let mut prev = d;
-    let mut count = 0;
-    loop {
-        d = subtraction_step(d, b);
-        if d == prev {
-            break;
-        }
-        prev = d;
-        count += 1;
-    }
-    (d, count)
-}

@@ -12,22 +12,12 @@ fn generate_random_input() -> [u64; 4] {
     };
     let max = BigUint::new(vec![u32::max_value(); 8]) - 2_u32 * to_biguint(&P);
 
-    let mut val = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
+    let mut val = rng.random::<[u64; 4]>();
 
     // The random generator in num_bigint doesn't work past rand 0.7. Therefore we sample a random value and if it's
     // above our maximum we'll sample again.
     while to_biguint(&val) > max {
-        val = [
-            rng.random::<u64>(),
-            rng.random::<u64>(),
-            rng.random::<u64>(),
-            rng.random::<u64>(),
-        ];
+        val = rng.random::<[u64; 4]>();
     }
 
     val
@@ -39,8 +29,8 @@ fn main() {
 
     // Create a histogram to track frequency of p count diffs
     let mut p_diff_histogram: HashMap<u64, u32> = HashMap::new();
-    let mut p_domb_histogram: HashMap<u64, u32> = HashMap::new();
-    let mut p_yuval_histogram: HashMap<u64, u32> = HashMap::new();
+    let mut p_float_histogram: HashMap<u64, u32> = HashMap::new();
+    let mut p_unsigned_histogram: HashMap<u64, u32> = HashMap::new();
     let num_test_cases = 10_000_000;
 
     // Statistics tracking
@@ -59,11 +49,11 @@ fn main() {
         let result_yuval = yuval::parallel(input, input2);
 
         // Calculate modular values
-        let (mod_domb, count_domb) = arith::modulus_count(result_domb, P);
-        let (mod_yuval, count_yuval) = arith::modulus_count(result_yuval, P);
+        let (mod_domb, count_domb) = modulus_count(result_domb, P);
+        let (mod_yuval, count_yuval) = modulus_count(result_yuval, P);
 
-        *p_yuval_histogram.entry(count_yuval).or_insert(0) += 1;
-        *p_domb_histogram.entry(count_domb).or_insert(0) += 1;
+        *p_unsigned_histogram.entry(count_yuval).or_insert(0) += 1;
+        *p_float_histogram.entry(count_domb).or_insert(0) += 1;
         // Are they equal modulo P?
         assert_eq!(mod_domb, mod_yuval);
         if mod_domb == mod_yuval {
@@ -99,62 +89,44 @@ fn main() {
         (equal_result_count as f64 / num_test_cases as f64) * 100.0
     );
 
-    // Print histogram
-    println!("\nP Count Difference Histogram:");
-    println!(
-        "| {:^10} | {:^10} | {:^10} |",
-        "P Count", "Frequency", "Percentage"
-    );
-    println!("|{:-<12}|{:-<12}|{:-<12}|", "", "", "");
-
-    // Convert histogram to a vector for sorting
-    let mut histogram_vec: Vec<(u64, u32)> = p_diff_histogram.into_iter().collect();
-    histogram_vec.sort_by_key(|&(count, _)| count);
-
-    for (p_count, frequency) in histogram_vec {
-        let percentage = (frequency as f64 / num_test_cases as f64) * 100.0;
+    // Print histograms for all three types
+    for (histogram_name, histogram) in [
+        ("P Count Difference Histogram", p_diff_histogram),
+        ("P Count Unsigned Histogram", p_unsigned_histogram),
+        ("P Count Float Histogram", p_float_histogram),
+    ] {
+        println!("\n{}:", histogram_name);
         println!(
-            "| {:<10} | {:<10} | {:>8.2}% |",
-            p_count, frequency, percentage
+            "| {:^10} | {:^10} | {:^10} |",
+            "P Count", "Frequency", "Percentage"
         );
+        println!("|{:-<12}|{:-<12}|{:-<12}|", "", "", "");
+
+        // Convert histogram to a vector for sorting
+        let mut histogram_vec: Vec<(u64, u32)> = histogram.into_iter().collect();
+        histogram_vec.sort_by_key(|&(count, _)| count);
+
+        for (p_count, frequency) in histogram_vec {
+            let percentage = (frequency as f64 / num_test_cases as f64) * 100.0;
+            println!(
+                "| {:<10} | {:<10} | {:>8.2}% |",
+                p_count, frequency, percentage
+            );
+        }
     }
+}
 
-    // Print histogram
-    println!("\nP Count Unsigned Histogram:");
-    println!(
-        "| {:^10} | {:^10} | {:^10} |",
-        "P Count", "Frequency", "Percentage"
-    );
-    println!("|{:-<12}|{:-<12}|{:-<12}|", "", "", "");
-
-    // Convert histogram to a vector for sorting
-    let mut histogram_vec: Vec<(u64, u32)> = p_yuval_histogram.into_iter().collect();
-    histogram_vec.sort_by_key(|&(count, _)| count);
-
-    for (p_count, frequency) in histogram_vec {
-        let percentage = (frequency as f64 / num_test_cases as f64) * 100.0;
-        println!(
-            "| {:<10} | {:<10} | {:>8.2}% |",
-            p_count, frequency, percentage
-        );
+fn modulus_count<const N: usize>(a: [u64; N], b: [u64; N]) -> ([u64; N], u64) {
+    let mut d = a;
+    let mut prev = d;
+    let mut count = 0;
+    loop {
+        d = arith::subtraction_step(d, b);
+        if d == prev {
+            break;
+        }
+        prev = d;
+        count += 1;
     }
-    // Print histogram
-    println!("\nP Count Float Histogram:");
-    println!(
-        "| {:^10} | {:^10} | {:^10} |",
-        "P Count", "Frequency", "Percentage"
-    );
-    println!("|{:-<12}|{:-<12}|{:-<12}|", "", "", "");
-
-    // Convert histogram to a vector for sorting
-    let mut histogram_vec: Vec<(u64, u32)> = p_domb_histogram.into_iter().collect();
-    histogram_vec.sort_by_key(|&(count, _)| count);
-
-    for (p_count, frequency) in histogram_vec {
-        let percentage = (frequency as f64 / num_test_cases as f64) * 100.0;
-        println!(
-            "| {:<10} | {:<10} | {:>8.2}% |",
-            p_count, frequency, percentage
-        );
-    }
+    (d, count)
 }
