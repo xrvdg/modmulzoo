@@ -286,11 +286,6 @@ fn convert_limb_52_64_simd(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
 }
 
 pub fn parallel_sub_r256(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
-    // Both these prevent it from moving around
-    // Black box can't be trusted to hold even though it is likely in practice
-    // let fpcr = std::hint::black_box(set_round_to_zero());
-    // Second seems to work, but
-    // let fpcr = set_round_to_zero_never_inline();
     let fpcr = set_round_to_zero();
     let a = convert_limb_64_52_shl2(a);
     let b = convert_limb_64_52_shl2(b);

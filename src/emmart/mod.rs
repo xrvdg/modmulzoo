@@ -46,7 +46,7 @@ pub fn modulus_u52<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
 }
 
 #[cfg(target_arch = "aarch64")]
-#[inline(always)]
+#[inline(never)]
 pub fn set_round_to_zero() -> u64 {
     let fpcr: u64;
     unsafe {
@@ -66,14 +66,14 @@ pub fn set_round_to_zero() -> u64 {
 }
 
 #[cfg(not(target_arch = "aarch64"))]
-#[inline]
 pub fn set_round_to_zero() -> u64 {
     // No-op or panic depending on your needs for non-ARM platforms
     unimplemented!("Round to zero is only implemented for ARM64");
 }
 
 #[cfg(target_arch = "aarch64")]
-#[inline(always)]
+#[inline(never)]
+// Combination of inline(never) and black box to prevent this statement to
 pub fn set_fpcr(fpcr: u64) {
     std::hint::black_box(fpcr);
     unsafe {
@@ -85,7 +85,6 @@ pub fn set_fpcr(fpcr: u64) {
 }
 
 #[cfg(not(target_arch = "aarch64"))]
-#[inline]
 pub fn set_fpcr() -> u64 {
     // No-op or panic depending on your needs for non-ARM platforms
     unimplemented!("Round to zero is only implemented for ARM64");
