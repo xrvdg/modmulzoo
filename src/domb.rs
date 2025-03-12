@@ -233,7 +233,7 @@ pub fn parallel_sub_stub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
 }
 
 #[inline(always)]
-fn convert_limb_64_52_shl2(limbs: [u64; 4]) -> [u64; 5] {
+fn u256_to_u260_shl2(limbs: [u64; 4]) -> [u64; 5] {
     let [l0, l1, l2, l3] = limbs;
 
     [
@@ -245,12 +245,12 @@ fn convert_limb_64_52_shl2(limbs: [u64; 4]) -> [u64; 5] {
     ]
 }
 
-pub fn convert_limb_64_52_shl2_simd_stub(limbs: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
-    convert_limb_64_52_shl2_simd(limbs)
+pub fn u256_to_u260_shl2_simd_stub(limbs: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
+    u256_to_u260_shl2_simd(limbs)
 }
 
 #[inline(always)]
-fn convert_limb_64_52_shl2_simd(limbs: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
+fn u256_to_u260_shl2_simd(limbs: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
     let [l0, l1, l2, l3] = limbs;
     [
         (l0 << 2) & Simd::splat(MASK52),
@@ -261,9 +261,8 @@ fn convert_limb_64_52_shl2_simd(limbs: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
     ]
 }
 
-// Would it be worth fusing this with resolve?
 #[inline(always)]
-fn convert_limb_52_64(limbs: [u64; 5]) -> [u64; 4] {
+fn u260_to_u256(limbs: [u64; 5]) -> [u64; 4] {
     let [l0, l1, l2, l3, l4] = limbs;
     [
         l0 | (l1 << 52),
@@ -275,7 +274,7 @@ fn convert_limb_52_64(limbs: [u64; 5]) -> [u64; 4] {
 
 // THis can probably be combined and monomorphised, but that would require an into most likely
 #[inline(always)]
-fn convert_limb_52_64_simd(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
+fn u260_to_u256_simd(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
     let [l0, l1, l2, l3, l4] = limbs;
     [
         l0 | (l1 << 52),
@@ -287,9 +286,9 @@ fn convert_limb_52_64_simd(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
 
 pub fn parallel_sub_r256(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     let fpcr = set_round_to_zero();
-    let a = convert_limb_64_52_shl2(a);
-    let b = convert_limb_64_52_shl2(b);
-    let res = convert_limb_52_64(parallel_sub(a, b));
+    let a = u256_to_u260_shl2(a);
+    let b = u256_to_u260_shl2(b);
+    let res = u260_to_u256(parallel_sub(a, b));
     set_fpcr(fpcr);
     res
 }
@@ -326,8 +325,8 @@ pub fn parallel_sub(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
 
 pub fn parallel_sub_simd_r256(a: [[u64; 4]; 2], b: [[u64; 4]; 2]) -> [[u64; 4]; 2] {
     let fpcr = set_round_to_zero();
-    let a = convert_limb_64_52_shl2_simd(convert_to_simd(a));
-    let b = convert_limb_64_52_shl2_simd(convert_to_simd(b));
+    let a = u256_to_u260_shl2_simd(transpose_u256_to_simd(a));
+    let b = u256_to_u260_shl2_simd(transpose_u256_to_simd(b));
 
     let mut t: [Simd<u64, 2>; 10] = [Simd::splat(0); 10];
     for i in 0..5 {
@@ -359,8 +358,8 @@ pub fn parallel_sub_simd_r256(a: [[u64; 4]; 2], b: [[u64; 4]; 2]) -> [[u64; 4]; 
     let mp = smult_noinit_simd(m, U52_P);
 
     let resolve = resolve_simd_add_truncate(s, mp);
-    let convert_limb = convert_limb_52_64_simd(resolve);
-    let res = convert_from_simd(convert_limb);
+    let u256_result = u260_to_u256_simd(resolve);
+    let res = transpose_simd_to_u256(u256_result);
 
     set_fpcr(fpcr);
     res
@@ -427,13 +426,13 @@ pub fn resolve_simd_add_truncate(s: [Simd<u64, 2>; 6], mp: [Simd<u64, 2>; 6]) ->
 }
 
 #[inline(never)]
-pub fn convert_to_simd_stub(limbs: [[u64; 4]; 2]) -> [Simd<u64, 2>; 4] {
-    convert_to_simd(limbs)
+pub fn transpose_u256_to_simd_stub(limbs: [[u64; 4]; 2]) -> [Simd<u64, 2>; 4] {
+    transpose_u256_to_simd(limbs)
 }
 
 #[inline(always)]
 // TODO: mention in name that it does SIMD
-pub fn convert_to_simd(limbs: [[u64; 4]; 2]) -> [Simd<u64, 2>; 4] {
+pub fn transpose_u256_to_simd(limbs: [[u64; 4]; 2]) -> [Simd<u64, 2>; 4] {
     // This does not issue multiple ldp and zip which might be marginally faster.
     [
         Simd::from_array([limbs[0][0], limbs[1][0]]),
@@ -444,7 +443,7 @@ pub fn convert_to_simd(limbs: [[u64; 4]; 2]) -> [Simd<u64, 2>; 4] {
 }
 
 #[inline(always)]
-pub fn convert_from_simd(limbs: [Simd<u64, 2>; 4]) -> [[u64; 4]; 2] {
+pub fn transpose_simd_to_u256(limbs: [Simd<u64, 2>; 4]) -> [[u64; 4]; 2] {
     let mut result = [[0; 4]; 2];
 
     for i in 0..limbs.len() {
