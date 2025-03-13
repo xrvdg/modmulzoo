@@ -1,5 +1,28 @@
 use std::{cell::RefCell, collections::VecDeque};
 
+// Define a macro for generating assembler instruction methods
+macro_rules! embed_asm {
+    // For instructions with 3 register parameters
+    ($name:ident, 3regs) => {
+        fn $name(&mut self, dst: &Reg, a: &Reg, b: &Reg) {
+            self.add_inst(format!(
+                concat!(stringify!($name), " {}, {}, {}"),
+                dst, a, b
+            ))
+        }
+    };
+
+    // For instructions with 1 register and 1 string parameter (cinc)
+    ($name:ident, 1reg_1str) => {
+        fn $name(&mut self, dst: &Reg, condition: &str) {
+            self.add_inst(format!(
+                concat!(stringify!($name), " {}, {}"),
+                dst, condition
+            ))
+        }
+    };
+}
+
 struct Reg<'a> {
     reg: u8,
     fresh: &'a RefCell<VecDeque<u8>>,
@@ -30,18 +53,16 @@ impl Alloc {
 }
 
 impl Assembler {
-    fn add_insts(&mut self, mut s: Vec<String>) {
-        self.inst.append(&mut s);
-    }
     fn add_inst(&mut self, s: String) {
         self.inst.push(s);
     }
-    fn mul(&mut self, dst: &Reg, a: &Reg, b: &Reg) {
-        self.add_inst(format!("mul {}, {}, {}", dst, a, b))
-    }
-    fn umulh(&mut self, dst: &Reg, a: &Reg, b: &Reg) {
-        self.add_inst(format!("umulh {}, {}, {}", dst, a, b))
-    }
+
+    // Use the macro to define instruction methods
+    embed_asm!(mul, 3regs);
+    embed_asm!(umulh, 3regs);
+    embed_asm!(adds, 3regs);
+    embed_asm!(adcs, 3regs);
+    embed_asm!(cinc, 1reg_1str);
 }
 
 // In this algorithm the inputs are not used after
@@ -52,22 +73,21 @@ fn smult<'a>(asm: &mut Assembler, alloc: &'a Alloc, a: [Reg; 4], b: Reg) -> [Reg
     let tmp = alloc.x();
     asm.mul(&s[0], &a[0], &b);
     asm.umulh(&s[1], &a[0], &b);
-    let insts = vec![
-        //
-        format!("mul {}, {}, {}", tmp, a[1], b),
-        format!("umulh {}, {}, {}", s[2], a[1], b),
-        format!("adds {},{},{}", s[1], s[1], tmp),
-        //
-        format!("mul {}, {}, {}", tmp, a[2], b),
-        format!("umulh {}, {}, {}", s[3], a[2], b),
-        format!("adcs {},{},{}", s[2], s[2], tmp),
-        //
-        format!("mul {}, {}, {}", tmp, a[3], b),
-        format!("umulh {}, {}, {}", s[4], a[3], b),
-        format!("adcs {},{},{}", s[3], s[3], tmp),
-        format!("cinc {}, hs", s[4]),
-    ];
-    asm.add_insts(insts);
+
+    // Replace formatted string instructions with method calls
+    asm.mul(&tmp, &a[1], &b);
+    asm.umulh(&s[2], &a[1], &b);
+    asm.adds(&s[1], &s[1], &tmp);
+
+    asm.mul(&tmp, &a[2], &b);
+    asm.umulh(&s[3], &a[2], &b);
+    asm.adcs(&s[2], &s[2], &tmp);
+
+    asm.mul(&tmp, &a[3], &b);
+    asm.umulh(&s[4], &a[3], &b);
+    asm.adcs(&s[3], &s[3], &tmp);
+    asm.cinc(&s[4], "hs");
+
     s
 }
 
