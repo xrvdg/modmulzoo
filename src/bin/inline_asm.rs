@@ -1,7 +1,10 @@
-use std::arch::asm;
+#![feature(portable_simd)]
+use std::{arch::asm, simd::Simd};
 
 fn main() {
     let r = smult_inline([1; 4], 7);
+    println!("{r:?}");
+    let r = smult_simd_inline(Simd::splat(7), [1; 5]);
     println!("{r:?}")
 }
 
@@ -41,4 +44,21 @@ pub fn smult_inline(a: [u64; 4], b: u64) -> [u64; 5] {
     }
 
     s
+}
+
+#[inline(never)]
+pub fn smult_simd_inline(s: Simd<u64, 2>, v: [u64; 5]) -> [Simd<u64, 2>; 6] {
+    let mut t: [Simd<u64, 2>; 6] = Default::default();
+    // Bit annoying having to add :v to not have errors
+    unsafe {
+        asm!(
+        "ldr {v01:q}, [{pv0}]",
+        "ucvtf.2d {s:v}, {s:v}",
+        "fmla.2d {t0:v}, {s:v}, {v01:v}[0]",
+        pv0 = in(reg) (&v),
+        v01 = out(vreg) _,
+        t0 = inout(vreg) t[0],
+        s = in(vreg) s)
+    }
+    t
 }

@@ -164,6 +164,11 @@ fn smult_noinit(s: u64, v: [u64; 5]) -> [u64; 6] {
     t
 }
 
+#[inline(never)]
+pub fn smult_noinit_simd_stub(s: Simd<u64, 2>, v: [u64; 5]) -> [Simd<u64, 2>; 6] {
+    smult_noinit_simd(s, v)
+}
+
 #[inline(always)]
 fn smult_noinit_simd(s: Simd<u64, 2>, v: [u64; 5]) -> [Simd<u64, 2>; 6] {
     let mut t = [Simd::splat(0); 6];
