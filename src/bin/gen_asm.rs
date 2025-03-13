@@ -1,5 +1,4 @@
 use std::{
-    arch::asm,
     cell::RefCell,
     collections::{HashSet, VecDeque},
 };
@@ -100,10 +99,10 @@ macro_rules! asm_op {
 
 // How do other allocating algorithms pass things along like Vec?
 // In this algorithm the inputs are not used after
-fn smult<'a>(asm: &mut Assembler, alloc: &'a Alloc, a: [Reg; 4], b: Reg) -> [Reg<'a>; 5] {
+fn smult<'a>(asm: &mut Assembler, alloc: &'a RefAlloc, a: [Reg; 4], b: Reg) -> [Reg<'a>; 5] {
     // If you want to drop them individually you need to unpack them
     let s = alloc.x_array();
-    // In this description you force the temp register to be reused without giving it a new name
+    // tmp is now being reused instead of getting a fresh register each time
     let tmp = alloc.x();
     asm_op!(asm,
         mul(&s[0], &a[0], &b);
@@ -147,7 +146,10 @@ impl<'a> std::fmt::Debug for Reg<'a> {
 }
 
 fn main() {
-    let alloc = Alloc(RefCell::new(VecDeque::from_iter(0..32)));
+    // If the allocator reaches then it needs to start saving
+    // that can be done in a separate pass in front and in the back
+    // doesn't fully do the indirect result register
+    let alloc = RefAlloc::new();
     let mut asm = Assembler { inst: Vec::new() };
     let s = smult(&mut asm, &alloc, alloc.x_array(), alloc.x());
     println!("{:?}", s);
