@@ -1,4 +1,8 @@
-use std::{cell::RefCell, collections::VecDeque};
+use std::{
+    arch::asm,
+    cell::RefCell,
+    collections::{HashSet, VecDeque},
+};
 
 // Define a macro for generating assembler instruction methods
 macro_rules! embed_asm {
@@ -32,30 +36,54 @@ impl Assembler {
 }
 
 // Using a RefCell such that Registers can deallocate themselves when they go out of scope
-struct Alloc(RefCell<VecDeque<u8>>);
+struct Alloc {
+    caller_saved: VecDeque<u8>,
+    callee_saved: VecDeque<u8>,
+    saved: HashSet<u8>,
+}
 
 struct Reg<'a> {
     reg: u8,
-    fresh: &'a RefCell<VecDeque<u8>>,
+    fresh: &'a RefAlloc,
 }
 
 struct Assembler {
     inst: Vec<String>,
 }
 
+struct RefAlloc(RefCell<Alloc>);
+
 impl Alloc {
+    fn new() -> Self {
+        Self {
+            caller_saved: VecDeque::from_iter(0..=17),
+            callee_saved: VecDeque::from_iter(19..=28),
+            saved: HashSet::new(),
+        }
+    }
+}
+impl RefAlloc {
+    fn new() -> Self {
+        RefAlloc(RefCell::new(Alloc::new()))
+    }
+    // Method should only be called via Reg. Any other call is going to give problems
+    // Can be done by moving these Alloc to a different file/module and not exporting it
+    fn free(&self, reg: u8) {
+        self.0.borrow_mut().caller_saved.push_front(reg);
+    }
+
     fn x<'a>(&'a self) -> Reg<'a> {
         let reg = self
             .0
             .borrow_mut()
+            .caller_saved
             .pop_front()
             .expect("No X registers available");
+        // TODO expand to more registers
 
-        Reg {
-            reg,
-            fresh: &self.0,
-        }
+        Reg { reg, fresh: &self }
     }
+    // Should be a better way to do this
     fn x_array<'a, const N: usize>(&'a self) -> [Reg<'a>; N] {
         std::array::from_fn(|_| self.x())
     }
@@ -102,7 +130,7 @@ fn smult<'a>(asm: &mut Assembler, alloc: &'a Alloc, a: [Reg; 4], b: Reg) -> [Reg
 impl<'a> Drop for Reg<'a> {
     fn drop(&mut self) {
         // println!("Dropping x{}", self.reg);
-        self.fresh.borrow_mut().push_front(self.reg);
+        self.fresh.free(self.reg);
     }
 }
 
