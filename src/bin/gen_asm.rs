@@ -1,8 +1,4 @@
-use std::{
-    array,
-    cell::RefCell,
-    collections::{BTreeSet, HashSet, VecDeque},
-};
+use std::{array, cell::RefCell, collections::BTreeSet, mem};
 
 #[derive(Debug)]
 // The string can be replaced by an Opcode
@@ -54,9 +50,10 @@ impl RefAssembler {
     embed_asm!(cinc, cond);
 }
 
-type FreshReg = u64;
+type FreshReg = usize;
 
 struct Reg<'a> {
+    // Maybe make reg a usize instead
     reg: FreshReg,
     asm: &'a RefAssembler,
 }
@@ -170,7 +167,10 @@ impl<'a> std::fmt::Debug for Reg<'a> {
     }
 }
 
-type PhysicalReg = u64;
+// Make a struct around here such that it can't be copied
+// THe phys_register file is the one that creates them
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
+struct PhysicalReg(u64);
 
 // No Clone as the state of one free reg
 // does not make sense as the state of another free reg
@@ -181,6 +181,22 @@ enum RegState {
     Dropped,
 }
 
+// Both Reg and PhysicalReg are not supposed to be copied.
+// BUt for the interface we do need to map them some way
+// This can also be done as part of the initialisation
+// A way out of the ordering for now is to just make it a big enough size
+fn interface(
+    mapping: &mut Vec<RegState>,
+    phys_registers: &mut BTreeSet<PhysicalReg>,
+    fresh: &Reg,
+    phys: PhysicalReg,
+) {
+    if !phys_registers.remove(&phys) {
+        panic!("Register q{} is already in use", phys.0)
+    }
+    mapping[fresh.reg as usize] = RegState::Map(phys)
+}
+
 fn main() {
     // If the allocator reaches then it needs to start saving
     // that can be done in a separate pass in front and in the back
@@ -188,6 +204,20 @@ fn main() {
     let asm = RefAssembler::new();
     let a = array::from_fn(|_| asm.fresh());
     let b = asm.fresh();
+    let mut mapping = std::iter::repeat_with(|| RegState::Unassigned)
+        .take(30)
+        .collect::<Vec<_>>();
+
+    let mut phys_registers =
+        BTreeSet::from_iter(Vec::from_iter(0..=30).iter().map(|&r| PhysicalReg(r)));
+
+    // Map how the element are mapped to physical registers
+    // This needs in to be in part of the code that can talk about physical registers
+    interface(&mut mapping, &mut phys_registers, &b, PhysicalReg(0));
+    a.iter()
+        .zip(1..)
+        .for_each(|(ai, r)| interface(&mut mapping, &mut phys_registers, ai, PhysicalReg(r)));
+
     let s = smult(&asm, a, b);
     println!("{:?}", asm);
 
@@ -206,64 +236,71 @@ fn main() {
 
     let mix = old;
 
-    let size = asm.0.borrow().fresh;
+    // Fix this up later
+    // let size = asm.0.borrow().fresh;
     // This can be an array doesn't need to be resizable, but also no benefits to not doing it.
-    let mut mapping = std::iter::repeat_with(|| RegState::Unassigned)
-        .take(size as usize)
-        .collect::<Vec<_>>();
 
-    let mut phys_registers = BTreeSet::from_iter(0..=30);
     let mut out = Vec::new();
     for inst in mix {
         match inst {
             // The instructions will not be different for the most part so is this distinction useful?
             Instr::Inst1(inst, a, cond) => {
-                let phys_reg = lookup_phys_reg(&mut mapping, &mut phys_registers, a);
+                // Here the dst is also the source
+                let phys_reg = lookup_phys_reg_src(&mut mapping, a);
                 out.push(format!("{inst} x{phys_reg},{cond}"));
             }
             Instr::Inst3(inst, a, b, c) => {
-                let phys_reg_a = lookup_phys_reg(&mut mapping, &mut phys_registers, a);
-                let phys_reg_b = lookup_phys_reg(&mut mapping, &mut phys_registers, b);
-                let phys_reg_c = lookup_phys_reg(&mut mapping, &mut phys_registers, c);
+                let phys_reg_src = lookup_phys_reg_dst(&mut mapping, &mut phys_registers, a);
+                let phys_reg_b = lookup_phys_reg_src(&mut mapping, b);
+                let phys_reg_c = lookup_phys_reg_src(&mut mapping, c);
                 out.push(format!(
-                    "{inst} x{phys_reg_a}, x{phys_reg_b}, x{phys_reg_c}"
+                    "{inst} x{phys_reg_src}, x{phys_reg_b}, x{phys_reg_c}"
                 ));
             }
 
             Instr::Drop(fresh) => {
-                match mapping[fresh as usize] {
+                let old = mem::replace(&mut mapping[fresh], RegState::Dropped);
+                match old {
                     RegState::Unassigned => unreachable!(
                         "There should never be a drop before the register has been assigned"
                     ),
-                    // Gets around register reuse in the immediate turn
-                    // but the proper way to deal with it is that the src position is the only one that is allowed to be a fresh.
-                    // the others have always have to be looked up
                     RegState::Map(phys_reg) => phys_registers.insert(phys_reg),
                     RegState::Dropped => {
                         unreachable!("A register that has been dropped can't be dropped again")
                     }
                 };
-                mapping[fresh as usize] = RegState::Dropped
             }
         }
     }
     println!("{out:?}")
 }
 
-fn lookup_phys_reg(
+fn lookup_phys_reg_src(mapping: &mut Vec<RegState>, fresh: FreshReg) -> u64 {
+    // Should be an Entry way of doing this
+    let phys_reg = match &mapping[fresh] {
+        RegState::Unassigned => unreachable!("{fresh} has not been assigned yet"),
+        RegState::Map(reg) => reg.0,
+        RegState::Dropped => unreachable!("{fresh} already has been dropped"),
+    };
+    phys_reg
+}
+
+fn lookup_phys_reg_dst(
     mapping: &mut Vec<RegState>,
-    phys_registers: &mut BTreeSet<u64>,
-    fresh: u64,
+    phys_registers: &mut BTreeSet<PhysicalReg>,
+    fresh: FreshReg,
 ) -> u64 {
     // Should be an Entry way of doing this
-    let phys_reg = match mapping[fresh as usize] {
+    let phys_reg = match &mapping[fresh] {
         RegState::Unassigned => {
+            // Todo switchover to second set
             let reg = phys_registers.pop_first().expect("ran out of registers");
+            let regnr = reg.0;
             mapping[fresh as usize] = RegState::Map(reg);
-            reg
+            regnr
         }
-        RegState::Map(reg) => reg,
-        RegState::Dropped => unreachable!("Something went wrong"),
+        RegState::Map(reg) => reg.0,
+        RegState::Dropped => unreachable!("{fresh} already has been dropped"),
     };
     phys_reg
 }
