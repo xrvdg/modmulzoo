@@ -1,7 +1,7 @@
 use std::{
     array,
     cell::RefCell,
-    collections::{HashSet, VecDeque},
+    collections::{BTreeSet, HashSet, VecDeque},
 };
 
 #[derive(Debug)]
@@ -9,6 +9,12 @@ use std::{
 // It could then possible be fully replaced by the Opcodes
 // -> not directly as the distinction between FreshReg and Reg is still important.
 // But it looks like there is a way for more simplification
+// By using OpCode it can be used for both Physical Reg and FreshRegs.
+// What is the unhabitable type in Rust?
+// Changing the way Inst is done impacts two important things
+// can't write an instruction as fmla.2d (but can't any way)
+// need to write a formatter for every instruction
+// test out with vector register first to see how it should work
 enum Instr {
     Inst1(String, FreshReg, String /* condition */),
     Inst3(String, FreshReg, FreshReg, FreshReg),
@@ -78,7 +84,7 @@ impl RefAssembler {
         Reg { reg: x, asm: &self }
     }
 
-    // This
+    // This should only be accessible to Reg and nothing else
     fn drop_register(&self, reg: FreshReg) {
         self.0.borrow_mut().inst.push(Instr::Drop(reg));
     }
@@ -106,34 +112,43 @@ macro_rules! asm_op {
 // In this algorithm the inputs are not used after
 fn smult<'a>(asm: &'a RefAssembler, a: [Reg; 4], b: Reg) -> [Reg<'a>; 5] {
     // If you want to drop them individually you need to unpack them
-    let s = [
-        asm.fresh(),
-        asm.fresh(),
-        asm.fresh(),
-        asm.fresh(),
-        asm.fresh(),
-    ];
-    // tmp is now being reused instead of getting a fresh register each time
+    let [a0, a1, a2, a3] = a;
+    let s = array::from_fn(|_| asm.fresh());
+    // tmp being reused instead of a fresh variable each time.
+    // should not make much of a difference
     let tmp = asm.fresh();
     asm_op!(asm,
-        mul(&s[0], &a[0], &b);
-        umulh(&s[1], &a[0], &b);
+        mul(&s[0], &a0, &b);
+        umulh(&s[1], &a0, &b)
+    );
 
-        //Replace formatted string instructions with method calls
-        mul(&tmp, &a[1], &b);
-        umulh(&s[2], &a[1], &b);
-        adds(&s[1], &s[1], &tmp);
+    // Drop explicitly like this
+    drop(a0);
 
-        mul(&tmp, &a[2], &b);
-        umulh(&s[3], &a[2], &b);
+    {
+        // Or by scoping like this
+        let a1 = a1;
+        asm_op!(asm,
+         //Replace formatted string instructions with method calls
+                mul(&tmp, &a1, &b);
+                umulh(&s[2], &a1, &b);
+                adds(&s[1], &s[1], &tmp)
+        );
+    }
+
+    asm_op!(asm,
+        mul(&tmp, &a2, &b);
+        umulh(&s[3], &a2, &b);
         adcs(&s[2], &s[2], &tmp);
 
-        mul(&tmp, &a[3], &b);
-        umulh(&s[4], &a[3], &b);
+        mul(&tmp, &a3, &b);
+        umulh(&s[4], &a3, &b);
         adcs(&s[3], &s[3], &tmp);
         cinc(&s[4], "hs")
     );
 
+    // or let them drop here automatically
+    // make use of the ownership system
     s
 }
 
@@ -171,21 +186,25 @@ fn main() {
     // that can be done in a separate pass in front and in the back
     // doesn't fully do the indirect result register
     let asm = RefAssembler::new();
-    let s = smult(&asm, array::from_fn(|_| asm.fresh()), asm.fresh());
+    let a = array::from_fn(|_| asm.fresh());
+    let b = asm.fresh();
+    let s = smult(&asm, a, b);
     println!("{:?}", asm);
 
     // Take out the instructions such that the free registers counter stays.
     // Another option is to instantiate a new RefAssembler with a higher number. Both are valid
     let old = std::mem::replace(&mut asm.0.borrow_mut().inst, Vec::new());
 
-    let p = smult(&asm, array::from_fn(|_| asm.fresh()), asm.fresh());
-    let new = std::mem::replace(&mut asm.0.borrow_mut().inst, Vec::new());
+    // let p = smult(&asm, array::from_fn(|_| asm.fresh()), asm.fresh());
+    // let new = std::mem::replace(&mut asm.0.borrow_mut().inst, Vec::new());
 
-    let mix = old
-        .into_iter()
-        .zip(new.into_iter())
-        .flat_map(|(a, b)| [a, b])
-        .collect::<Vec<_>>();
+    // let mix = old
+    //     .into_iter()
+    //     .zip(new.into_iter())
+    //     .flat_map(|(a, b)| [a, b])
+    //     .collect::<Vec<_>>();
+
+    let mix = old;
 
     let size = asm.0.borrow().fresh;
     // This can be an array doesn't need to be resizable, but also no benefits to not doing it.
@@ -193,7 +212,7 @@ fn main() {
         .take(size as usize)
         .collect::<Vec<_>>();
 
-    let mut phys_registers = VecDeque::from_iter(0..=30);
+    let mut phys_registers = BTreeSet::from_iter(0..=30);
     let mut out = Vec::new();
     for inst in mix {
         match inst {
@@ -216,13 +235,14 @@ fn main() {
                     RegState::Unassigned => unreachable!(
                         "There should never be a drop before the register has been assigned"
                     ),
-                    // Decide whether we want to keep the reg numbers low or just rotate through them
-                    // Due to register naming on the processor the ordering doesn't matter
-                    RegState::Map(phys_reg) => phys_registers.push_front(phys_reg),
+                    // Gets around register reuse in the immediate turn
+                    // but the proper way to deal with it is that the src position is the only one that is allowed to be a fresh.
+                    // the others have always have to be looked up
+                    RegState::Map(phys_reg) => phys_registers.insert(phys_reg),
                     RegState::Dropped => {
                         unreachable!("A register that has been dropped can't be dropped again")
                     }
-                }
+                };
                 mapping[fresh as usize] = RegState::Dropped
             }
         }
@@ -232,13 +252,13 @@ fn main() {
 
 fn lookup_phys_reg(
     mapping: &mut Vec<RegState>,
-    phys_registers: &mut VecDeque<u64>,
+    phys_registers: &mut BTreeSet<u64>,
     fresh: u64,
 ) -> u64 {
     // Should be an Entry way of doing this
     let phys_reg = match mapping[fresh as usize] {
         RegState::Unassigned => {
-            let reg = phys_registers.pop_front().expect("ran out of registers");
+            let reg = phys_registers.pop_first().expect("ran out of registers");
             mapping[fresh as usize] = RegState::Map(reg);
             reg
         }
