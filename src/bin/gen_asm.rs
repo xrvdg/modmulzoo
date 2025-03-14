@@ -3,30 +3,39 @@ use std::{
     collections::{HashSet, VecDeque},
 };
 
+#[derive(Debug)]
+enum Instr {
+    Inst1(String, FreshReg, String /* condition */),
+    Inst3(String, FreshReg, FreshReg, FreshReg),
+    Drop(u64),
+}
 // Define a macro for generating assembler instruction methods
 macro_rules! embed_asm {
     // For instructions with 3 register parameters
     ($name:ident, 3) => {
-        fn $name(&mut self, dst: &Reg, a: &Reg, b: &Reg) {
-            self.inst.push(format!(
-                concat!(stringify!($name), " {}, {}, {}"),
-                dst, a, b
+        fn $name(&self, dst: &Reg, a: &Reg, b: &Reg) {
+            self.0.borrow_mut().inst.push(crate::Instr::Inst3(
+                stringify!($name).to_string(),
+                dst.reg,
+                a.reg,
+                b.reg,
             ))
         }
     };
 
     // For instructions with 1 register and 1 string parameter (cinc)
     ($name:ident, cond) => {
-        fn $name(&mut self, dst: &Reg, condition: &str) {
-            self.inst.push(format!(
-                concat!(stringify!($name), " {}, {}"),
-                dst, condition
+        fn $name(&self, dst: &Reg, condition: &str) {
+            self.0.borrow_mut().inst.push(crate::Instr::Inst1(
+                stringify!($name).to_string(),
+                dst.reg,
+                condition.to_string(),
             ))
         }
     };
 }
 
-impl Assembler {
+impl RefAssembler {
     embed_asm!(mul, 3);
     embed_asm!(umulh, 3);
     embed_asm!(adds, 3);
@@ -34,57 +43,41 @@ impl Assembler {
     embed_asm!(cinc, cond);
 }
 
-// Using a RefCell such that Registers can deallocate themselves when they go out of scope
-struct Alloc {
-    caller_saved: VecDeque<u8>,
-    callee_saved: VecDeque<u8>,
-    saved: HashSet<u8>,
-}
+type FreshReg = u64;
 
 struct Reg<'a> {
-    reg: u8,
-    fresh: &'a RefAlloc,
+    reg: FreshReg,
+    asm: &'a RefAssembler,
 }
 
+#[derive(Debug)]
 struct Assembler {
-    inst: Vec<String>,
+    fresh: FreshReg,
+    inst: Vec<Instr>,
 }
 
-struct RefAlloc(RefCell<Alloc>);
+#[derive(Debug)]
+struct RefAssembler(RefCell<Assembler>);
 
-impl Alloc {
+impl RefAssembler {
+    fn new() -> Self {
+        Self(RefCell::new(Assembler::new()))
+    }
+
+    fn fresh(&self) -> Reg {
+        let mut asm = self.0.borrow_mut();
+        let x = asm.fresh;
+        asm.fresh += 1;
+        Reg { reg: x, asm: &self }
+    }
+}
+
+impl Assembler {
     fn new() -> Self {
         Self {
-            caller_saved: VecDeque::from_iter(0..=17),
-            callee_saved: VecDeque::from_iter(19..=28),
-            saved: HashSet::new(),
+            fresh: 0,
+            inst: Vec::new(),
         }
-    }
-}
-impl RefAlloc {
-    fn new() -> Self {
-        RefAlloc(RefCell::new(Alloc::new()))
-    }
-    // Method should only be called via Reg. Any other call is going to give problems
-    // Can be done by moving these Alloc to a different file/module and not exporting it
-    fn free(&self, reg: u8) {
-        self.0.borrow_mut().caller_saved.push_front(reg);
-    }
-
-    fn x<'a>(&'a self) -> Reg<'a> {
-        let reg = self
-            .0
-            .borrow_mut()
-            .caller_saved
-            .pop_front()
-            .expect("No X registers available");
-        // TODO expand to more registers
-
-        Reg { reg, fresh: &self }
-    }
-    // Should be a better way to do this
-    fn x_array<'a, const N: usize>(&'a self) -> [Reg<'a>; N] {
-        std::array::from_fn(|_| self.x())
     }
 }
 
@@ -99,11 +92,17 @@ macro_rules! asm_op {
 
 // How do other allocating algorithms pass things along like Vec?
 // In this algorithm the inputs are not used after
-fn smult<'a>(asm: &mut Assembler, alloc: &'a RefAlloc, a: [Reg; 4], b: Reg) -> [Reg<'a>; 5] {
+fn smult<'a>(asm: &'a RefAssembler, a: [Reg; 4], b: Reg) -> [Reg<'a>; 5] {
     // If you want to drop them individually you need to unpack them
-    let s = alloc.x_array();
+    let s = [
+        asm.fresh(),
+        asm.fresh(),
+        asm.fresh(),
+        asm.fresh(),
+        asm.fresh(),
+    ];
     // tmp is now being reused instead of getting a fresh register each time
-    let tmp = alloc.x();
+    let tmp = asm.fresh();
     asm_op!(asm,
         mul(&s[0], &a[0], &b);
         umulh(&s[1], &a[0], &b);
@@ -129,7 +128,7 @@ fn smult<'a>(asm: &mut Assembler, alloc: &'a RefAlloc, a: [Reg; 4], b: Reg) -> [
 impl<'a> Drop for Reg<'a> {
     fn drop(&mut self) {
         // println!("Dropping x{}", self.reg);
-        self.fresh.free(self.reg);
+        self.asm.0.borrow_mut().inst.push(Instr::Drop(self.reg));
     }
 }
 
@@ -149,9 +148,15 @@ fn main() {
     // If the allocator reaches then it needs to start saving
     // that can be done in a separate pass in front and in the back
     // doesn't fully do the indirect result register
-    let alloc = RefAlloc::new();
-    let mut asm = Assembler { inst: Vec::new() };
-    let s = smult(&mut asm, &alloc, alloc.x_array(), alloc.x());
-    println!("{:?}", s);
-    println!("{:?}", asm.inst);
+    let asm = RefAssembler::new();
+    let s = smult(
+        &asm,
+        [asm.fresh(), asm.fresh(), asm.fresh(), asm.fresh()],
+        asm.fresh(),
+    );
+    {
+        let s = s;
+        println!("{:?}", s);
+    }
+    println!("{:?}", asm);
 }
