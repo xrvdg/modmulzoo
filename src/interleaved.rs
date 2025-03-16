@@ -1,15 +1,12 @@
 use crate::arith::{self, carrying_mul_add, school_method};
+use crate::{
+    emmart::{self, make_initial, MASK52},
+    U52_NP0, U52_P,
+};
 use std::{
     arch::aarch64::vcvtq_f64_u64,
     ops::BitAnd,
     simd::{num::SimdFloat, Simd, StdFloat},
-};
-
-use seq_macro::seq;
-
-use crate::{
-    emmart::{self, make_initial, MASK52},
-    U52_NP0, U52_P,
 };
 
 // -- [SCALAR] -------------------------------------------------------------------------------------
@@ -514,7 +511,10 @@ pub fn interleaved(
 
     let v0_s: [Simd<u64, 2>; 6] = v0_t[4..].try_into().unwrap();
 
-    let v0_s = addv_simd(v0_r3, addv_simd(addv_simd(v0_s, v0_r0), addv_simd(v0_r1, v0_r2)));
+    let v0_s = addv_simd(
+        v0_r3,
+        addv_simd(addv_simd(v0_s, v0_r0), addv_simd(v0_r1, v0_r2)),
+    );
 
     let v0_m = (v0_s[0] * Simd::splat(U52_NP0)).bitand(Simd::splat(MASK52));
     let v0_mp = smult_noinit_simd(v0_m, U52_P);
@@ -530,18 +530,21 @@ pub fn interleaved(
     (s0_r1[3], s0_r1[4]) = carrying_mul_add(s0_t[0], crate::yuval::U64_I3[3], s0_r1[3], 0);
 
     let mut s0_r2 = [0_u64; 5];
-    (s0_r2[0], s0_r2[1]) = carrying_mul_add(s0_t[1], crate::yuval::U64_I3[0], s0_r2[0], 0);
-    (s0_r2[1], s0_r2[2]) = carrying_mul_add(s0_t[1], crate::yuval::U64_I3[1], s0_r2[1], 0);
-    (s0_r2[2], s0_r2[3]) = carrying_mul_add(s0_t[1], crate::yuval::U64_I3[2], s0_r2[2], 0);
-    (s0_r2[3], s0_r2[4]) = carrying_mul_add(s0_t[1], crate::yuval::U64_I3[3], s0_r2[3], 0);
+    (s0_r2[0], s0_r2[1]) = carrying_mul_add(s0_t[1], crate::yuval::U64_I2[0], s0_r2[0], 0);
+    (s0_r2[1], s0_r2[2]) = carrying_mul_add(s0_t[1], crate::yuval::U64_I2[1], s0_r2[1], 0);
+    (s0_r2[2], s0_r2[3]) = carrying_mul_add(s0_t[1], crate::yuval::U64_I2[2], s0_r2[2], 0);
+    (s0_r2[3], s0_r2[4]) = carrying_mul_add(s0_t[1], crate::yuval::U64_I2[3], s0_r2[3], 0);
 
     let mut s0_r3 = [0_u64; 5];
-    (s0_r3[0], s0_r3[1]) = carrying_mul_add(s0_t[2], crate::yuval::U64_I3[0], s0_r3[0], 0);
-    (s0_r3[1], s0_r3[2]) = carrying_mul_add(s0_t[2], crate::yuval::U64_I3[1], s0_r3[1], 0);
-    (s0_r3[2], s0_r3[3]) = carrying_mul_add(s0_t[2], crate::yuval::U64_I3[2], s0_r3[2], 0);
-    (s0_r3[3], s0_r3[4]) = carrying_mul_add(s0_t[2], crate::yuval::U64_I3[3], s0_r3[3], 0);
+    (s0_r3[0], s0_r3[1]) = carrying_mul_add(s0_t[2], crate::yuval::U64_I1[0], s0_r3[0], 0);
+    (s0_r3[1], s0_r3[2]) = carrying_mul_add(s0_t[2], crate::yuval::U64_I1[1], s0_r3[1], 0);
+    (s0_r3[2], s0_r3[3]) = carrying_mul_add(s0_t[2], crate::yuval::U64_I1[2], s0_r3[2], 0);
+    (s0_r3[3], s0_r3[4]) = carrying_mul_add(s0_t[2], crate::yuval::U64_I1[3], s0_r3[3], 0);
 
-    let s0_s = addv(addv(s0_t[3..].try_into().unwrap(), s0_r1), addv(s0_r2, s0_r3));
+    let s0_s = addv(
+        addv(s0_t[3..].try_into().unwrap(), s0_r1),
+        addv(s0_r2, s0_r3),
+    );
     let s0_m = crate::yuval::U64_MU0.wrapping_mul(s0_s[0]);
     let s0_mp = arith::smul(s0_m, crate::yuval::U64_P);
     let s0 = addv(s0_s, s0_mp)[1..].try_into().unwrap();
