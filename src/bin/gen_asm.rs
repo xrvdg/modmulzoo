@@ -224,11 +224,11 @@ enum RegState {
 fn input(
     asm: &mut Assembler,
     mapping: &mut RegisterMapping,
-    phys_registers: &mut BTreeSet<PhysicalReg>,
+    phys_registers: &mut RegisterBank,
     phys: PhysicalReg,
 ) -> XReg {
     let fresh = asm.fresh();
-    if !phys_registers.remove(&phys) {
+    if !phys_registers.q.remove(&phys) {
         panic!("Register q{} is already in use", phys.0)
     }
     mapping[fresh.reg()] = RegState::Map(phys);
@@ -245,14 +245,21 @@ struct RegisterBank {
     q: BTreeSet<PhysicalReg>,
 }
 
+impl RegisterBank {
+    fn new() -> Self {
+        Self {
+            q: BTreeSet::from_iter(Vec::from_iter(0..=30).iter().map(|&r| PhysicalReg(r))),
+        }
+    }
+}
+
 fn main() {
     // If the allocator reaches then it needs to start saving
     // that can be done in a separate pass in front and in the back
     // doesn't fully do the indirect result register
     let mut asm = Assembler::new();
     let mut mapping = RegisterMapping::new();
-    let mut phys_registers =
-        BTreeSet::from_iter(Vec::from_iter(0..=30).iter().map(|&r| PhysicalReg(r)));
+    let mut phys_registers = RegisterBank::new();
 
     // Map how the element are mapped to physical registers
     // This needs in to be in part of the code that can talk about physical registers
@@ -332,7 +339,7 @@ impl std::ops::IndexMut<FreshReg> for RegisterMapping {
 
 fn generate(
     mapping: &mut RegisterMapping,
-    phys_registers: &mut BTreeSet<PhysicalReg>,
+    phys_registers: &mut RegisterBank,
     instructions: VecDeque<InstrDrop>,
 ) -> Vec<String> {
     let mut out = Vec::new();
@@ -362,7 +369,7 @@ fn generate(
                     RegState::Unassigned => unreachable!(
                         "There should never be a drop before the register has been assigned"
                     ),
-                    RegState::Map(phys_reg) => phys_registers.insert(phys_reg),
+                    RegState::Map(phys_reg) => phys_registers.q.insert(phys_reg),
                     RegState::Dropped => {
                         unreachable!("A register that has been dropped can't be dropped again")
                     }
@@ -432,14 +439,14 @@ fn lookup_phys_reg_src(mapping: &mut RegisterMapping, fresh: FreshReg) -> u64 {
 fn lookup_phys_reg_dst(
     // Single mapping or double mapping
     mapping: &mut RegisterMapping,
-    phys_registers: &mut BTreeSet<PhysicalReg>,
+    phys_registers: &mut RegisterBank,
     fresh: FreshReg,
 ) -> u64 {
     // Should be an Entry way of doing this
     let phys_reg = match &mapping[fresh] {
         RegState::Unassigned => {
             // Todo switchover to second set
-            let reg = phys_registers.pop_first().expect("ran out of registers");
+            let reg = phys_registers.q.pop_first().expect("ran out of registers");
             let regnr = reg.0;
             mapping[fresh] = RegState::Map(reg);
             regnr
