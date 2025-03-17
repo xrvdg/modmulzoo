@@ -9,11 +9,8 @@ use std::{
 // FreshReg can be copied around, but should not be accessible from
 // the user. You do that by not exposing BaseInstr
 // but how can the user then add their own instructions?
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
-enum FreshReg {
-    X(u64),
-    V(u64),
-}
+
+type FreshReg = u64;
 
 // Vec<BlockInstr> - mixing -> Vec<Instr> -> Vec<InstrDrop> -> Vec<PhysInstr>
 // Naming convention here is very confusing
@@ -28,9 +25,9 @@ type InstrDrop = BaseInstr<FreshReg>;
 /// BaseInstruction allows for s
 #[derive(Debug)]
 enum BaseInstr<D> {
-    Inst1(String, FreshReg, String /* condition */),
-    Inst2(String, FreshReg, FreshReg),
-    Inst3(String, FreshReg, FreshReg, FreshReg),
+    XInst1(String, FreshReg, String /* condition */),
+    VInst2(String, FreshReg, FreshReg),
+    XInst3(String, FreshReg, FreshReg, FreshReg),
     Drop(D),
 }
 // Define a macro for generating assembler instruction methods
@@ -39,21 +36,21 @@ macro_rules! embed_asm {
     // For instructions with 3 register parameters
     ($name:ident, 3) => {
         fn $name(dst: &XReg, a: &XReg, b: &XReg) -> crate::AtomicInstr {
-            vec![crate::BaseInstr::Inst3(
+            vec![crate::BaseInstr::XInst3(
                 stringify!($name).to_string(),
-                FreshReg::X(dst.reg),
-                FreshReg::X(a.reg),
-                FreshReg::X(b.reg),
+                (dst.reg),
+                (a.reg),
+                (b.reg),
             )]
         }
     };
 
     ($name:ident, $inst:literal, 2) => {
         fn $name(dst: &VReg, src: &VReg) -> crate::AtomicInstr {
-            vec![crate::BaseInstr::Inst2(
+            vec![crate::BaseInstr::VInst2(
                 stringify!($inst).to_string(),
-                FreshReg::V(dst.reg),
-                FreshReg::V(src.reg),
+                dst.reg,
+                src.reg,
             )]
         }
     };
@@ -61,9 +58,9 @@ macro_rules! embed_asm {
     // For instructions with 1 register and 1 string parameter (cinc)
     ($name:ident, cond) => {
         fn $name(dst: &XReg, condition: &str) -> crate::AtomicInstr {
-            vec![crate::BaseInstr::Inst1(
+            vec![crate::BaseInstr::XInst1(
                 stringify!($name).to_string(),
-                FreshReg::X(dst.reg),
+                dst.reg,
                 condition.to_string(),
             )]
         }
@@ -90,18 +87,18 @@ struct VReg {
 }
 
 trait Reg {
-    fn into_fresh(&self) -> FreshReg;
+    fn reg(&self) -> FreshReg;
 }
 
 impl Reg for XReg {
-    fn into_fresh(&self) -> FreshReg {
-        FreshReg::X(self.reg)
+    fn reg(&self) -> FreshReg {
+        self.reg
     }
 }
 
 impl Reg for VReg {
-    fn into_fresh(&self) -> FreshReg {
-        FreshReg::V(self.reg)
+    fn reg(&self) -> FreshReg {
+        self.reg
     }
 }
 
@@ -234,14 +231,14 @@ fn input(
     if !phys_registers.remove(&phys) {
         panic!("Register q{} is already in use", phys.0)
     }
-    mapping[fresh.into_fresh()] = RegState::Map(phys);
+    mapping[fresh.reg()] = RegState::Map(phys);
     fresh
 }
 
 type Seen = HashSet<FreshReg>;
 
 fn output_interface(seen: &mut Seen, fresh: impl Reg) {
-    seen.insert(fresh.into_fresh());
+    seen.insert(fresh.reg());
 }
 
 struct RegisterBank {
@@ -323,21 +320,13 @@ impl std::ops::Index<FreshReg> for RegisterMapping {
     type Output = RegState;
 
     fn index(&self, idx: FreshReg) -> &Self::Output {
-        let reg = match idx {
-            FreshReg::X(r) => r,
-            FreshReg::V(r) => r,
-        };
-        &self.0[reg as usize]
+        &self.0[idx as usize]
     }
 }
 
 impl std::ops::IndexMut<FreshReg> for RegisterMapping {
     fn index_mut(&mut self, idx: FreshReg) -> &mut Self::Output {
-        let reg = match idx {
-            FreshReg::X(r) => r,
-            FreshReg::V(r) => r,
-        };
-        &mut self.0[reg as usize]
+        &mut self.0[idx as usize]
     }
 }
 
@@ -349,17 +338,17 @@ fn generate(
     let mut out = Vec::new();
     for inst in instructions {
         match inst {
-            BaseInstr::Inst1(inst, a, cond) => {
+            BaseInstr::XInst1(inst, a, cond) => {
                 // Here the dst is also the source
                 let phys_reg = lookup_phys_reg_src(mapping, a);
                 out.push(format!("{inst} x{phys_reg},{cond}"));
             }
-            BaseInstr::Inst2(inst, a, b) => {
+            BaseInstr::VInst2(inst, a, b) => {
                 let phys_reg_src = lookup_phys_reg_dst(mapping, phys_registers, a);
                 let phys_reg_b = lookup_phys_reg_src(mapping, b);
-                out.push(format!("{inst} x{phys_reg_src}, x{phys_reg_b}"));
+                out.push(format!("{inst} v{phys_reg_src}, v{phys_reg_b}"));
             }
-            BaseInstr::Inst3(inst, a, b, c) => {
+            BaseInstr::XInst3(inst, a, b, c) => {
                 let phys_reg_src = lookup_phys_reg_dst(mapping, phys_registers, a);
                 let phys_reg_b = lookup_phys_reg_src(mapping, b);
                 let phys_reg_c = lookup_phys_reg_src(mapping, c);
@@ -386,9 +375,9 @@ fn generate(
 
 fn convert_inst(inst: Instr) -> InstrDrop {
     match inst {
-        BaseInstr::Inst1(a, b, c) => BaseInstr::Inst1(a, b, c),
-        BaseInstr::Inst2(a, b, c) => BaseInstr::Inst2(a, b, c),
-        BaseInstr::Inst3(a, b, c, d) => BaseInstr::Inst3(a, b, c, d),
+        BaseInstr::XInst1(a, b, c) => BaseInstr::XInst1(a, b, c),
+        BaseInstr::VInst2(a, b, c) => BaseInstr::VInst2(a, b, c),
+        BaseInstr::XInst3(a, b, c, d) => BaseInstr::XInst3(a, b, c, d),
     }
 }
 
@@ -400,12 +389,12 @@ fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
     let mut dinsts = VecDeque::new();
     for inst in insts.into_iter().rev() {
         match inst {
-            BaseInstr::Inst1(_, r, _) => {
+            BaseInstr::XInst1(_, r, _) => {
                 if seen.insert(r) {
                     dinsts.push_front(InstrDrop::Drop(r));
                 }
             }
-            BaseInstr::Inst2(_, r0, r1) => {
+            BaseInstr::VInst2(_, r0, r1) => {
                 if seen.insert(r0) {
                     dinsts.push_front(InstrDrop::Drop(r0));
                 }
@@ -413,7 +402,7 @@ fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
                     dinsts.push_front(InstrDrop::Drop(r1));
                 }
             }
-            BaseInstr::Inst3(_, r0, r1, r2) => {
+            BaseInstr::XInst3(_, r0, r1, r2) => {
                 if seen.insert(r0) {
                     dinsts.push_front(InstrDrop::Drop(r0));
                 }
