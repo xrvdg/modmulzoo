@@ -81,8 +81,12 @@ impl Assembler {
     }
 
     fn new() -> Self {
+        Self::start_from(0)
+    }
+
+    fn start_from(n: FreshReg) -> Self {
         Self {
-            fresh: 0,
+            fresh: n,
             inst: Vec::new(),
         }
     }
@@ -153,6 +157,7 @@ impl<'a> std::fmt::Debug for Reg {
     }
 }
 
+// Add another struct to prevent things from being created
 // Make a struct around here such that it can't be copied
 // THe phys_register file is the one that creates them
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -171,16 +176,18 @@ enum RegState {
 // BUt for the interface we do need to map them some way
 // This can also be done as part of the initialisation
 // A way out of the ordering for now is to just make it a big enough size
-fn interface(
+fn input(
+    asm: &mut Assembler,
     mapping: &mut Vec<RegState>,
     phys_registers: &mut BTreeSet<PhysicalReg>,
-    fresh: &Reg,
     phys: PhysicalReg,
-) {
+) -> Reg {
+    let fresh = asm.fresh();
     if !phys_registers.remove(&phys) {
         panic!("Register q{} is already in use", phys.0)
     }
-    mapping[fresh.reg as usize] = RegState::Map(phys)
+    mapping[fresh.reg as usize] = RegState::Map(phys);
+    fresh
 }
 
 fn output_interface(seen: &mut HashSet<FreshReg>, fresh: Reg) {
@@ -192,8 +199,6 @@ fn main() {
     // that can be done in a separate pass in front and in the back
     // doesn't fully do the indirect result register
     let mut asm = Assembler::new();
-    let a = array::from_fn(|_| asm.fresh());
-    let b = asm.fresh();
     let mut mapping = std::iter::repeat_with(|| RegState::Unassigned)
         .take(30)
         .collect::<Vec<_>>();
@@ -203,32 +208,35 @@ fn main() {
 
     // Map how the element are mapped to physical registers
     // This needs in to be in part of the code that can talk about physical registers
-    interface(&mut mapping, &mut phys_registers, &b, PhysicalReg(0));
-    a.iter()
-        .zip(1..)
-        .for_each(|(ai, r)| interface(&mut mapping, &mut phys_registers, ai, PhysicalReg(r)));
+    // Could structure this differently such that it gives a fresh reg
+    let b = input(&mut asm, &mut mapping, &mut phys_registers, PhysicalReg(0));
+    let a_regs = array::from_fn(|ai| PhysicalReg(1 + ai as u64));
+    let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
 
     let s = smult(&mut asm, a, b);
     println!("{:?}", asm);
 
-    // Take out the instructions such that the free registers counter stays.
-    // Another option is to instantiate a new RefAssembler with a higher number. Both are valid
-    // Can do a finalize that gives the contents which can then be reused to create the next
-    // Do need to come up with better names
-    let old = std::mem::replace(&mut asm.inst, Vec::new());
+    let old = asm.inst;
 
-    // let p = smult(&asm, array::from_fn(|_| asm.fresh()), asm.fresh());
-    // let new = std::mem::replace(&mut asm.0.borrow_mut().inst, Vec::new());
+    let mut asm = Assembler::start_from(asm.fresh);
 
-    // let mix = old
-    //     .into_iter()
-    //     .zip(new.into_iter())
-    //     .flat_map(|(a, b)| [a, b])
-    //     .collect::<Vec<_>>();
+    let b = input(&mut asm, &mut mapping, &mut phys_registers, PhysicalReg(5));
+    let a_regs = array::from_fn(|ai| PhysicalReg(6 + ai as u64));
+    let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
+    let p = smult(&mut asm, a, b);
+    let new = asm.inst;
 
-    let mix = old;
+    let mix = old
+        .into_iter()
+        .zip(new.into_iter())
+        .flat_map(|(a, b)| [a, b])
+        .collect::<Vec<_>>();
+
+    // Is there something we can do to tie off the outputs.
+    // and to make sure it happens before drop_pass
     let mut seen = HashSet::new();
     s.into_iter().for_each(|r| output_interface(&mut seen, r));
+    p.into_iter().for_each(|r| output_interface(&mut seen, r));
     let mix = drop_pass(&mut seen, mix);
     println!("\nmix: {mix:?}");
 
@@ -236,6 +244,7 @@ fn main() {
     // let size = asm.0.borrow().fresh;
     // This can be an array doesn't need to be resizable, but also no benefits to not doing it.
 
+    // Mapping and phys_registers seem to go togetehr
     let mut out = Vec::new();
     for inst in mix {
         match inst {
