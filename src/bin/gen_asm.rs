@@ -1,9 +1,19 @@
 #![feature(never_type)]
+#![feature(concat_idents)]
 use std::{
     array,
     collections::{BTreeSet, HashSet, VecDeque},
     mem,
 };
+
+// FreshReg can be copied around, but should not be accessible from
+// the user. You do that by not exposing BaseInstr
+// but how can the user then add their own instructions?
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+enum FreshReg {
+    X(u64),
+    V(u64),
+}
 
 // Vec<BlockInstr> - mixing -> Vec<Instr> -> Vec<InstrDrop> -> Vec<PhysInstr>
 // Naming convention here is very confusing
@@ -13,10 +23,13 @@ type Instr = BaseInstr<!>;
 type AtomicInstr = Vec<Instr>;
 type InstrDrop = BaseInstr<FreshReg>;
 
+// Instruction needs to know the difference between physical and vector
+// because drop won't be able to tell which is which otherwise
 /// BaseInstruction allows for s
 #[derive(Debug)]
 enum BaseInstr<D> {
     Inst1(String, FreshReg, String /* condition */),
+    Inst2(String, FreshReg, FreshReg),
     Inst3(String, FreshReg, FreshReg, FreshReg),
     Drop(D),
 }
@@ -25,22 +38,32 @@ enum BaseInstr<D> {
 macro_rules! embed_asm {
     // For instructions with 3 register parameters
     ($name:ident, 3) => {
-        fn $name(dst: &Reg, a: &Reg, b: &Reg) -> crate::AtomicInstr {
+        fn $name(dst: &XReg, a: &XReg, b: &XReg) -> crate::AtomicInstr {
             vec![crate::BaseInstr::Inst3(
                 stringify!($name).to_string(),
-                dst.reg,
-                a.reg,
-                b.reg,
+                FreshReg::X(dst.reg),
+                FreshReg::X(a.reg),
+                FreshReg::X(b.reg),
+            )]
+        }
+    };
+
+    ($name:ident, $inst:literal, 2) => {
+        fn $name(dst: &VReg, src: &VReg) -> crate::AtomicInstr {
+            vec![crate::BaseInstr::Inst2(
+                stringify!($inst).to_string(),
+                FreshReg::V(dst.reg),
+                FreshReg::V(src.reg),
             )]
         }
     };
 
     // For instructions with 1 register and 1 string parameter (cinc)
     ($name:ident, cond) => {
-        fn $name(dst: &Reg, condition: &str) -> crate::AtomicInstr {
+        fn $name(dst: &XReg, condition: &str) -> crate::AtomicInstr {
             vec![crate::BaseInstr::Inst1(
                 stringify!($name).to_string(),
-                dst.reg,
+                FreshReg::X(dst.reg),
                 condition.to_string(),
             )]
         }
@@ -52,34 +75,65 @@ embed_asm!(umulh, 3);
 embed_asm!(adds, 3);
 embed_asm!(adcs, 3);
 embed_asm!(cinc, cond);
+embed_asm!(ucvtf2d, "ucvtf.2d", 2);
 
-type FreshReg = usize;
-
-struct Reg {
+// Different types as I don't want to have type erasure on the
+// functions themselves
+struct XReg {
     // Maybe make reg a usize instead
-    reg: FreshReg,
+    reg: u64,
+}
+
+struct VReg {
+    // Maybe make reg a usize instead
+    reg: u64,
+}
+
+trait Reg {
+    fn into_fresh(&self) -> FreshReg;
+}
+
+impl Reg for XReg {
+    fn into_fresh(&self) -> FreshReg {
+        FreshReg::X(self.reg)
+    }
+}
+
+impl Reg for VReg {
+    fn into_fresh(&self) -> FreshReg {
+        FreshReg::V(self.reg)
+    }
 }
 
 // Put both inside Assembler as I couldn't give a reference to Reg
 // if fresh was &mut self. But give it another try
 #[derive(Debug)]
 struct Assembler {
-    fresh: FreshReg,
+    // It's about unique counters so we use the counter for both
+    // q and v registers
+    // this makes it easier to read the assembly
+    fresh: u64,
     inst: Vec<AtomicInstr>,
 }
 
 impl Assembler {
-    fn fresh(&mut self) -> Reg {
+    fn fresh(&mut self) -> XReg {
         let x = self.fresh;
         self.fresh += 1;
-        Reg { reg: x }
+        XReg { reg: x }
+    }
+
+    fn freshv(&mut self) -> VReg {
+        let x = self.fresh;
+        self.fresh += 1;
+        VReg { reg: x }
     }
 
     fn new() -> Self {
         Self::start_from(0)
     }
 
-    fn start_from(n: FreshReg) -> Self {
+    fn start_from(n: u64) -> Self {
         Self {
             fresh: n,
             inst: Vec::new(),
@@ -101,7 +155,7 @@ macro_rules! asm_op {
 
 // How do other allocating algorithms pass things along like Vec?
 // In this algorithm the inputs are not used after
-fn smult(asm: &mut Assembler, s: &[Reg; 5], a: [Reg; 4], b: Reg) -> Vec<AtomicInstr> {
+fn smult(asm: &mut Assembler, s: &[XReg; 5], a: [XReg; 4], b: XReg) -> Vec<AtomicInstr> {
     // tmp being reused instead of a fresh variable each time.
     // should not make much of a difference
     let tmp = asm.fresh();
@@ -128,20 +182,24 @@ fn smult(asm: &mut Assembler, s: &[Reg; 5], a: [Reg; 4], b: Reg) -> Vec<AtomicIn
 // Seeing this ahead might be nice
 // with a parameter and then use slice and generalize it
 // Not everything has to have perfect types
-fn carry_add(s: [&Reg; 2], add: &Reg) -> AtomicInstr {
+fn carry_add(s: [&XReg; 2], add: &XReg) -> AtomicInstr {
     vec![adds(&s[0], &s[0], &add), cinc(&s[1], "hs")]
         .into_iter()
         .flatten()
         .collect()
 }
 
-impl std::fmt::Display for Reg {
+fn smult_noinit_simd(t: &[VReg; 6], s: VReg, v: [XReg; 5]) -> Vec<AtomicInstr> {
+    vec![ucvtf2d(&s, &s)]
+}
+
+impl std::fmt::Display for XReg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "x{}", self.reg)
     }
 }
 
-impl<'a> std::fmt::Debug for Reg {
+impl<'a> std::fmt::Debug for XReg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "x{}", self.reg)
     }
@@ -168,20 +226,26 @@ enum RegState {
 // A way out of the ordering for now is to just make it a big enough size
 fn input(
     asm: &mut Assembler,
-    mapping: &mut Vec<RegState>,
+    mapping: &mut RegisterMapping,
     phys_registers: &mut BTreeSet<PhysicalReg>,
     phys: PhysicalReg,
-) -> Reg {
+) -> XReg {
     let fresh = asm.fresh();
     if !phys_registers.remove(&phys) {
         panic!("Register q{} is already in use", phys.0)
     }
-    mapping[fresh.reg as usize] = RegState::Map(phys);
+    mapping[fresh.into_fresh()] = RegState::Map(phys);
     fresh
 }
 
-fn output_interface(seen: &mut HashSet<FreshReg>, fresh: Reg) {
-    seen.insert(fresh.reg);
+type Seen = HashSet<FreshReg>;
+
+fn output_interface(seen: &mut Seen, fresh: impl Reg) {
+    seen.insert(fresh.into_fresh());
+}
+
+struct RegisterBank {
+    q: BTreeSet<PhysicalReg>,
 }
 
 fn main() {
@@ -189,10 +253,7 @@ fn main() {
     // that can be done in a separate pass in front and in the back
     // doesn't fully do the indirect result register
     let mut asm = Assembler::new();
-    let mut mapping = std::iter::repeat_with(|| RegState::Unassigned)
-        .take(30)
-        .collect::<Vec<_>>();
-
+    let mut mapping = RegisterMapping::new();
     let mut phys_registers =
         BTreeSet::from_iter(Vec::from_iter(0..=30).iter().map(|&r| PhysicalReg(r)));
 
@@ -203,7 +264,7 @@ fn main() {
     let a_regs = array::from_fn(|ai| PhysicalReg(1 + ai as u64));
     let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
 
-    let s: [Reg; 5] = array::from_fn(|_| asm.fresh());
+    let s: [XReg; 5] = array::from_fn(|_| asm.fresh());
 
     let sinst = smult(&mut asm, &s, a, b);
     println!("{:?}", asm);
@@ -215,7 +276,7 @@ fn main() {
     let b = input(&mut asm, &mut mapping, &mut phys_registers, PhysicalReg(5));
     let a_regs = array::from_fn(|ai| PhysicalReg(6 + ai as u64));
     let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
-    let p: [Reg; 5] = array::from_fn(|_| asm.fresh());
+    let p: [XReg; 5] = array::from_fn(|_| asm.fresh());
     let p_inst = smult(&mut asm, &p, a, b);
     let new = p_inst;
 
@@ -246,8 +307,42 @@ fn main() {
     // A next step would be to keep the label
 }
 
+struct RegisterMapping(Vec<RegState>);
+
+impl RegisterMapping {
+    fn new() -> Self {
+        Self(
+            std::iter::repeat_with(|| RegState::Unassigned)
+                .take(30)
+                .collect::<Vec<_>>(),
+        )
+    }
+}
+
+impl std::ops::Index<FreshReg> for RegisterMapping {
+    type Output = RegState;
+
+    fn index(&self, idx: FreshReg) -> &Self::Output {
+        let reg = match idx {
+            FreshReg::X(r) => r,
+            FreshReg::V(r) => r,
+        };
+        &self.0[reg as usize]
+    }
+}
+
+impl std::ops::IndexMut<FreshReg> for RegisterMapping {
+    fn index_mut(&mut self, idx: FreshReg) -> &mut Self::Output {
+        let reg = match idx {
+            FreshReg::X(r) => r,
+            FreshReg::V(r) => r,
+        };
+        &mut self.0[reg as usize]
+    }
+}
+
 fn generate(
-    mapping: &mut Vec<RegState>,
+    mapping: &mut RegisterMapping,
     phys_registers: &mut BTreeSet<PhysicalReg>,
     instructions: VecDeque<InstrDrop>,
 ) -> Vec<String> {
@@ -258,6 +353,11 @@ fn generate(
                 // Here the dst is also the source
                 let phys_reg = lookup_phys_reg_src(mapping, a);
                 out.push(format!("{inst} x{phys_reg},{cond}"));
+            }
+            BaseInstr::Inst2(inst, a, b) => {
+                let phys_reg_src = lookup_phys_reg_dst(mapping, phys_registers, a);
+                let phys_reg_b = lookup_phys_reg_src(mapping, b);
+                out.push(format!("{inst} x{phys_reg_src}, x{phys_reg_b}"));
             }
             BaseInstr::Inst3(inst, a, b, c) => {
                 let phys_reg_src = lookup_phys_reg_dst(mapping, phys_registers, a);
@@ -287,11 +387,12 @@ fn generate(
 fn convert_inst(inst: Instr) -> InstrDrop {
     match inst {
         BaseInstr::Inst1(a, b, c) => BaseInstr::Inst1(a, b, c),
+        BaseInstr::Inst2(a, b, c) => BaseInstr::Inst2(a, b, c),
         BaseInstr::Inst3(a, b, c, d) => BaseInstr::Inst3(a, b, c, d),
     }
 }
 
-fn drop_pass(seen: &mut HashSet<FreshReg>, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
+fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
     // Can already calculate the size it's the amount of registers + the amount of free variables.
     // So we can just do it on a vector
     // We can preallocate
@@ -302,6 +403,14 @@ fn drop_pass(seen: &mut HashSet<FreshReg>, insts: Vec<Instr>) -> VecDeque<InstrD
             BaseInstr::Inst1(_, r, _) => {
                 if seen.insert(r) {
                     dinsts.push_front(InstrDrop::Drop(r));
+                }
+            }
+            BaseInstr::Inst2(_, r0, r1) => {
+                if seen.insert(r0) {
+                    dinsts.push_front(InstrDrop::Drop(r0));
+                }
+                if seen.insert(r1) {
+                    dinsts.push_front(InstrDrop::Drop(r1));
                 }
             }
             BaseInstr::Inst3(_, r0, r1, r2) => {
@@ -321,18 +430,19 @@ fn drop_pass(seen: &mut HashSet<FreshReg>, insts: Vec<Instr>) -> VecDeque<InstrD
     dinsts
 }
 
-fn lookup_phys_reg_src(mapping: &mut Vec<RegState>, fresh: FreshReg) -> u64 {
+fn lookup_phys_reg_src(mapping: &mut RegisterMapping, fresh: FreshReg) -> u64 {
     // Should be an Entry way of doing this
     let phys_reg = match &mapping[fresh] {
-        RegState::Unassigned => unreachable!("{fresh} has not been assigned yet"),
+        RegState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
         RegState::Map(reg) => reg.0,
-        RegState::Dropped => unreachable!("{fresh} already has been dropped"),
+        RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
     };
     phys_reg
 }
 
 fn lookup_phys_reg_dst(
-    mapping: &mut Vec<RegState>,
+    // Single mapping or double mapping
+    mapping: &mut RegisterMapping,
     phys_registers: &mut BTreeSet<PhysicalReg>,
     fresh: FreshReg,
 ) -> u64 {
@@ -342,11 +452,11 @@ fn lookup_phys_reg_dst(
             // Todo switchover to second set
             let reg = phys_registers.pop_first().expect("ran out of registers");
             let regnr = reg.0;
-            mapping[fresh as usize] = RegState::Map(reg);
+            mapping[fresh] = RegState::Map(reg);
             regnr
         }
         RegState::Map(reg) => reg.0,
-        RegState::Dropped => unreachable!("{fresh} already has been dropped"),
+        RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
     };
     phys_reg
 }
