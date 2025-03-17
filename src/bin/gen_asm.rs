@@ -104,38 +104,24 @@ macro_rules! asm_op {
 // How do other allocating algorithms pass things along like Vec?
 // In this algorithm the inputs are not used after
 fn smult<'a>(asm: &mut Assembler, a: [Reg; 4], b: Reg) -> [Reg; 5] {
-    // If you want to drop them individually you need to unpack them
-    let [a0, a1, a2, a3] = a;
     let s = array::from_fn(|_| asm.fresh());
     // tmp being reused instead of a fresh variable each time.
     // should not make much of a difference
     let tmp = asm.fresh();
     asm_op!(asm,
-        mul(&s[0], &a0, &b);
-        umulh(&s[1], &a0, &b)
-    );
+        mul(&s[0], &a[0], &b);
+        umulh(&s[1], &a[0], &b);
 
-    // Drop explicitly like this
-    drop(a0);
+        mul(&tmp, &a[1], &b);
+        umulh(&s[2], &a[1], &b);
+        adds(&s[1], &s[1], &tmp);
 
-    {
-        // Or by scoping like this
-        let a1 = a1;
-        asm_op!(asm,
-         //Replace formatted string instructions with method calls
-                mul(&tmp, &a1, &b);
-                umulh(&s[2], &a1, &b);
-                adds(&s[1], &s[1], &tmp)
-        );
-    }
-
-    asm_op!(asm,
-        mul(&tmp, &a2, &b);
-        umulh(&s[3], &a2, &b);
+        mul(&tmp, &a[2], &b);
+        umulh(&s[3], &a[2], &b);
         adcs(&s[2], &s[2], &tmp);
 
-        mul(&tmp, &a3, &b);
-        umulh(&s[4], &a3, &b);
+        mul(&tmp, &a[3], &b);
+        umulh(&s[4], &a[3], &b);
         adcs(&s[3], &s[3], &tmp);
         cinc(&s[4], "hs")
     );
