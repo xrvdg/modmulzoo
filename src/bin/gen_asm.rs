@@ -10,7 +10,7 @@ use std::{
 // Instr models a single instruction
 // FreshInstr models atomic blocks of instructions
 type Instr = BaseInstr<!>;
-type BlockInstr = Vec<Instr>;
+type AtomicInstr = Vec<Instr>;
 type InstrDrop = BaseInstr<FreshReg>;
 
 /// BaseInstruction allows for s
@@ -25,19 +25,24 @@ enum BaseInstr<D> {
 macro_rules! embed_asm {
     // For instructions with 3 register parameters
     ($name:ident, 3) => {
-        fn $name(dst: &Reg, a: &Reg, b: &Reg) -> crate::Instr {
-            crate::BaseInstr::Inst3(stringify!($name).to_string(), dst.reg, a.reg, b.reg)
+        fn $name(dst: &Reg, a: &Reg, b: &Reg) -> crate::AtomicInstr {
+            vec![crate::BaseInstr::Inst3(
+                stringify!($name).to_string(),
+                dst.reg,
+                a.reg,
+                b.reg,
+            )]
         }
     };
 
     // For instructions with 1 register and 1 string parameter (cinc)
     ($name:ident, cond) => {
-        fn $name(dst: &Reg, condition: &str) -> crate::Instr {
-            crate::BaseInstr::Inst1(
+        fn $name(dst: &Reg, condition: &str) -> crate::AtomicInstr {
+            vec![crate::BaseInstr::Inst1(
                 stringify!($name).to_string(),
                 dst.reg,
                 condition.to_string(),
-            )
+            )]
         }
     };
 }
@@ -60,7 +65,7 @@ struct Reg {
 #[derive(Debug)]
 struct Assembler {
     fresh: FreshReg,
-    inst: Vec<BlockInstr>,
+    inst: Vec<AtomicInstr>,
 }
 
 impl Assembler {
@@ -96,38 +101,38 @@ macro_rules! asm_op {
 
 // How do other allocating algorithms pass things along like Vec?
 // In this algorithm the inputs are not used after
-fn smult(asm: &mut Assembler, a: [Reg; 4], b: Reg) -> [Reg; 5] {
-    let s = array::from_fn(|_| asm.fresh());
+fn smult(asm: &mut Assembler, s: &[Reg; 5], a: [Reg; 4], b: Reg) -> Vec<AtomicInstr> {
     // tmp being reused instead of a fresh variable each time.
     // should not make much of a difference
     let tmp = asm.fresh();
-    asm_op!(asm,
-        mul(&s[0], &a[0], &b);
-        umulh(&s[1], &a[0], &b);
-
-        mul(&tmp, &a[1], &b);
-        umulh(&s[2], &a[1], &b)
-    );
-
-    carry_add(asm, [&s[1], &s[2]], &tmp);
-    asm_op!(asm,
-        mul(&tmp, &a[2], &b);
-        umulh(&s[3], &a[2], &b)
-    );
-    carry_add(asm, [&s[2], &s[3]], &tmp);
-
-    asm_op!(asm,
-        mul(&tmp, &a[3], &b);
-        umulh(&s[4], &a[3], &b)
-    );
-    carry_add(asm, [&s[3], &s[4]], &tmp);
-
-    s
+    vec![
+        mul(&s[0], &a[0], &b),
+        umulh(&s[1], &a[0], &b),
+        //
+        mul(&tmp, &a[1], &b),
+        umulh(&s[2], &a[1], &b),
+        carry_add([&s[1], &s[2]], &tmp),
+        //
+        mul(&tmp, &a[2], &b),
+        umulh(&s[3], &a[2], &b),
+        carry_add([&s[2], &s[3]], &tmp),
+        //
+        mul(&tmp, &a[3], &b),
+        umulh(&s[4], &a[3], &b),
+        carry_add([&s[3], &s[4]], &tmp),
+    ]
 }
 
-fn carry_add(asm: &mut Assembler, s: [&Reg; 2], add: &Reg) {
-    asm.inst
-        .push(vec![adds(&s[0], &s[0], &add), cinc(&s[1], "hs")]);
+// In this case we know that carry_add only needs to propagate 2
+// but in other situations that is not the case.
+// Seeing this ahead might be nice
+// with a parameter and then use slice and generalize it
+// Not everything has to have perfect types
+fn carry_add(s: [&Reg; 2], add: &Reg) -> AtomicInstr {
+    vec![adds(&s[0], &s[0], &add), cinc(&s[1], "hs")]
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 impl std::fmt::Display for Reg {
@@ -198,18 +203,21 @@ fn main() {
     let a_regs = array::from_fn(|ai| PhysicalReg(1 + ai as u64));
     let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
 
-    let s = smult(&mut asm, a, b);
+    let s: [Reg; 5] = array::from_fn(|_| asm.fresh());
+
+    let sinst = smult(&mut asm, &s, a, b);
     println!("{:?}", asm);
 
-    let old = asm.inst;
+    let old = sinst;
 
     let mut asm = Assembler::start_from(asm.fresh);
 
     let b = input(&mut asm, &mut mapping, &mut phys_registers, PhysicalReg(5));
     let a_regs = array::from_fn(|ai| PhysicalReg(6 + ai as u64));
     let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
-    let p = smult(&mut asm, a, b);
-    let new = asm.inst;
+    let p: [Reg; 5] = array::from_fn(|_| asm.fresh());
+    let p_inst = smult(&mut asm, &p, a, b);
+    let new = p_inst;
 
     let mix = old
         .into_iter()
@@ -233,6 +241,9 @@ fn main() {
     // Mapping and phys_registers seem to go togetehr
     let out = generate(&mut mapping, &mut phys_registers, mix);
     println!("{out:?}")
+
+    // Nicer debug output would be to take the predrop instruction list and zip it with the output
+    // A next step would be to keep the label
 }
 
 fn generate(
