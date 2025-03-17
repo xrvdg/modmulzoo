@@ -1,6 +1,11 @@
-use std::{array, cell::RefCell, collections::BTreeSet, mem};
+#![feature(never_type)]
+use std::{
+    array,
+    cell::RefCell,
+    collections::{BTreeSet, HashSet, VecDeque},
+    mem,
+};
 
-#[derive(Debug)]
 // The string can be replaced by an Opcode
 // It could then possible be fully replaced by the Opcodes
 // -> not directly as the distinction between FreshReg and Reg is still important.
@@ -11,17 +16,21 @@ use std::{array, cell::RefCell, collections::BTreeSet, mem};
 // can't write an instruction as fmla.2d (but can't any way)
 // need to write a formatter for every instruction
 // test out with vector register first to see how it should work
-enum Instr {
-    Inst1(String, FreshReg, String /* condition */),
-    Inst3(String, FreshReg, FreshReg, FreshReg),
-    Drop(FreshReg),
+type InstrDrop = BaseInstr<FreshReg, FreshReg>;
+type FreshInstr = BaseInstr<FreshReg, !>;
+
+#[derive(Debug)]
+enum BaseInstr<R, D> {
+    Inst1(String, R, String /* condition */),
+    Inst3(String, R, R, R),
+    Drop(D),
 }
 // Define a macro for generating assembler instruction methods
 macro_rules! embed_asm {
     // For instructions with 3 register parameters
     ($name:ident, 3) => {
         fn $name(&self, dst: &Reg, a: &Reg, b: &Reg) {
-            self.0.borrow_mut().inst.push(crate::Instr::Inst3(
+            self.0.borrow_mut().inst.push(crate::BaseInstr::Inst3(
                 stringify!($name).to_string(),
                 dst.reg,
                 a.reg,
@@ -33,7 +42,7 @@ macro_rules! embed_asm {
     // For instructions with 1 register and 1 string parameter (cinc)
     ($name:ident, cond) => {
         fn $name(&self, dst: &Reg, condition: &str) {
-            self.0.borrow_mut().inst.push(crate::Instr::Inst1(
+            self.0.borrow_mut().inst.push(crate::BaseInstr::Inst1(
                 stringify!($name).to_string(),
                 dst.reg,
                 condition.to_string(),
@@ -52,10 +61,9 @@ impl RefAssembler {
 
 type FreshReg = usize;
 
-struct Reg<'a> {
+struct Reg {
     // Maybe make reg a usize instead
     reg: FreshReg,
-    asm: &'a RefAssembler,
 }
 
 // Put both inside Assembler as I couldn't give a reference to Reg
@@ -63,7 +71,7 @@ struct Reg<'a> {
 #[derive(Debug)]
 struct Assembler {
     fresh: FreshReg,
-    inst: Vec<Instr>,
+    inst: Vec<FreshInstr>,
 }
 
 #[derive(Debug)]
@@ -74,16 +82,12 @@ impl RefAssembler {
         Self(RefCell::new(Assembler::new()))
     }
 
+    // RefAssembler can probably be dropped
     fn fresh(&self) -> Reg {
         let mut asm = self.0.borrow_mut();
         let x = asm.fresh;
         asm.fresh += 1;
-        Reg { reg: x, asm: &self }
-    }
-
-    // This should only be accessible to Reg and nothing else
-    fn drop_register(&self, reg: FreshReg) {
-        self.0.borrow_mut().inst.push(Instr::Drop(reg));
+        Reg { reg: x }
     }
 }
 
@@ -107,7 +111,7 @@ macro_rules! asm_op {
 
 // How do other allocating algorithms pass things along like Vec?
 // In this algorithm the inputs are not used after
-fn smult<'a>(asm: &'a RefAssembler, a: [Reg; 4], b: Reg) -> [Reg<'a>; 5] {
+fn smult<'a>(asm: &RefAssembler, a: [Reg; 4], b: Reg) -> [Reg; 5] {
     // If you want to drop them individually you need to unpack them
     let [a0, a1, a2, a3] = a;
     let s = array::from_fn(|_| asm.fresh());
@@ -149,19 +153,13 @@ fn smult<'a>(asm: &'a RefAssembler, a: [Reg; 4], b: Reg) -> [Reg<'a>; 5] {
     s
 }
 
-impl<'a> Drop for Reg<'a> {
-    fn drop(&mut self) {
-        self.asm.drop_register(self.reg);
-    }
-}
-
-impl std::fmt::Display for Reg<'_> {
+impl std::fmt::Display for Reg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "x{}", self.reg)
     }
 }
 
-impl<'a> std::fmt::Debug for Reg<'a> {
+impl<'a> std::fmt::Debug for Reg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "x{}", self.reg)
     }
@@ -195,6 +193,10 @@ fn interface(
         panic!("Register q{} is already in use", phys.0)
     }
     mapping[fresh.reg as usize] = RegState::Map(phys)
+}
+
+fn output_interface(seen: &mut HashSet<FreshReg>, fresh: Reg) {
+    seen.insert(fresh.reg);
 }
 
 fn main() {
@@ -234,7 +236,10 @@ fn main() {
     //     .flat_map(|(a, b)| [a, b])
     //     .collect::<Vec<_>>();
 
-    let mix = old;
+    let mut seen = HashSet::new();
+    s.into_iter().for_each(|r| output_interface(&mut seen, r));
+    let mix = drop_pass(&mut seen, old);
+    println!("\nmix: {mix:?}");
 
     // Fix this up later
     // let size = asm.0.borrow().fresh;
@@ -244,12 +249,12 @@ fn main() {
     for inst in mix {
         match inst {
             // The instructions will not be different for the most part so is this distinction useful?
-            Instr::Inst1(inst, a, cond) => {
+            InstrDrop::Inst1(inst, a, cond) => {
                 // Here the dst is also the source
                 let phys_reg = lookup_phys_reg_src(&mut mapping, a);
                 out.push(format!("{inst} x{phys_reg},{cond}"));
             }
-            Instr::Inst3(inst, a, b, c) => {
+            InstrDrop::Inst3(inst, a, b, c) => {
                 let phys_reg_src = lookup_phys_reg_dst(&mut mapping, &mut phys_registers, a);
                 let phys_reg_b = lookup_phys_reg_src(&mut mapping, b);
                 let phys_reg_c = lookup_phys_reg_src(&mut mapping, c);
@@ -258,7 +263,7 @@ fn main() {
                 ));
             }
 
-            Instr::Drop(fresh) => {
+            InstrDrop::Drop(fresh) => {
                 let old = mem::replace(&mut mapping[fresh], RegState::Dropped);
                 match old {
                     RegState::Unassigned => unreachable!(
@@ -273,6 +278,43 @@ fn main() {
         }
     }
     println!("{out:?}")
+}
+
+fn convert_inst(inst: FreshInstr) -> InstrDrop {
+    match inst {
+        BaseInstr::Inst1(a, b, c) => BaseInstr::Inst1(a, b, c),
+        BaseInstr::Inst3(a, b, c, d) => BaseInstr::Inst3(a, b, c, d),
+    }
+}
+
+fn drop_pass(seen: &mut HashSet<FreshReg>, insts: Vec<FreshInstr>) -> VecDeque<InstrDrop> {
+    // Can already calculate the size it's the amount of registers + the amount of free variables.
+    // So we can just do it on a vector
+    // We can preallocate
+    // We do have that knowledge
+    let mut dinsts = VecDeque::new();
+    for inst in insts.into_iter().rev() {
+        match inst {
+            FreshInstr::Inst1(_, r, _) => {
+                if seen.insert(r) {
+                    dinsts.push_front(InstrDrop::Drop(r));
+                }
+            }
+            FreshInstr::Inst3(_, r0, r1, r2) => {
+                if seen.insert(r0) {
+                    dinsts.push_front(InstrDrop::Drop(r0));
+                }
+                if seen.insert(r1) {
+                    dinsts.push_front(InstrDrop::Drop(r1));
+                }
+                if seen.insert(r2) {
+                    dinsts.push_front(InstrDrop::Drop(r2));
+                }
+            }
+        }
+        dinsts.push_front(convert_inst(inst));
+    }
+    dinsts
 }
 
 fn lookup_phys_reg_src(mapping: &mut Vec<RegState>, fresh: FreshReg) -> u64 {
