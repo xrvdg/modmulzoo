@@ -1,7 +1,6 @@
 #![feature(never_type)]
 use std::{
     array,
-    cell::RefCell,
     collections::{BTreeSet, HashSet, VecDeque},
     mem,
 };
@@ -29,8 +28,8 @@ enum BaseInstr<R, D> {
 macro_rules! embed_asm {
     // For instructions with 3 register parameters
     ($name:ident, 3) => {
-        fn $name(&self, dst: &Reg, a: &Reg, b: &Reg) {
-            self.0.borrow_mut().inst.push(crate::BaseInstr::Inst3(
+        fn $name(&mut self, dst: &Reg, a: &Reg, b: &Reg) {
+            self.inst.push(crate::BaseInstr::Inst3(
                 stringify!($name).to_string(),
                 dst.reg,
                 a.reg,
@@ -41,8 +40,8 @@ macro_rules! embed_asm {
 
     // For instructions with 1 register and 1 string parameter (cinc)
     ($name:ident, cond) => {
-        fn $name(&self, dst: &Reg, condition: &str) {
-            self.0.borrow_mut().inst.push(crate::BaseInstr::Inst1(
+        fn $name(&mut self, dst: &Reg, condition: &str) {
+            self.inst.push(crate::BaseInstr::Inst1(
                 stringify!($name).to_string(),
                 dst.reg,
                 condition.to_string(),
@@ -51,7 +50,7 @@ macro_rules! embed_asm {
     };
 }
 
-impl RefAssembler {
+impl Assembler {
     embed_asm!(mul, 3);
     embed_asm!(umulh, 3);
     embed_asm!(adds, 3);
@@ -74,24 +73,13 @@ struct Assembler {
     inst: Vec<FreshInstr>,
 }
 
-#[derive(Debug)]
-struct RefAssembler(RefCell<Assembler>);
-
-impl RefAssembler {
-    fn new() -> Self {
-        Self(RefCell::new(Assembler::new()))
-    }
-
-    // RefAssembler can probably be dropped
-    fn fresh(&self) -> Reg {
-        let mut asm = self.0.borrow_mut();
-        let x = asm.fresh;
-        asm.fresh += 1;
+impl Assembler {
+    fn fresh(&mut self) -> Reg {
+        let x = self.fresh;
+        self.fresh += 1;
         Reg { reg: x }
     }
-}
 
-impl Assembler {
     fn new() -> Self {
         Self {
             fresh: 0,
@@ -111,7 +99,7 @@ macro_rules! asm_op {
 
 // How do other allocating algorithms pass things along like Vec?
 // In this algorithm the inputs are not used after
-fn smult<'a>(asm: &RefAssembler, a: [Reg; 4], b: Reg) -> [Reg; 5] {
+fn smult<'a>(asm: &mut Assembler, a: [Reg; 4], b: Reg) -> [Reg; 5] {
     // If you want to drop them individually you need to unpack them
     let [a0, a1, a2, a3] = a;
     let s = array::from_fn(|_| asm.fresh());
@@ -203,7 +191,7 @@ fn main() {
     // If the allocator reaches then it needs to start saving
     // that can be done in a separate pass in front and in the back
     // doesn't fully do the indirect result register
-    let asm = RefAssembler::new();
+    let mut asm = Assembler::new();
     let a = array::from_fn(|_| asm.fresh());
     let b = asm.fresh();
     let mut mapping = std::iter::repeat_with(|| RegState::Unassigned)
@@ -220,12 +208,14 @@ fn main() {
         .zip(1..)
         .for_each(|(ai, r)| interface(&mut mapping, &mut phys_registers, ai, PhysicalReg(r)));
 
-    let s = smult(&asm, a, b);
+    let s = smult(&mut asm, a, b);
     println!("{:?}", asm);
 
     // Take out the instructions such that the free registers counter stays.
     // Another option is to instantiate a new RefAssembler with a higher number. Both are valid
-    let old = std::mem::replace(&mut asm.0.borrow_mut().inst, Vec::new());
+    // Can do a finalize that gives the contents which can then be reused to create the next
+    // Do need to come up with better names
+    let old = std::mem::replace(&mut asm.inst, Vec::new());
 
     // let p = smult(&asm, array::from_fn(|_| asm.fresh()), asm.fresh());
     // let new = std::mem::replace(&mut asm.0.borrow_mut().inst, Vec::new());
@@ -236,9 +226,10 @@ fn main() {
     //     .flat_map(|(a, b)| [a, b])
     //     .collect::<Vec<_>>();
 
+    let mix = old;
     let mut seen = HashSet::new();
     s.into_iter().for_each(|r| output_interface(&mut seen, r));
-    let mix = drop_pass(&mut seen, old);
+    let mix = drop_pass(&mut seen, mix);
     println!("\nmix: {mix:?}");
 
     // Fix this up later
