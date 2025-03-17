@@ -213,7 +213,8 @@ struct PhysicalReg(u64);
 #[derive(PartialEq, Debug)]
 enum RegState {
     Unassigned,
-    Map(PhysicalReg),
+    XMap(PhysicalReg),
+    VMap(PhysicalReg),
     Dropped,
 }
 
@@ -228,10 +229,10 @@ fn input(
     phys: PhysicalReg,
 ) -> XReg {
     let fresh = asm.fresh();
-    if !phys_registers.q.remove(&phys) {
+    if !phys_registers.x.remove(&phys) {
         panic!("Register q{} is already in use", phys.0)
     }
-    mapping[fresh.reg()] = RegState::Map(phys);
+    mapping[fresh.reg()] = RegState::XMap(phys);
     fresh
 }
 
@@ -242,13 +243,15 @@ fn output_interface(seen: &mut Seen, fresh: impl Reg) {
 }
 
 struct RegisterBank {
-    q: BTreeSet<PhysicalReg>,
+    x: BTreeSet<PhysicalReg>,
+    v: BTreeSet<PhysicalReg>,
 }
 
 impl RegisterBank {
     fn new() -> Self {
         Self {
-            q: BTreeSet::from_iter(Vec::from_iter(0..=30).iter().map(|&r| PhysicalReg(r))),
+            x: BTreeSet::from_iter(Vec::from_iter(0..=30).iter().map(|&r| PhysicalReg(r))),
+            v: BTreeSet::from_iter(Vec::from_iter(0..=30).iter().map(|&r| PhysicalReg(r))),
         }
     }
 }
@@ -339,7 +342,7 @@ impl std::ops::IndexMut<FreshReg> for RegisterMapping {
 
 fn generate(
     mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
+    register_bank: &mut RegisterBank,
     instructions: VecDeque<InstrDrop>,
 ) -> Vec<String> {
     let mut out = Vec::new();
@@ -351,12 +354,12 @@ fn generate(
                 out.push(format!("{inst} x{phys_reg},{cond}"));
             }
             BaseInstr::VInst2(inst, a, b) => {
-                let phys_reg_src = lookup_phys_reg_dst(mapping, phys_registers, a);
+                let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
                 let phys_reg_b = lookup_phys_reg_src(mapping, b);
                 out.push(format!("{inst} v{phys_reg_src}, v{phys_reg_b}"));
             }
             BaseInstr::XInst3(inst, a, b, c) => {
-                let phys_reg_src = lookup_phys_reg_dst(mapping, phys_registers, a);
+                let phys_reg_src = lookup_phys_xreg_dst(mapping, register_bank, a);
                 let phys_reg_b = lookup_phys_reg_src(mapping, b);
                 let phys_reg_c = lookup_phys_reg_src(mapping, c);
                 out.push(format!(
@@ -369,10 +372,11 @@ fn generate(
                     RegState::Unassigned => unreachable!(
                         "There should never be a drop before the register has been assigned"
                     ),
-                    RegState::Map(phys_reg) => phys_registers.q.insert(phys_reg),
+                    RegState::XMap(phys_reg) => register_bank.x.insert(phys_reg),
                     RegState::Dropped => {
                         unreachable!("A register that has been dropped can't be dropped again")
                     }
+                    RegState::VMap(physical_reg) => register_bank.v.insert(physical_reg),
                 };
             }
         }
@@ -426,33 +430,58 @@ fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
     dinsts
 }
 
+// Doesn't distinguish expects earlier part to handle this
 fn lookup_phys_reg_src(mapping: &mut RegisterMapping, fresh: FreshReg) -> u64 {
     // Should be an Entry way of doing this
     let phys_reg = match &mapping[fresh] {
         RegState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
-        RegState::Map(reg) => reg.0,
+        RegState::XMap(reg) => reg.0,
         RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
+        RegState::VMap(reg) => reg.0,
     };
     phys_reg
 }
 
-fn lookup_phys_reg_dst(
+fn lookup_phys_xreg_dst(
     // Single mapping or double mapping
     mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
+    register_bank: &mut RegisterBank,
     fresh: FreshReg,
 ) -> u64 {
     // Should be an Entry way of doing this
     let phys_reg = match &mapping[fresh] {
         RegState::Unassigned => {
             // Todo switchover to second set
-            let reg = phys_registers.q.pop_first().expect("ran out of registers");
+            let reg = register_bank.x.pop_first().expect("ran out of registers");
             let regnr = reg.0;
-            mapping[fresh] = RegState::Map(reg);
+            mapping[fresh] = RegState::XMap(reg);
             regnr
         }
-        RegState::Map(reg) => reg.0,
+        RegState::XMap(reg) => reg.0,
         RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
+        RegState::VMap(physical_reg) => unreachable!("Look for X got V"),
+    };
+    phys_reg
+}
+
+fn lookup_phys_vreg_dst(
+    // Single mapping or double mapping
+    mapping: &mut RegisterMapping,
+    register_bank: &mut RegisterBank,
+    fresh: FreshReg,
+) -> u64 {
+    // Should be an Entry way of doing this
+    let phys_reg = match &mapping[fresh] {
+        RegState::Unassigned => {
+            // Todo switchover to second set
+            let reg = register_bank.v.pop_first().expect("ran out of registers");
+            let regnr = reg.0;
+            mapping[fresh] = RegState::VMap(reg);
+            regnr
+        }
+        RegState::VMap(reg) => reg.0,
+        RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
+        RegState::XMap(physical_reg) => unreachable!("Looking for V got X"),
     };
     phys_reg
 }
