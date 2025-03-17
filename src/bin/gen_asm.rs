@@ -5,19 +5,16 @@ use std::{
     mem,
 };
 
-// The string can be replaced by an Opcode
-// It could then possible be fully replaced by the Opcodes
-// -> not directly as the distinction between FreshReg and Reg is still important.
-// But it looks like there is a way for more simplification
-// By using OpCode it can be used for both Physical Reg and FreshRegs.
-// What is the unhabitable type in Rust?
-// Changing the way Inst is done impacts two important things
-// can't write an instruction as fmla.2d (but can't any way)
-// need to write a formatter for every instruction
-// test out with vector register first to see how it should work
+// Vec<BlockInstr> - mixing -> Vec<Instr> -> Vec<InstrDrop> -> Vec<PhysInstr>
+// Naming convention here is very confusing
+// Instr models a single instruction
+// FreshInstr models atomic blocks of instructions
+type Instr = BaseInstr<FreshReg, !>;
+type BlockInstr = Vec<Instr>;
 type InstrDrop = BaseInstr<FreshReg, FreshReg>;
-type FreshInstr = BaseInstr<FreshReg, !>;
+type PhysInstr = BaseInstr<PhysicalReg, !>;
 
+/// BaseInstruction allows for s
 #[derive(Debug)]
 enum BaseInstr<R, D> {
     Inst1(String, R, String /* condition */),
@@ -25,38 +22,32 @@ enum BaseInstr<R, D> {
     Drop(D),
 }
 // Define a macro for generating assembler instruction methods
+// Don't write directly to the assembler as we would like to use these to construct grouped instructions
 macro_rules! embed_asm {
     // For instructions with 3 register parameters
     ($name:ident, 3) => {
-        fn $name(&mut self, dst: &Reg, a: &Reg, b: &Reg) {
-            self.inst.push(crate::BaseInstr::Inst3(
-                stringify!($name).to_string(),
-                dst.reg,
-                a.reg,
-                b.reg,
-            ))
+        fn $name(dst: &Reg, a: &Reg, b: &Reg) -> crate::Instr {
+            crate::BaseInstr::Inst3(stringify!($name).to_string(), dst.reg, a.reg, b.reg)
         }
     };
 
     // For instructions with 1 register and 1 string parameter (cinc)
     ($name:ident, cond) => {
-        fn $name(&mut self, dst: &Reg, condition: &str) {
-            self.inst.push(crate::BaseInstr::Inst1(
+        fn $name(dst: &Reg, condition: &str) -> crate::Instr {
+            crate::BaseInstr::Inst1(
                 stringify!($name).to_string(),
                 dst.reg,
                 condition.to_string(),
-            ))
+            )
         }
     };
 }
 
-impl Assembler {
-    embed_asm!(mul, 3);
-    embed_asm!(umulh, 3);
-    embed_asm!(adds, 3);
-    embed_asm!(adcs, 3);
-    embed_asm!(cinc, cond);
-}
+embed_asm!(mul, 3);
+embed_asm!(umulh, 3);
+embed_asm!(adds, 3);
+embed_asm!(adcs, 3);
+embed_asm!(cinc, cond);
 
 type FreshReg = usize;
 
@@ -70,7 +61,7 @@ struct Reg {
 #[derive(Debug)]
 struct Assembler {
     fresh: FreshReg,
-    inst: Vec<FreshInstr>,
+    inst: Vec<BlockInstr>,
 }
 
 impl Assembler {
@@ -96,14 +87,17 @@ impl Assembler {
 macro_rules! asm_op {
     ($asm:ident, $($method:ident($($arg:expr),*));+) => {
         $(
-            $asm.$method($($arg),*);
+            $asm.inst.push(vec![$method($($arg),*)]);
         )+
     };
 }
 
+// TODO Downside of the change is that builtin and own written now have a different feel to it
+// Maybe that should be brought together later
+
 // How do other allocating algorithms pass things along like Vec?
 // In this algorithm the inputs are not used after
-fn smult<'a>(asm: &mut Assembler, a: [Reg; 4], b: Reg) -> [Reg; 5] {
+fn smult(asm: &mut Assembler, a: [Reg; 4], b: Reg) -> [Reg; 5] {
     let s = array::from_fn(|_| asm.fresh());
     // tmp being reused instead of a fresh variable each time.
     // should not make much of a difference
@@ -113,22 +107,28 @@ fn smult<'a>(asm: &mut Assembler, a: [Reg; 4], b: Reg) -> [Reg; 5] {
         umulh(&s[1], &a[0], &b);
 
         mul(&tmp, &a[1], &b);
-        umulh(&s[2], &a[1], &b);
-        adds(&s[1], &s[1], &tmp);
-
-        mul(&tmp, &a[2], &b);
-        umulh(&s[3], &a[2], &b);
-        adcs(&s[2], &s[2], &tmp);
-
-        mul(&tmp, &a[3], &b);
-        umulh(&s[4], &a[3], &b);
-        adcs(&s[3], &s[3], &tmp);
-        cinc(&s[4], "hs")
+        umulh(&s[2], &a[1], &b)
     );
 
-    // or let them drop here automatically
-    // make use of the ownership system
+    carry_add(asm, [&s[1], &s[2]], &tmp);
+    asm_op!(asm,
+        mul(&tmp, &a[2], &b);
+        umulh(&s[3], &a[2], &b)
+    );
+    carry_add(asm, [&s[2], &s[3]], &tmp);
+
+    asm_op!(asm,
+        mul(&tmp, &a[3], &b);
+        umulh(&s[4], &a[3], &b)
+    );
+    carry_add(asm, [&s[3], &s[4]], &tmp);
+
     s
+}
+
+fn carry_add(asm: &mut Assembler, s: [&Reg; 2], add: &Reg) {
+    asm.inst
+        .push(vec![adds(&s[0], &s[0], &add), cinc(&s[1], "hs")]);
 }
 
 impl std::fmt::Display for Reg {
@@ -216,6 +216,7 @@ fn main() {
         .into_iter()
         .zip(new.into_iter())
         .flat_map(|(a, b)| [a, b])
+        .flatten()
         .collect::<Vec<_>>();
 
     // Is there something we can do to tie off the outputs.
@@ -231,25 +232,32 @@ fn main() {
     // This can be an array doesn't need to be resizable, but also no benefits to not doing it.
 
     // Mapping and phys_registers seem to go togetehr
+    let out = generate(&mut mapping, &mut phys_registers, mix);
+    println!("{out:?}")
+}
+
+fn generate(
+    mapping: &mut Vec<RegState>,
+    phys_registers: &mut BTreeSet<PhysicalReg>,
+    instructions: VecDeque<InstrDrop>,
+) -> Vec<String> {
     let mut out = Vec::new();
-    for inst in mix {
+    for inst in instructions {
         match inst {
-            // The instructions will not be different for the most part so is this distinction useful?
-            InstrDrop::Inst1(inst, a, cond) => {
+            BaseInstr::Inst1(inst, a, cond) => {
                 // Here the dst is also the source
-                let phys_reg = lookup_phys_reg_src(&mut mapping, a);
+                let phys_reg = lookup_phys_reg_src(mapping, a);
                 out.push(format!("{inst} x{phys_reg},{cond}"));
             }
-            InstrDrop::Inst3(inst, a, b, c) => {
-                let phys_reg_src = lookup_phys_reg_dst(&mut mapping, &mut phys_registers, a);
-                let phys_reg_b = lookup_phys_reg_src(&mut mapping, b);
-                let phys_reg_c = lookup_phys_reg_src(&mut mapping, c);
+            BaseInstr::Inst3(inst, a, b, c) => {
+                let phys_reg_src = lookup_phys_reg_dst(mapping, phys_registers, a);
+                let phys_reg_b = lookup_phys_reg_src(mapping, b);
+                let phys_reg_c = lookup_phys_reg_src(mapping, c);
                 out.push(format!(
                     "{inst} x{phys_reg_src}, x{phys_reg_b}, x{phys_reg_c}"
                 ));
             }
-
-            InstrDrop::Drop(fresh) => {
+            BaseInstr::Drop(fresh) => {
                 let old = mem::replace(&mut mapping[fresh], RegState::Dropped);
                 match old {
                     RegState::Unassigned => unreachable!(
@@ -263,17 +271,17 @@ fn main() {
             }
         }
     }
-    println!("{out:?}")
+    out
 }
 
-fn convert_inst(inst: FreshInstr) -> InstrDrop {
+fn convert_inst(inst: Instr) -> InstrDrop {
     match inst {
         BaseInstr::Inst1(a, b, c) => BaseInstr::Inst1(a, b, c),
         BaseInstr::Inst3(a, b, c, d) => BaseInstr::Inst3(a, b, c, d),
     }
 }
 
-fn drop_pass(seen: &mut HashSet<FreshReg>, insts: Vec<FreshInstr>) -> VecDeque<InstrDrop> {
+fn drop_pass(seen: &mut HashSet<FreshReg>, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
     // Can already calculate the size it's the amount of registers + the amount of free variables.
     // So we can just do it on a vector
     // We can preallocate
@@ -281,12 +289,12 @@ fn drop_pass(seen: &mut HashSet<FreshReg>, insts: Vec<FreshInstr>) -> VecDeque<I
     let mut dinsts = VecDeque::new();
     for inst in insts.into_iter().rev() {
         match inst {
-            FreshInstr::Inst1(_, r, _) => {
+            BaseInstr::Inst1(_, r, _) => {
                 if seen.insert(r) {
                     dinsts.push_front(InstrDrop::Drop(r));
                 }
             }
-            FreshInstr::Inst3(_, r0, r1, r2) => {
+            BaseInstr::Inst3(_, r0, r1, r2) => {
                 if seen.insert(r0) {
                     dinsts.push_front(InstrDrop::Drop(r0));
                 }
