@@ -9,16 +9,15 @@ use std::{
 // Naming convention here is very confusing
 // Instr models a single instruction
 // FreshInstr models atomic blocks of instructions
-type Instr = BaseInstr<FreshReg, !>;
+type Instr = BaseInstr<!>;
 type BlockInstr = Vec<Instr>;
-type InstrDrop = BaseInstr<FreshReg, FreshReg>;
-type PhysInstr = BaseInstr<PhysicalReg, !>;
+type InstrDrop = BaseInstr<FreshReg>;
 
 /// BaseInstruction allows for s
 #[derive(Debug)]
-enum BaseInstr<R, D> {
-    Inst1(String, R, String /* condition */),
-    Inst3(String, R, R, R),
+enum BaseInstr<D> {
+    Inst1(String, FreshReg, String /* condition */),
+    Inst3(String, FreshReg, FreshReg, FreshReg),
     Drop(D),
 }
 // Define a macro for generating assembler instruction methods
