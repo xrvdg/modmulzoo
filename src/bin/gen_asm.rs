@@ -1,5 +1,3 @@
-#![feature(never_type)]
-#![feature(concat_idents)]
 use std::{
     array,
     collections::{BTreeSet, HashSet, VecDeque},
@@ -458,6 +456,32 @@ impl std::ops::IndexMut<FreshReg> for RegisterMapping {
     }
 }
 
+fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
+    let mut dinsts = VecDeque::new();
+    for inst in insts.into_iter().rev() {
+        let registers = extract_regs(&inst);
+        for reg in registers {
+            if seen.insert(reg) {
+                dinsts.push_front(InstrDrop::Drop(reg));
+            }
+        }
+        dinsts.push_front(inst.into());
+    }
+    dinsts
+}
+
+fn extract_regs(inst: &Instr) -> Vec<FreshReg> {
+    match inst {
+        Instr::XInst1(_, r, _) => vec![*r],
+        Instr::XInst2Cond(_, r0, r1, _) => vec![*r0, *r1],
+        Instr::VInst2(_, r0, r1) => vec![*r0, *r1],
+        Instr::VXInst2(_, r0, r1) => vec![*r0, *r1],
+        Instr::DXInst2(_, r0, r1) => vec![*r0, *r1],
+        Instr::XInst3(_, r0, r1, r2) => vec![*r0, *r1, *r2],
+        Instr::VInst3I(_, r0, r1, r2, _) => vec![*r0, *r1, *r2],
+    }
+}
+
 fn generate(
     mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
@@ -528,80 +552,6 @@ fn generate(
         }
     }
     out
-}
-
-fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
-    // Can already calculate the size it's the amount of registers + the amount of free variables.
-    // So we can just do it on a vector
-    // We can preallocate
-    // We do have that knowledge
-    let mut dinsts = VecDeque::new();
-    for inst in insts.into_iter().rev() {
-        match inst {
-            Instr::XInst1(_, r, _) => {
-                if seen.insert(r) {
-                    dinsts.push_front(InstrDrop::Drop(r));
-                }
-            }
-            Instr::XInst2Cond(_, r0, r1, _) => {
-                if seen.insert(r0) {
-                    dinsts.push_front(InstrDrop::Drop(r0));
-                }
-                if seen.insert(r1) {
-                    dinsts.push_front(InstrDrop::Drop(r1));
-                }
-            }
-            Instr::VInst2(_, r0, r1) => {
-                if seen.insert(r0) {
-                    dinsts.push_front(InstrDrop::Drop(r0));
-                }
-                if seen.insert(r1) {
-                    dinsts.push_front(InstrDrop::Drop(r1));
-                }
-            }
-            Instr::VXInst2(_, r0, r1) => {
-                if seen.insert(r0) {
-                    dinsts.push_front(InstrDrop::Drop(r0));
-                }
-                if seen.insert(r1) {
-                    dinsts.push_front(InstrDrop::Drop(r1));
-                }
-            }
-            Instr::DXInst2(_, r0, r1) => {
-                if seen.insert(r0) {
-                    dinsts.push_front(InstrDrop::Drop(r0));
-                }
-                if seen.insert(r1) {
-                    dinsts.push_front(InstrDrop::Drop(r1));
-                }
-            }
-            Instr::XInst3(_, r0, r1, r2) => {
-                if seen.insert(r0) {
-                    dinsts.push_front(InstrDrop::Drop(r0));
-                }
-                if seen.insert(r1) {
-                    dinsts.push_front(InstrDrop::Drop(r1));
-                }
-                if seen.insert(r2) {
-                    dinsts.push_front(InstrDrop::Drop(r2));
-                }
-            }
-
-            Instr::VInst3I(_, r0, r1, r2, _) => {
-                if seen.insert(r0) {
-                    dinsts.push_front(InstrDrop::Drop(r0));
-                }
-                if seen.insert(r1) {
-                    dinsts.push_front(InstrDrop::Drop(r1));
-                }
-                if seen.insert(r2) {
-                    dinsts.push_front(InstrDrop::Drop(r2));
-                }
-            }
-        }
-        dinsts.push_front(inst.into());
-    }
-    dinsts
 }
 
 // Doesn't distinguish expects earlier part to handle this
