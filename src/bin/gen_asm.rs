@@ -178,6 +178,7 @@ struct VReg {
 }
 
 trait Reg {
+    fn new(reg: FreshReg) -> Self;
     fn reg(&self) -> FreshReg;
 }
 
@@ -185,9 +186,16 @@ impl Reg for XReg {
     fn reg(&self) -> FreshReg {
         self.reg
     }
+
+    fn new(reg: FreshReg) -> Self {
+        Self { reg }
+    }
 }
 
 impl Reg for VReg {
+    fn new(reg: FreshReg) -> Self {
+        Self { reg }
+    }
     fn reg(&self) -> FreshReg {
         self.reg
     }
@@ -205,16 +213,10 @@ struct Assembler {
 }
 
 impl Assembler {
-    fn freshx(&mut self) -> XReg {
+    fn fresh<T: Reg>(&mut self) -> T {
         let x = self.fresh;
         self.fresh += 1;
-        XReg { reg: x }
-    }
-
-    fn freshv(&mut self) -> VReg {
-        let x = self.fresh;
-        self.fresh += 1;
-        VReg { reg: x }
+        T::new(x)
     }
 
     fn new() -> Self {
@@ -246,7 +248,7 @@ macro_rules! asm_op {
 fn smult(asm: &mut Assembler, s: &[XReg; 5], a: [XReg; 4], b: XReg) -> Vec<AtomicInstr> {
     // tmp being reused instead of a fresh variable each time.
     // should not make much of a difference
-    let tmp = asm.freshx();
+    let tmp = asm.fresh();
     vec![
         mul(&s[0], &a[0], &b),
         umulh(&s[1], &a[0], &b),
@@ -285,10 +287,10 @@ fn smult_noinit_simd(
     v: [XReg; 5],
 ) -> Vec<AtomicInstr> {
     // first do it as is written
-    let tmp = asm.freshx();
-    let splat_c1 = asm.freshv();
-    let cc1 = asm.freshv();
-    let fv0 = asm.freshv();
+    let tmp = asm.fresh();
+    let splat_c1 = asm.fresh();
+    let cc1 = asm.fresh();
+    let fv0 = asm.fresh();
     vec![
         ucvtf2d(&s, &s),
         mov(&tmp, emmart::C1.to_bits()),
@@ -335,9 +337,10 @@ fn inputx(
     asm: &mut Assembler,
     mapping: &mut RegisterMapping,
     phys_registers: &mut RegisterBank,
-    phys: PhysicalReg,
+    phys: u64,
 ) -> XReg {
-    let fresh = asm.freshx();
+    let fresh: XReg = asm.fresh();
+    let phys = PhysicalReg(phys);
     if !phys_registers.x.remove(&phys) {
         panic!("Register q{} is already in use", phys.0)
     }
@@ -349,9 +352,10 @@ fn inputv(
     asm: &mut Assembler,
     mapping: &mut RegisterMapping,
     phys_registers: &mut RegisterBank,
-    phys: PhysicalReg,
+    phys: u64,
 ) -> VReg {
-    let fresh = asm.freshv();
+    let fresh: VReg = asm.fresh();
+    let phys = PhysicalReg(phys);
     if !phys_registers.v.remove(&phys) {
         panic!("Register v{} is already in use", phys.0)
     }
@@ -395,7 +399,7 @@ fn main() {
     let a_regs = array::from_fn(|ai| PhysicalReg(1 + ai as u64));
     let a = a_regs.map(|pr| inputx(&mut asm, &mut mapping, &mut phys_registers, pr));
 
-    let s: [XReg; 5] = array::from_fn(|_| asm.freshx());
+    let s: [XReg; 5] = array::from_fn(|_| asm.fresh());
 
     let sinst = smult(&mut asm, &s, a, b);
     println!("{:?}", asm);
@@ -407,7 +411,7 @@ fn main() {
     let b = inputx(&mut asm, &mut mapping, &mut phys_registers, PhysicalReg(5));
     let a_regs = array::from_fn(|ai| PhysicalReg(6 + ai as u64));
     let a = a_regs.map(|pr| inputx(&mut asm, &mut mapping, &mut phys_registers, pr));
-    let p: [XReg; 5] = array::from_fn(|_| asm.freshx());
+    let p: [XReg; 5] = array::from_fn(|_| asm.fresh());
     let p_inst = smult(&mut asm, &p, a, b);
     let new = p_inst;
 
