@@ -114,7 +114,7 @@ struct Assembler {
 }
 
 impl Assembler {
-    fn fresh(&mut self) -> XReg {
+    fn freshx(&mut self) -> XReg {
         let x = self.fresh;
         self.fresh += 1;
         XReg { reg: x }
@@ -155,7 +155,7 @@ macro_rules! asm_op {
 fn smult(asm: &mut Assembler, s: &[XReg; 5], a: [XReg; 4], b: XReg) -> Vec<AtomicInstr> {
     // tmp being reused instead of a fresh variable each time.
     // should not make much of a difference
-    let tmp = asm.fresh();
+    let tmp = asm.freshx();
     vec![
         mul(&s[0], &a[0], &b),
         umulh(&s[1], &a[0], &b),
@@ -222,17 +222,31 @@ enum RegState {
 // BUt for the interface we do need to map them some way
 // This can also be done as part of the initialisation
 // A way out of the ordering for now is to just make it a big enough size
-fn input(
+fn inputx(
     asm: &mut Assembler,
     mapping: &mut RegisterMapping,
     phys_registers: &mut RegisterBank,
     phys: PhysicalReg,
 ) -> XReg {
-    let fresh = asm.fresh();
+    let fresh = asm.freshx();
     if !phys_registers.x.remove(&phys) {
         panic!("Register q{} is already in use", phys.0)
     }
     mapping[fresh.reg()] = RegState::XMap(phys);
+    fresh
+}
+
+fn inputv(
+    asm: &mut Assembler,
+    mapping: &mut RegisterMapping,
+    phys_registers: &mut RegisterBank,
+    phys: PhysicalReg,
+) -> VReg {
+    let fresh = asm.freshv();
+    if !phys_registers.v.remove(&phys) {
+        panic!("Register v{} is already in use", phys.0)
+    }
+    mapping[fresh.reg()] = RegState::VMap(phys);
     fresh
 }
 
@@ -242,6 +256,7 @@ fn output_interface(seen: &mut Seen, fresh: impl Reg) {
     seen.insert(fresh.reg());
 }
 
+// TODO(xrvdg) Different types for the PhysicalRegs
 struct RegisterBank {
     x: BTreeSet<PhysicalReg>,
     v: BTreeSet<PhysicalReg>,
@@ -267,11 +282,11 @@ fn main() {
     // Map how the element are mapped to physical registers
     // This needs in to be in part of the code that can talk about physical registers
     // Could structure this differently such that it gives a fresh reg
-    let b = input(&mut asm, &mut mapping, &mut phys_registers, PhysicalReg(0));
+    let b = inputx(&mut asm, &mut mapping, &mut phys_registers, PhysicalReg(0));
     let a_regs = array::from_fn(|ai| PhysicalReg(1 + ai as u64));
-    let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
+    let a = a_regs.map(|pr| inputx(&mut asm, &mut mapping, &mut phys_registers, pr));
 
-    let s: [XReg; 5] = array::from_fn(|_| asm.fresh());
+    let s: [XReg; 5] = array::from_fn(|_| asm.freshx());
 
     let sinst = smult(&mut asm, &s, a, b);
     println!("{:?}", asm);
@@ -280,10 +295,10 @@ fn main() {
 
     let mut asm = Assembler::start_from(asm.fresh);
 
-    let b = input(&mut asm, &mut mapping, &mut phys_registers, PhysicalReg(5));
+    let b = inputx(&mut asm, &mut mapping, &mut phys_registers, PhysicalReg(5));
     let a_regs = array::from_fn(|ai| PhysicalReg(6 + ai as u64));
-    let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
-    let p: [XReg; 5] = array::from_fn(|_| asm.fresh());
+    let a = a_regs.map(|pr| inputx(&mut asm, &mut mapping, &mut phys_registers, pr));
+    let p: [XReg; 5] = array::from_fn(|_| asm.freshx());
     let p_inst = smult(&mut asm, &p, a, b);
     let new = p_inst;
 
