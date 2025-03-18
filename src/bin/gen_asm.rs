@@ -32,6 +32,41 @@ enum Instr {
     VInst3I(String, FreshReg, FreshReg, FreshReg, u8),
 }
 
+impl Instr {
+    // Format instruction using already resolved physical register numbers
+    fn format_instruction(&self, phys_regs: &[u64]) -> String {
+        match self {
+            Instr::XInst2Cond(inst, _, _, cond) => {
+                format!("{inst} x{}, x{},{cond}", phys_regs[0], phys_regs[1])
+            }
+            Instr::XInst1(inst, _, val) => {
+                format!("{inst} x{}, #{val}", phys_regs[0])
+            }
+            Instr::VXInst2(inst, _, _) => {
+                format!("{inst} v{}, x{}", phys_regs[0], phys_regs[1])
+            }
+            Instr::DXInst2(inst, _, _) => {
+                format!("{inst} d{}, x{}", phys_regs[0], phys_regs[1])
+            }
+            Instr::VInst2(inst, _, _) => {
+                format!("{inst} v{}, v{}", phys_regs[0], phys_regs[1])
+            }
+            Instr::XInst3(inst, _, _, _) => {
+                format!(
+                    "{inst} x{}, x{}, x{}",
+                    phys_regs[0], phys_regs[1], phys_regs[2]
+                )
+            }
+            Instr::VInst3I(inst, _, _, _, idx) => {
+                format!(
+                    "{inst} v{}, v{}, v{}[{idx}]",
+                    phys_regs[0], phys_regs[1], phys_regs[2]
+                )
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 enum InstrDrop {
     Instr(Instr),
@@ -440,6 +475,61 @@ impl RegisterMapping {
                 .collect::<Vec<_>>(),
         )
     }
+
+    // Get the physical register for a source register
+    fn get_phys_reg(&self, fresh: FreshReg) -> u64 {
+        match &self[fresh] {
+            RegState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
+            RegState::XMap(reg) => reg.0,
+            RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
+            RegState::VMap(reg) => reg.0,
+        }
+    }
+
+    // Get or allocate an X register
+    fn get_or_allocate_x_reg(&mut self, register_bank: &mut RegisterBank, fresh: FreshReg) -> u64 {
+        match &self[fresh] {
+            RegState::Unassigned => {
+                let reg = register_bank.x.pop_first().expect("ran out of registers");
+                let regnr = reg.0;
+                self[fresh] = RegState::XMap(reg);
+                regnr
+            }
+            RegState::XMap(reg) => reg.0,
+            RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
+            RegState::VMap(_) => unreachable!("Looking for X got V"),
+        }
+    }
+
+    // Get or allocate a V register
+    fn get_or_allocate_v_reg(&mut self, register_bank: &mut RegisterBank, fresh: FreshReg) -> u64 {
+        match &self[fresh] {
+            RegState::Unassigned => {
+                let reg = register_bank.v.pop_first().expect("ran out of registers");
+                let regnr = reg.0;
+                self[fresh] = RegState::VMap(reg);
+                regnr
+            }
+            RegState::VMap(reg) => reg.0,
+            RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
+            RegState::XMap(_) => unreachable!("Looking for X got V"),
+        }
+    }
+
+    // Drop a register and return it to the register bank
+    fn drop_register(&mut self, register_bank: &mut RegisterBank, fresh: FreshReg) -> bool {
+        let old = mem::replace(&mut self[fresh], RegState::Dropped);
+        match old {
+            RegState::Unassigned => {
+                unreachable!("There should never be a drop before the register has been assigned")
+            }
+            RegState::XMap(phys_reg) => register_bank.x.insert(phys_reg),
+            RegState::Dropped => {
+                unreachable!("A register that has been dropped can't be dropped again")
+            }
+            RegState::VMap(physical_reg) => register_bank.v.insert(physical_reg),
+        }
+    }
 }
 
 impl std::ops::Index<FreshReg> for RegisterMapping {
@@ -490,122 +580,54 @@ fn generate(
     let mut out = Vec::new();
     for instdrop in instructions {
         match instdrop {
-            InstrDrop::Instr(inst) => match inst {
-                Instr::XInst2Cond(inst, a, b, cond) => {
-                    // Here the dst is also the source
-                    let dst = lookup_phys_xreg_dst(mapping, register_bank, a);
-                    let src = lookup_phys_reg_src(mapping, b);
-                    out.push(format!("{inst} x{dst}, x{src},{cond}"));
-                }
-                Instr::XInst1(inst, a, val) => {
-                    // Here the dst is also the source
-                    let phys_reg = lookup_phys_xreg_dst(mapping, register_bank, a);
-                    out.push(format!("{inst} x{phys_reg}, #{val}"));
-                }
-                // Encoding it in the fresh might be good
-                Instr::VXInst2(inst, a, b) => {
-                    let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
-                    let phys_reg_b = lookup_phys_reg_src(mapping, b);
-                    out.push(format!("{inst} v{phys_reg_src}, x{phys_reg_b}"));
-                }
-                Instr::DXInst2(inst, a, b) => {
-                    // d and v registers share so we pop from v
-                    let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
-                    let phys_reg_b = lookup_phys_reg_src(mapping, b);
-                    out.push(format!("{inst} d{phys_reg_src}, x{phys_reg_b}"));
-                }
-                Instr::VInst2(inst, a, b) => {
-                    let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
-                    let phys_reg_b = lookup_phys_reg_src(mapping, b);
-                    out.push(format!("{inst} v{phys_reg_src}, v{phys_reg_b}"));
-                }
-                Instr::XInst3(inst, a, b, c) => {
-                    let phys_reg_src = lookup_phys_xreg_dst(mapping, register_bank, a);
-                    let phys_reg_b = lookup_phys_reg_src(mapping, b);
-                    let phys_reg_c = lookup_phys_reg_src(mapping, c);
-                    out.push(format!(
-                        "{inst} x{phys_reg_src}, x{phys_reg_b}, x{phys_reg_c}"
-                    ));
-                }
-                Instr::VInst3I(inst, a, b, c, idx) => {
-                    let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
-                    let phys_reg_b = lookup_phys_reg_src(mapping, b);
-                    let phys_reg_c = lookup_phys_reg_src(mapping, c);
-                    out.push(format!(
-                        "{inst} v{phys_reg_src}, v{phys_reg_b}, v{phys_reg_c}[{idx}]"
-                    ));
-                }
-            },
-            InstrDrop::Drop(fresh) => {
-                let old = mem::replace(&mut mapping[fresh], RegState::Dropped);
-                match old {
-                    RegState::Unassigned => unreachable!(
-                        "There should never be a drop before the register has been assigned"
-                    ),
-                    RegState::XMap(phys_reg) => register_bank.x.insert(phys_reg),
-                    RegState::Dropped => {
-                        unreachable!("A register that has been dropped can't be dropped again")
+            InstrDrop::Instr(inst) => {
+                // Resolve registers first - just the physical register numbers
+                let phys_regs = match &inst {
+                    Instr::XInst2Cond(_, a, b, _) => {
+                        let dst = mapping.get_or_allocate_x_reg(register_bank, *a);
+                        let src = mapping.get_phys_reg(*b);
+                        vec![dst, src]
                     }
-                    RegState::VMap(physical_reg) => register_bank.v.insert(physical_reg),
+                    Instr::XInst1(_, a, _) => {
+                        let phys_reg = mapping.get_or_allocate_x_reg(register_bank, *a);
+                        vec![phys_reg]
+                    }
+                    Instr::VXInst2(_, a, b) => {
+                        let phys_reg_src = mapping.get_or_allocate_v_reg(register_bank, *a);
+                        let phys_reg_b = mapping.get_phys_reg(*b);
+                        vec![phys_reg_src, phys_reg_b]
+                    }
+                    Instr::DXInst2(_, a, b) => {
+                        let phys_reg_src = mapping.get_or_allocate_v_reg(register_bank, *a);
+                        let phys_reg_b = mapping.get_phys_reg(*b);
+                        vec![phys_reg_src, phys_reg_b]
+                    }
+                    Instr::VInst2(_, a, b) => {
+                        let phys_reg_src = mapping.get_or_allocate_v_reg(register_bank, *a);
+                        let phys_reg_b = mapping.get_phys_reg(*b);
+                        vec![phys_reg_src, phys_reg_b]
+                    }
+                    Instr::XInst3(_, a, b, c) => {
+                        let phys_reg_src = mapping.get_or_allocate_x_reg(register_bank, *a);
+                        let phys_reg_b = mapping.get_phys_reg(*b);
+                        let phys_reg_c = mapping.get_phys_reg(*c);
+                        vec![phys_reg_src, phys_reg_b, phys_reg_c]
+                    }
+                    Instr::VInst3I(_, a, b, c, _) => {
+                        let phys_reg_src = mapping.get_or_allocate_v_reg(register_bank, *a);
+                        let phys_reg_b = mapping.get_phys_reg(*b);
+                        let phys_reg_c = mapping.get_phys_reg(*c);
+                        vec![phys_reg_src, phys_reg_b, phys_reg_c]
+                    }
                 };
+
+                // Format using resolved physical register numbers
+                out.push(inst.format_instruction(&phys_regs));
+            }
+            InstrDrop::Drop(fresh) => {
+                mapping.drop_register(register_bank, fresh);
             }
         }
     }
     out
-}
-
-// Doesn't distinguish expects earlier part to handle this
-fn lookup_phys_reg_src(mapping: &mut RegisterMapping, fresh: FreshReg) -> u64 {
-    // Should be an Entry way of doing this
-    let phys_reg = match &mapping[fresh] {
-        RegState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
-        RegState::XMap(reg) => reg.0,
-        RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
-        RegState::VMap(reg) => reg.0,
-    };
-    phys_reg
-}
-
-fn lookup_phys_xreg_dst(
-    // Single mapping or double mapping
-    mapping: &mut RegisterMapping,
-    register_bank: &mut RegisterBank,
-    fresh: FreshReg,
-) -> u64 {
-    // Should be an Entry way of doing this
-    let phys_reg = match &mapping[fresh] {
-        RegState::Unassigned => {
-            // Todo switchover to second set
-            let reg = register_bank.x.pop_first().expect("ran out of registers");
-            let regnr = reg.0;
-            mapping[fresh] = RegState::XMap(reg);
-            regnr
-        }
-        RegState::XMap(reg) => reg.0,
-        RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
-        RegState::VMap(physical_reg) => unreachable!("Look for X got V"),
-    };
-    phys_reg
-}
-
-fn lookup_phys_vreg_dst(
-    // Single mapping or double mapping
-    mapping: &mut RegisterMapping,
-    register_bank: &mut RegisterBank,
-    fresh: FreshReg,
-) -> u64 {
-    // Should be an Entry way of doing this
-    let phys_reg = match &mapping[fresh] {
-        RegState::Unassigned => {
-            // Todo switchover to second set
-            let reg = register_bank.v.pop_first().expect("ran out of registers");
-            let regnr = reg.0;
-            mapping[fresh] = RegState::VMap(reg);
-            regnr
-        }
-        RegState::VMap(reg) => reg.0,
-        RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
-        RegState::XMap(physical_reg) => unreachable!("Looking for V got X"),
-    };
-    phys_reg
 }
