@@ -180,6 +180,13 @@ struct VReg {
 trait Reg {
     fn new(reg: FreshReg) -> Self;
     fn reg(&self) -> FreshReg;
+    fn register_type() -> RegisterType;
+}
+
+#[derive(Debug)]
+enum RegisterType {
+    X,
+    V,
 }
 
 impl Reg for XReg {
@@ -190,6 +197,10 @@ impl Reg for XReg {
     fn new(reg: FreshReg) -> Self {
         Self { reg }
     }
+
+    fn register_type() -> RegisterType {
+        RegisterType::X
+    }
 }
 
 impl Reg for VReg {
@@ -198,6 +209,10 @@ impl Reg for VReg {
     }
     fn reg(&self) -> FreshReg {
         self.reg
+    }
+
+    fn register_type() -> RegisterType {
+        RegisterType::V
     }
 }
 
@@ -333,33 +348,30 @@ enum RegState {
 // BUt for the interface we do need to map them some way
 // This can also be done as part of the initialisation
 // A way out of the ordering for now is to just make it a big enough size
-fn inputx(
+fn input<T: Reg>(
     asm: &mut Assembler,
     mapping: &mut RegisterMapping,
     phys_registers: &mut RegisterBank,
     phys: u64,
-) -> XReg {
-    let fresh: XReg = asm.fresh();
+) -> T {
+    let fresh: T = asm.fresh();
     let phys = PhysicalReg(phys);
-    if !phys_registers.x.remove(&phys) {
-        panic!("Register q{} is already in use", phys.0)
-    }
-    mapping[fresh.reg()] = RegState::XMap(phys);
-    fresh
-}
 
-fn inputv(
-    asm: &mut Assembler,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
-    phys: u64,
-) -> VReg {
-    let fresh: VReg = asm.fresh();
-    let phys = PhysicalReg(phys);
-    if !phys_registers.v.remove(&phys) {
-        panic!("Register v{} is already in use", phys.0)
+    match T::register_type() {
+        RegisterType::X => {
+            if !phys_registers.x.remove(&phys) {
+                panic!("Register x{} is already in use", phys.0)
+            }
+            mapping[fresh.reg()] = RegState::XMap(phys);
+        }
+        RegisterType::V => {
+            if !phys_registers.v.remove(&phys) {
+                panic!("Register v{} is already in use", phys.0)
+            }
+            mapping[fresh.reg()] = RegState::VMap(phys);
+        }
     }
-    mapping[fresh.reg()] = RegState::VMap(phys);
+
     fresh
 }
 
@@ -395,9 +407,9 @@ fn main() {
     // Map how the element are mapped to physical registers
     // This needs in to be in part of the code that can talk about physical registers
     // Could structure this differently such that it gives a fresh reg
-    let b = inputx(&mut asm, &mut mapping, &mut phys_registers, PhysicalReg(0));
-    let a_regs = array::from_fn(|ai| PhysicalReg(1 + ai as u64));
-    let a = a_regs.map(|pr| inputx(&mut asm, &mut mapping, &mut phys_registers, pr));
+    let b = input(&mut asm, &mut mapping, &mut phys_registers, (0));
+    let a_regs = array::from_fn(|ai| (1 + ai as u64));
+    let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
 
     let s: [XReg; 5] = array::from_fn(|_| asm.fresh());
 
@@ -408,9 +420,9 @@ fn main() {
 
     let mut asm = Assembler::start_from(asm.fresh);
 
-    let b = inputx(&mut asm, &mut mapping, &mut phys_registers, PhysicalReg(5));
-    let a_regs = array::from_fn(|ai| PhysicalReg(6 + ai as u64));
-    let a = a_regs.map(|pr| inputx(&mut asm, &mut mapping, &mut phys_registers, pr));
+    let b = input(&mut asm, &mut mapping, &mut phys_registers, 5);
+    let a_regs = array::from_fn(|ai| (6 + ai as u64));
+    let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
     let p: [XReg; 5] = array::from_fn(|_| asm.fresh());
     let p_inst = smult(&mut asm, &p, a, b);
     let new = p_inst;
@@ -442,15 +454,15 @@ fn main() {
     let mut mapping = RegisterMapping::new();
     let mut phys_registers = RegisterBank::new();
 
-    let t_regs = array::from_fn(|ai| PhysicalReg(ai as u64));
-    let t = t_regs.map(|pr| inputv(&mut asm, &mut mapping, &mut phys_registers, pr));
-    let v_regs = array::from_fn(|ai| PhysicalReg(ai as u64));
-    let v = v_regs.map(|pr| inputx(&mut asm, &mut mapping, &mut phys_registers, pr));
-    let s = inputv(
+    let t_regs = array::from_fn(|ai| (ai as u64));
+    let t = t_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
+    let v_regs = array::from_fn(|ai| (ai as u64));
+    let v = v_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
+    let s = input(
         &mut asm,
         &mut mapping,
         &mut phys_registers,
-        PhysicalReg(t.len() as u64),
+        (t.len() as u64),
     );
     let ssimd = smult_noinit_simd(&mut asm, &t, s, v);
     println!("ssimd");
