@@ -6,6 +6,8 @@ use std::{
     mem,
 };
 
+use montgomery_reduction::emmart;
+
 // FreshReg can be copied around, but should not be accessible from
 // the user. You do that by not exposing BaseInstr
 // but how can the user then add their own instructions?
@@ -25,9 +27,13 @@ type InstrDrop = BaseInstr<FreshReg>;
 /// BaseInstruction allows for s
 #[derive(Debug)]
 enum BaseInstr<D> {
-    XInst1(String, FreshReg, String /* condition */),
+    XInst1(String, FreshReg, u64),
+    XInst2Cond(String, FreshReg, FreshReg, String /* condition */),
     VInst2(String, FreshReg, FreshReg),
+    DXInst2(String, FreshReg, FreshReg),
+    VXInst2(String, FreshReg, FreshReg),
     XInst3(String, FreshReg, FreshReg, FreshReg),
+    VInst3I(String, FreshReg, FreshReg, FreshReg, u8),
     Drop(D),
 }
 // Define a macro for generating assembler instruction methods
@@ -45,34 +51,84 @@ macro_rules! embed_asm {
         }
     };
 
+    ($name:ident, $inst:literal, 3) => {
+        fn $name(dst: &VReg, src_a: &VReg, src_b: &VReg, i: u8) -> crate::AtomicInstr {
+            vec![crate::BaseInstr::VInst3I(
+                $inst.to_string(),
+                dst.reg,
+                src_a.reg,
+                src_b.reg,
+                i,
+            )]
+        }
+    };
+
     ($name:ident, $inst:literal, 2) => {
         fn $name(dst: &VReg, src: &VReg) -> crate::AtomicInstr {
             vec![crate::BaseInstr::VInst2(
-                stringify!($inst).to_string(),
+                $inst.to_string(),
                 dst.reg,
                 src.reg,
             )]
         }
     };
 
-    // For instructions with 1 register and 1 string parameter (cinc)
-    ($name:ident, cond) => {
-        fn $name(dst: &XReg, condition: &str) -> crate::AtomicInstr {
+    ($name:ident, $inst:literal, 2, m) => {
+        fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstr {
+            vec![crate::BaseInstr::VXInst2(
+                $inst.to_string(),
+                dst.reg,
+                src.reg,
+            )]
+        }
+    };
+
+    ($name:ident, 2, m) => {
+        fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstr {
+            vec![crate::BaseInstr::DXInst2(
+                stringify!($name).to_string(),
+                dst.reg,
+                src.reg,
+            )]
+        }
+    };
+
+    ($name:ident, 1) => {
+        fn $name(dst: &XReg, val: u64) -> crate::AtomicInstr {
             vec![crate::BaseInstr::XInst1(
                 stringify!($name).to_string(),
                 dst.reg,
+                val,
+            )]
+        }
+    };
+
+    // For instructions with 1 register and 1 string parameter (cinc)
+    ($name:ident, cond) => {
+        fn $name(dst: &XReg, src: &XReg, condition: &str) -> crate::AtomicInstr {
+            vec![crate::BaseInstr::XInst2Cond(
+                stringify!($name).to_string(),
+                dst.reg,
+                src.reg,
                 condition.to_string(),
             )]
         }
     };
 }
 
+embed_asm!(mov, 1);
 embed_asm!(mul, 3);
 embed_asm!(umulh, 3);
 embed_asm!(adds, 3);
 embed_asm!(adcs, 3);
 embed_asm!(cinc, cond);
+// mov now doesn't support immediates. Not sure if mov16 actually ever can
+embed_asm!(mov16b, "mov.16b", 2);
 embed_asm!(ucvtf2d, "ucvtf.2d", 2);
+embed_asm!(dup2d, "dup.2d", 2, m);
+// Could use another but this works too
+embed_asm!(ucvtf, 2, m);
+embed_asm!(fmla2d, "fmla.2d", 3);
 
 // Different types as I don't want to have type erasure on the
 // functions themselves
@@ -180,14 +236,32 @@ fn smult(asm: &mut Assembler, s: &[XReg; 5], a: [XReg; 4], b: XReg) -> Vec<Atomi
 // with a parameter and then use slice and generalize it
 // Not everything has to have perfect types
 fn carry_add(s: [&XReg; 2], add: &XReg) -> AtomicInstr {
-    vec![adds(&s[0], &s[0], &add), cinc(&s[1], "hs")]
+    vec![adds(&s[0], &s[0], &add), cinc(&s[1], &s[1], "hs")]
         .into_iter()
         .flatten()
         .collect()
 }
 
-fn smult_noinit_simd(t: &[VReg; 6], s: VReg, v: [XReg; 5]) -> Vec<AtomicInstr> {
-    vec![ucvtf2d(&s, &s)]
+// Whole vector is in registers, but that might not be great. Better to have it on the stack and load it from there
+fn smult_noinit_simd(
+    asm: &mut Assembler,
+    t: &[VReg; 6],
+    s: VReg,
+    v: [XReg; 5],
+) -> Vec<AtomicInstr> {
+    // first do it as is written
+    let tmp = asm.freshx();
+    let splat_c1 = asm.freshv();
+    let cc1 = asm.freshv();
+    let fv0 = asm.freshv();
+    vec![
+        ucvtf2d(&s, &s),
+        mov(&tmp, emmart::C1.to_bits()),
+        ucvtf(&fv0, &v[0]),
+        dup2d(&splat_c1, &tmp),
+        mov16b(&cc1, &splat_c1),
+        fmla2d(&cc1, &s, &fv0, 0),
+    ]
 }
 
 impl std::fmt::Display for XReg {
@@ -323,7 +397,34 @@ fn main() {
 
     // Mapping and phys_registers seem to go togetehr
     let out = generate(&mut mapping, &mut phys_registers, mix);
-    println!("{out:?}")
+    println!("{out:?}");
+
+    let mut asm = Assembler::new();
+    let mut mapping = RegisterMapping::new();
+    let mut phys_registers = RegisterBank::new();
+
+    let t_regs = array::from_fn(|ai| PhysicalReg(ai as u64));
+    let t = t_regs.map(|pr| inputv(&mut asm, &mut mapping, &mut phys_registers, pr));
+    let v_regs = array::from_fn(|ai| PhysicalReg(ai as u64));
+    let v = v_regs.map(|pr| inputx(&mut asm, &mut mapping, &mut phys_registers, pr));
+    let s = inputv(
+        &mut asm,
+        &mut mapping,
+        &mut phys_registers,
+        PhysicalReg(t.len() as u64),
+    );
+    let ssimd = smult_noinit_simd(&mut asm, &t, s, v);
+    println!("ssimd");
+    println!("{:?}", ssimd);
+
+    let mut seen = HashSet::new();
+    t.into_iter().for_each(|r| output_interface(&mut seen, r));
+    let out = generate(
+        &mut mapping,
+        &mut phys_registers,
+        drop_pass(&mut seen, ssimd.into_iter().flatten().collect()),
+    );
+    println!("\nmix: {out:?}");
 
     // Nicer debug output would be to take the predrop instruction list and zip it with the output
     // A next step would be to keep the label
@@ -363,10 +464,28 @@ fn generate(
     let mut out = Vec::new();
     for inst in instructions {
         match inst {
-            BaseInstr::XInst1(inst, a, cond) => {
+            BaseInstr::XInst2Cond(inst, a, b, cond) => {
                 // Here the dst is also the source
-                let phys_reg = lookup_phys_reg_src(mapping, a);
-                out.push(format!("{inst} x{phys_reg},{cond}"));
+                let dst = lookup_phys_xreg_dst(mapping, register_bank, a);
+                let src = lookup_phys_reg_src(mapping, b);
+                out.push(format!("{inst} x{dst}, x{src},{cond}"));
+            }
+            BaseInstr::XInst1(inst, a, val) => {
+                // Here the dst is also the source
+                let phys_reg = lookup_phys_xreg_dst(mapping, register_bank, a);
+                out.push(format!("{inst} x{phys_reg}, #{val}"));
+            }
+            // Encoding it in the fresh might be good
+            BaseInstr::VXInst2(inst, a, b) => {
+                let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
+                let phys_reg_b = lookup_phys_reg_src(mapping, b);
+                out.push(format!("{inst} v{phys_reg_src}, x{phys_reg_b}"));
+            }
+            BaseInstr::DXInst2(inst, a, b) => {
+                // d and v registers share so we pop from v
+                let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
+                let phys_reg_b = lookup_phys_reg_src(mapping, b);
+                out.push(format!("{inst} d{phys_reg_src}, x{phys_reg_b}"));
             }
             BaseInstr::VInst2(inst, a, b) => {
                 let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
@@ -379,6 +498,14 @@ fn generate(
                 let phys_reg_c = lookup_phys_reg_src(mapping, c);
                 out.push(format!(
                     "{inst} x{phys_reg_src}, x{phys_reg_b}, x{phys_reg_c}"
+                ));
+            }
+            BaseInstr::VInst3I(inst, a, b, c, idx) => {
+                let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
+                let phys_reg_b = lookup_phys_reg_src(mapping, b);
+                let phys_reg_c = lookup_phys_reg_src(mapping, c);
+                out.push(format!(
+                    "{inst} v{phys_reg_src}, v{phys_reg_b}, v{phys_reg_c}[{idx}]"
                 ));
             }
             BaseInstr::Drop(fresh) => {
@@ -400,10 +527,15 @@ fn generate(
 }
 
 fn convert_inst(inst: Instr) -> InstrDrop {
+    // This is easy to slip a mistake into
     match inst {
         BaseInstr::XInst1(a, b, c) => BaseInstr::XInst1(a, b, c),
+        BaseInstr::VXInst2(a, b, c) => BaseInstr::VXInst2(a, b, c),
+        BaseInstr::DXInst2(a, b, c) => BaseInstr::DXInst2(a, b, c),
         BaseInstr::VInst2(a, b, c) => BaseInstr::VInst2(a, b, c),
+        BaseInstr::XInst2Cond(a, b, c, d) => BaseInstr::XInst2Cond(a, b, c, d),
         BaseInstr::XInst3(a, b, c, d) => BaseInstr::XInst3(a, b, c, d),
+        BaseInstr::VInst3I(a, b, c, d, i) => BaseInstr::VInst3I(a, b, c, d, i),
     }
 }
 
@@ -420,6 +552,14 @@ fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
                     dinsts.push_front(InstrDrop::Drop(r));
                 }
             }
+            BaseInstr::XInst2Cond(_, r0, r1, _) => {
+                if seen.insert(r0) {
+                    dinsts.push_front(InstrDrop::Drop(r0));
+                }
+                if seen.insert(r1) {
+                    dinsts.push_front(InstrDrop::Drop(r1));
+                }
+            }
             BaseInstr::VInst2(_, r0, r1) => {
                 if seen.insert(r0) {
                     dinsts.push_front(InstrDrop::Drop(r0));
@@ -428,7 +568,35 @@ fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
                     dinsts.push_front(InstrDrop::Drop(r1));
                 }
             }
+            BaseInstr::VXInst2(_, r0, r1) => {
+                if seen.insert(r0) {
+                    dinsts.push_front(InstrDrop::Drop(r0));
+                }
+                if seen.insert(r1) {
+                    dinsts.push_front(InstrDrop::Drop(r1));
+                }
+            }
+            BaseInstr::DXInst2(_, r0, r1) => {
+                if seen.insert(r0) {
+                    dinsts.push_front(InstrDrop::Drop(r0));
+                }
+                if seen.insert(r1) {
+                    dinsts.push_front(InstrDrop::Drop(r1));
+                }
+            }
             BaseInstr::XInst3(_, r0, r1, r2) => {
+                if seen.insert(r0) {
+                    dinsts.push_front(InstrDrop::Drop(r0));
+                }
+                if seen.insert(r1) {
+                    dinsts.push_front(InstrDrop::Drop(r1));
+                }
+                if seen.insert(r2) {
+                    dinsts.push_front(InstrDrop::Drop(r2));
+                }
+            }
+
+            BaseInstr::VInst3I(_, r0, r1, r2, _) => {
                 if seen.insert(r0) {
                     dinsts.push_front(InstrDrop::Drop(r0));
                 }
