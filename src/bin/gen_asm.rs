@@ -1,3 +1,4 @@
+#![feature(iter_intersperse)]
 use std::{
     array,
     collections::{BTreeSet, HashSet, VecDeque},
@@ -6,11 +7,21 @@ use std::{
 
 use montgomery_reduction::emmart;
 
-// FreshReg can be copied around, but should not be accessible from
-// the user. You do that by not exposing BaseInstr
-// but how can the user then add their own instructions?
+// See if these can be reduced. Took all of these as it was a u64 before
+#[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
+enum TReg {
+    X(u64),
+    V(u64),
+}
 
-type FreshReg = u64;
+impl TReg {
+    fn reg(&self) -> u64 {
+        match self {
+            TReg::X(r) => *r,
+            TReg::V(r) => *r,
+        }
+    }
+}
 
 // Vec<BlockInstr> - mixing -> Vec<Instr> -> Vec<InstrDrop> -> Vec<PhysInstr>
 // Naming convention here is very confusing
@@ -18,59 +29,62 @@ type FreshReg = u64;
 // FreshInstr models atomic blocks of instructions
 type AtomicInstr = Vec<Instr>;
 
-// Instruction needs to know the difference between physical and vector
-// because drop won't be able to tell which is which otherwise
-/// BaseInstruction allows for s
+// Maybe make a physical regs version of this as well
 #[derive(Debug)]
-enum Instr {
-    XInst1(String, FreshReg, u64),
-    XInst2Cond(String, FreshReg, FreshReg, String /* condition */),
-    VInst2(String, FreshReg, FreshReg),
-    DXInst2(String, FreshReg, FreshReg),
-    VXInst2(String, FreshReg, FreshReg),
-    XInst3(String, FreshReg, FreshReg, FreshReg),
-    VInst3I(String, FreshReg, FreshReg, FreshReg, u8),
+struct Instr {
+    inst: String,
+    dest: TReg,
+    src: Vec<TReg>,
+    extra: Extra,
+}
+
+// Proper name for this
+#[derive(Debug)]
+enum Extra {
+    None,
+    Imm(u64),
+    Idx(u64),
+    Cond(String),
+}
+
+impl std::fmt::Display for TReg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TReg::X(reg) => write!(f, "x{}", reg),
+            TReg::V(reg) => write!(f, "v{}", reg),
+        }
+    }
 }
 
 impl Instr {
     // Format instruction using already resolved physical register numbers
-    fn format_instruction(&self, phys_regs: &[u64]) -> String {
-        match self {
-            Instr::XInst2Cond(inst, _, _, cond) => {
-                format!("{inst} x{}, x{},{cond}", phys_regs[0], phys_regs[1])
-            }
-            Instr::XInst1(inst, _, val) => {
-                format!("{inst} x{}, #{val}", phys_regs[0])
-            }
-            Instr::VXInst2(inst, _, _) => {
-                format!("{inst} v{}, x{}", phys_regs[0], phys_regs[1])
-            }
-            Instr::DXInst2(inst, _, _) => {
-                format!("{inst} d{}, x{}", phys_regs[0], phys_regs[1])
-            }
-            Instr::VInst2(inst, _, _) => {
-                format!("{inst} v{}, v{}", phys_regs[0], phys_regs[1])
-            }
-            Instr::XInst3(inst, _, _, _) => {
-                format!(
-                    "{inst} x{}, x{}, x{}",
-                    phys_regs[0], phys_regs[1], phys_regs[2]
-                )
-            }
-            Instr::VInst3I(inst, _, _, _, idx) => {
-                format!(
-                    "{inst} v{}, v{}, v{}[{idx}]",
-                    phys_regs[0], phys_regs[1], phys_regs[2]
-                )
-            }
-        }
+    fn format_instruction(mut self) -> String {
+        let mut phys_regs = Vec::new();
+        phys_regs.push(self.dest);
+        let src = &mut self.src;
+        phys_regs.append(src);
+        let regs: String = phys_regs
+            .iter()
+            .map(|x| x.to_string())
+            .intersperse(", ".to_string())
+            .collect();
+        let extra = match self.extra {
+            Extra::None => String::new(),
+            Extra::Imm(imm) => imm.to_string(),
+            Extra::Cond(cond) => cond,
+            Extra::Idx(idx) => format!("[{idx}]"), // TODO(xrvdg) this might need to be somewhere else no it's invalid
+        };
+        [self.inst, regs, extra]
+            .into_iter()
+            .intersperse(" ".to_string())
+            .collect()
     }
 }
 
 #[derive(Debug)]
 enum InstrDrop {
     Instr(Instr),
-    Drop(FreshReg),
+    Drop(TReg),
 }
 
 impl From<Instr> for InstrDrop {
@@ -85,68 +99,79 @@ macro_rules! embed_asm {
     // For instructions with 3 register parameters
     ($name:ident, 3) => {
         fn $name(dst: &XReg, a: &XReg, b: &XReg) -> crate::AtomicInstr {
-            vec![crate::Instr::XInst3(
-                stringify!($name).to_string(),
-                (dst.reg),
-                (a.reg),
-                (b.reg),
-            )]
+            vec![crate::Instr {
+                inst: stringify!($name).to_string(),
+                dest: TReg::X(dst.reg),
+                src: vec![TReg::X(a.reg), TReg::X(b.reg)],
+                extra: Extra::None,
+            }]
         }
     };
 
     ($name:ident, $inst:literal, 3) => {
         fn $name(dst: &VReg, src_a: &VReg, src_b: &VReg, i: u8) -> crate::AtomicInstr {
-            vec![crate::Instr::VInst3I(
-                $inst.to_string(),
-                dst.reg,
-                src_a.reg,
-                src_b.reg,
-                i,
-            )]
+            vec![crate::Instr {
+                inst: $inst.to_string(),
+                dest: TReg::V(dst.reg),
+                src: vec![TReg::V(src_a.reg), TReg::V(src_b.reg)],
+                extra: Extra::Idx(i as u64),
+            }]
         }
     };
 
     ($name:ident, $inst:literal, 2) => {
         fn $name(dst: &VReg, src: &VReg) -> crate::AtomicInstr {
-            vec![crate::Instr::VInst2($inst.to_string(), dst.reg, src.reg)]
+            vec![crate::Instr {
+                inst: $inst.to_string(),
+                dest: TReg::V(dst.reg),
+                src: vec![TReg::V(src.reg)],
+                extra: Extra::None,
+            }]
         }
     };
 
     ($name:ident, $inst:literal, 2, m) => {
         fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstr {
-            vec![crate::Instr::VXInst2($inst.to_string(), dst.reg, src.reg)]
+            vec![crate::Instr {
+                inst: $inst.to_string(),
+                dest: TReg::V(dst.reg),
+                src: vec![TReg::X(src.reg)],
+                extra: Extra::None,
+            }]
         }
     };
 
     ($name:ident, 2, m) => {
         fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstr {
-            vec![crate::Instr::DXInst2(
-                stringify!($name).to_string(),
-                dst.reg,
-                src.reg,
-            )]
+            vec![crate::Instr {
+                inst: stringify!($name).to_string(),
+                dest: TReg::V(dst.reg),
+                src: vec![TReg::X(src.reg)],
+                extra: Extra::None,
+            }]
         }
     };
 
     ($name:ident, 1) => {
         fn $name(dst: &XReg, val: u64) -> crate::AtomicInstr {
-            vec![crate::Instr::XInst1(
-                stringify!($name).to_string(),
-                dst.reg,
-                val,
-            )]
+            vec![crate::Instr {
+                inst: stringify!($name).to_string(),
+                dest: TReg::X(dst.reg),
+                src: vec![],
+                extra: Extra::Imm(val),
+            }]
         }
     };
 
     // For instructions with 1 register and 1 string parameter (cinc)
     ($name:ident, cond) => {
         fn $name(dst: &XReg, src: &XReg, condition: &str) -> crate::AtomicInstr {
-            vec![crate::Instr::XInst2Cond(
-                stringify!($name).to_string(),
-                dst.reg,
-                src.reg,
-                condition.to_string(),
-            )]
+            vec![crate::Instr {
+                inst: stringify!($name).to_string(),
+                dest: TReg::X(dst.reg),
+                src: vec![TReg::X(src.reg)],
+                extra: Extra::Cond(condition.to_string()),
+            }]
         }
     };
 }
@@ -178,8 +203,9 @@ struct VReg {
 }
 
 trait Reg {
-    fn new(reg: FreshReg) -> Self;
-    fn reg(&self) -> FreshReg;
+    fn new(reg: u64) -> Self;
+    // Created for input and output tying
+    fn reg(&self) -> TReg;
     fn register_type() -> RegisterType;
 }
 
@@ -190,11 +216,11 @@ enum RegisterType {
 }
 
 impl Reg for XReg {
-    fn reg(&self) -> FreshReg {
-        self.reg
+    fn reg(&self) -> TReg {
+        TReg::X(self.reg)
     }
 
-    fn new(reg: FreshReg) -> Self {
+    fn new(reg: u64) -> Self {
         Self { reg }
     }
 
@@ -204,11 +230,11 @@ impl Reg for XReg {
 }
 
 impl Reg for VReg {
-    fn new(reg: FreshReg) -> Self {
+    fn new(reg: u64) -> Self {
         Self { reg }
     }
-    fn reg(&self) -> FreshReg {
-        self.reg
+    fn reg(&self) -> TReg {
+        TReg::V(self.reg)
     }
 
     fn register_type() -> RegisterType {
@@ -331,8 +357,7 @@ impl<'a> std::fmt::Debug for XReg {
 // Add another struct to prevent things from being created
 // Make a struct around here such that it can't be copied
 // THe phys_register file is the one that creates them
-#[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
-struct PhysicalReg(u64);
+type PhysicalReg = u64;
 
 // No Clone as the state of one free reg
 // does not make sense as the state of another free reg
@@ -355,18 +380,17 @@ fn input<T: Reg>(
     phys: u64,
 ) -> T {
     let fresh: T = asm.fresh();
-    let phys = PhysicalReg(phys);
 
     match T::register_type() {
         RegisterType::X => {
             if !phys_registers.x.remove(&phys) {
-                panic!("Register x{} is already in use", phys.0)
+                panic!("Register x{} is already in use", phys)
             }
             mapping[fresh.reg()] = RegState::XMap(phys);
         }
         RegisterType::V => {
             if !phys_registers.v.remove(&phys) {
-                panic!("Register v{} is already in use", phys.0)
+                panic!("Register v{} is already in use", phys)
             }
             mapping[fresh.reg()] = RegState::VMap(phys);
         }
@@ -375,7 +399,7 @@ fn input<T: Reg>(
     fresh
 }
 
-type Seen = HashSet<FreshReg>;
+type Seen = HashSet<TReg>;
 
 fn output_interface(seen: &mut Seen, fresh: impl Reg) {
     seen.insert(fresh.reg());
@@ -390,8 +414,8 @@ struct RegisterBank {
 impl RegisterBank {
     fn new() -> Self {
         Self {
-            x: BTreeSet::from_iter(Vec::from_iter(0..=30).iter().map(|&r| PhysicalReg(r))),
-            v: BTreeSet::from_iter(Vec::from_iter(0..=30).iter().map(|&r| PhysicalReg(r))),
+            x: BTreeSet::from_iter(Vec::from_iter(0..=30).iter().map(|&r| (r))),
+            v: BTreeSet::from_iter(Vec::from_iter(0..=30).iter().map(|&r| (r))),
         }
     }
 }
@@ -493,47 +517,38 @@ impl RegisterMapping {
     }
 
     // Get the physical register for a source register
-    fn get_phys_reg(&self, fresh: FreshReg) -> u64 {
+    fn get_phys_reg(&self, fresh: TReg) -> TReg {
         match &self[fresh] {
             RegState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
-            RegState::XMap(reg) => reg.0,
+            RegState::XMap(reg) => TReg::X(*reg),
             RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
-            RegState::VMap(reg) => reg.0,
-        }
-    }
-
-    // Get or allocate an X register
-    fn get_or_allocate_x_reg(&mut self, register_bank: &mut RegisterBank, fresh: FreshReg) -> u64 {
-        match &self[fresh] {
-            RegState::Unassigned => {
-                let reg = register_bank.x.pop_first().expect("ran out of registers");
-                let regnr = reg.0;
-                self[fresh] = RegState::XMap(reg);
-                regnr
-            }
-            RegState::XMap(reg) => reg.0,
-            RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
-            RegState::VMap(_) => unreachable!("Looking for X got V"),
+            RegState::VMap(reg) => TReg::V(*reg),
         }
     }
 
     // Get or allocate a V register
-    fn get_or_allocate_v_reg(&mut self, register_bank: &mut RegisterBank, fresh: FreshReg) -> u64 {
+    fn get_or_allocate_reg(&mut self, register_bank: &mut RegisterBank, fresh: TReg) -> TReg {
         match &self[fresh] {
-            RegState::Unassigned => {
-                let reg = register_bank.v.pop_first().expect("ran out of registers");
-                let regnr = reg.0;
-                self[fresh] = RegState::VMap(reg);
-                regnr
-            }
-            RegState::VMap(reg) => reg.0,
+            RegState::Unassigned => match fresh {
+                TReg::X(_) => {
+                    let reg = register_bank.x.pop_first().expect("ran out of registers");
+                    self[fresh] = RegState::XMap(reg);
+                    TReg::X(reg)
+                }
+                TReg::V(_) => {
+                    let reg = register_bank.v.pop_first().expect("ran out of registers");
+                    self[fresh] = RegState::VMap(reg);
+                    TReg::V(reg)
+                }
+            },
+            RegState::VMap(reg) => TReg::V(*reg),
             RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
-            RegState::XMap(_) => unreachable!("Looking for X got V"),
+            RegState::XMap(reg) => TReg::X(*reg),
         }
     }
 
     // Drop a register and return it to the register bank
-    fn drop_register(&mut self, register_bank: &mut RegisterBank, fresh: FreshReg) -> bool {
+    fn drop_register(&mut self, register_bank: &mut RegisterBank, fresh: TReg) -> bool {
         let old = mem::replace(&mut self[fresh], RegState::Dropped);
         match old {
             RegState::Unassigned => {
@@ -548,17 +563,17 @@ impl RegisterMapping {
     }
 }
 
-impl std::ops::Index<FreshReg> for RegisterMapping {
+impl std::ops::Index<TReg> for RegisterMapping {
     type Output = RegState;
 
-    fn index(&self, idx: FreshReg) -> &Self::Output {
-        &self.0[idx as usize]
+    fn index(&self, idx: TReg) -> &Self::Output {
+        &self.0[idx.reg() as usize]
     }
 }
 
-impl std::ops::IndexMut<FreshReg> for RegisterMapping {
-    fn index_mut(&mut self, idx: FreshReg) -> &mut Self::Output {
-        &mut self.0[idx as usize]
+impl std::ops::IndexMut<TReg> for RegisterMapping {
+    fn index_mut(&mut self, idx: TReg) -> &mut Self::Output {
+        &mut self.0[idx.reg() as usize]
     }
 }
 
@@ -576,16 +591,11 @@ fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
     dinsts
 }
 
-fn extract_regs(inst: &Instr) -> Vec<FreshReg> {
-    match inst {
-        Instr::XInst1(_, r, _) => vec![*r],
-        Instr::XInst2Cond(_, r0, r1, _) => vec![*r0, *r1],
-        Instr::VInst2(_, r0, r1) => vec![*r0, *r1],
-        Instr::VXInst2(_, r0, r1) => vec![*r0, *r1],
-        Instr::DXInst2(_, r0, r1) => vec![*r0, *r1],
-        Instr::XInst3(_, r0, r1, r2) => vec![*r0, *r1, *r2],
-        Instr::VInst3I(_, r0, r1, r2, _) => vec![*r0, *r1, *r2],
-    }
+// Can't assume order
+fn extract_regs(inst: &Instr) -> Vec<TReg> {
+    let mut out = inst.src.clone();
+    out.push(inst.dest);
+    out
 }
 
 fn generate(
@@ -596,49 +606,17 @@ fn generate(
     let mut out = Vec::new();
     for instdrop in instructions {
         match instdrop {
-            InstrDrop::Instr(inst) => {
+            InstrDrop::Instr(mut inst) => {
                 // Resolve registers first - just the physical register numbers
-                let phys_regs = match &inst {
-                    Instr::XInst2Cond(_, a, b, _) => {
-                        let dst = mapping.get_or_allocate_x_reg(register_bank, *a);
-                        let src = mapping.get_phys_reg(*b);
-                        vec![dst, src]
-                    }
-                    Instr::XInst1(_, a, _) => {
-                        let phys_reg = mapping.get_or_allocate_x_reg(register_bank, *a);
-                        vec![phys_reg]
-                    }
-                    Instr::VXInst2(_, a, b) => {
-                        let phys_reg_src = mapping.get_or_allocate_v_reg(register_bank, *a);
-                        let phys_reg_b = mapping.get_phys_reg(*b);
-                        vec![phys_reg_src, phys_reg_b]
-                    }
-                    Instr::DXInst2(_, a, b) => {
-                        let phys_reg_src = mapping.get_or_allocate_v_reg(register_bank, *a);
-                        let phys_reg_b = mapping.get_phys_reg(*b);
-                        vec![phys_reg_src, phys_reg_b]
-                    }
-                    Instr::VInst2(_, a, b) => {
-                        let phys_reg_src = mapping.get_or_allocate_v_reg(register_bank, *a);
-                        let phys_reg_b = mapping.get_phys_reg(*b);
-                        vec![phys_reg_src, phys_reg_b]
-                    }
-                    Instr::XInst3(_, a, b, c) => {
-                        let phys_reg_src = mapping.get_or_allocate_x_reg(register_bank, *a);
-                        let phys_reg_b = mapping.get_phys_reg(*b);
-                        let phys_reg_c = mapping.get_phys_reg(*c);
-                        vec![phys_reg_src, phys_reg_b, phys_reg_c]
-                    }
-                    Instr::VInst3I(_, a, b, c, _) => {
-                        let phys_reg_src = mapping.get_or_allocate_v_reg(register_bank, *a);
-                        let phys_reg_b = mapping.get_phys_reg(*b);
-                        let phys_reg_c = mapping.get_phys_reg(*c);
-                        vec![phys_reg_src, phys_reg_b, phys_reg_c]
-                    }
-                };
+                inst.dest = mapping.get_or_allocate_reg(register_bank, inst.dest);
+                inst.src = inst
+                    .src
+                    .into_iter()
+                    .map(|s| mapping.get_phys_reg(s))
+                    .collect();
 
                 // Format using resolved physical register numbers
-                out.push(inst.format_instruction(&phys_regs));
+                out.push(inst.format_instruction());
             }
             InstrDrop::Drop(fresh) => {
                 mapping.drop_register(register_bank, fresh);
