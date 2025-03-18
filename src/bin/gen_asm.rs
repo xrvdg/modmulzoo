@@ -18,15 +18,13 @@ type FreshReg = u64;
 // Naming convention here is very confusing
 // Instr models a single instruction
 // FreshInstr models atomic blocks of instructions
-type Instr = BaseInstr<!>;
 type AtomicInstr = Vec<Instr>;
-type InstrDrop = BaseInstr<FreshReg>;
 
 // Instruction needs to know the difference between physical and vector
 // because drop won't be able to tell which is which otherwise
 /// BaseInstruction allows for s
 #[derive(Debug)]
-enum BaseInstr<D> {
+enum Instr {
     XInst1(String, FreshReg, u64),
     XInst2Cond(String, FreshReg, FreshReg, String /* condition */),
     VInst2(String, FreshReg, FreshReg),
@@ -34,15 +32,27 @@ enum BaseInstr<D> {
     VXInst2(String, FreshReg, FreshReg),
     XInst3(String, FreshReg, FreshReg, FreshReg),
     VInst3I(String, FreshReg, FreshReg, FreshReg, u8),
-    Drop(D),
 }
+
+#[derive(Debug)]
+enum InstrDrop {
+    Instr(Instr),
+    Drop(FreshReg),
+}
+
+impl From<Instr> for InstrDrop {
+    fn from(instr: Instr) -> Self {
+        InstrDrop::Instr(instr)
+    }
+}
+
 // Define a macro for generating assembler instruction methods
 // Don't write directly to the assembler as we would like to use these to construct grouped instructions
 macro_rules! embed_asm {
     // For instructions with 3 register parameters
     ($name:ident, 3) => {
         fn $name(dst: &XReg, a: &XReg, b: &XReg) -> crate::AtomicInstr {
-            vec![crate::BaseInstr::XInst3(
+            vec![crate::Instr::XInst3(
                 stringify!($name).to_string(),
                 (dst.reg),
                 (a.reg),
@@ -53,7 +63,7 @@ macro_rules! embed_asm {
 
     ($name:ident, $inst:literal, 3) => {
         fn $name(dst: &VReg, src_a: &VReg, src_b: &VReg, i: u8) -> crate::AtomicInstr {
-            vec![crate::BaseInstr::VInst3I(
+            vec![crate::Instr::VInst3I(
                 $inst.to_string(),
                 dst.reg,
                 src_a.reg,
@@ -65,27 +75,19 @@ macro_rules! embed_asm {
 
     ($name:ident, $inst:literal, 2) => {
         fn $name(dst: &VReg, src: &VReg) -> crate::AtomicInstr {
-            vec![crate::BaseInstr::VInst2(
-                $inst.to_string(),
-                dst.reg,
-                src.reg,
-            )]
+            vec![crate::Instr::VInst2($inst.to_string(), dst.reg, src.reg)]
         }
     };
 
     ($name:ident, $inst:literal, 2, m) => {
         fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstr {
-            vec![crate::BaseInstr::VXInst2(
-                $inst.to_string(),
-                dst.reg,
-                src.reg,
-            )]
+            vec![crate::Instr::VXInst2($inst.to_string(), dst.reg, src.reg)]
         }
     };
 
     ($name:ident, 2, m) => {
         fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstr {
-            vec![crate::BaseInstr::DXInst2(
+            vec![crate::Instr::DXInst2(
                 stringify!($name).to_string(),
                 dst.reg,
                 src.reg,
@@ -95,7 +97,7 @@ macro_rules! embed_asm {
 
     ($name:ident, 1) => {
         fn $name(dst: &XReg, val: u64) -> crate::AtomicInstr {
-            vec![crate::BaseInstr::XInst1(
+            vec![crate::Instr::XInst1(
                 stringify!($name).to_string(),
                 dst.reg,
                 val,
@@ -106,7 +108,7 @@ macro_rules! embed_asm {
     // For instructions with 1 register and 1 string parameter (cinc)
     ($name:ident, cond) => {
         fn $name(dst: &XReg, src: &XReg, condition: &str) -> crate::AtomicInstr {
-            vec![crate::BaseInstr::XInst2Cond(
+            vec![crate::Instr::XInst2Cond(
                 stringify!($name).to_string(),
                 dst.reg,
                 src.reg,
@@ -462,53 +464,55 @@ fn generate(
     instructions: VecDeque<InstrDrop>,
 ) -> Vec<String> {
     let mut out = Vec::new();
-    for inst in instructions {
-        match inst {
-            BaseInstr::XInst2Cond(inst, a, b, cond) => {
-                // Here the dst is also the source
-                let dst = lookup_phys_xreg_dst(mapping, register_bank, a);
-                let src = lookup_phys_reg_src(mapping, b);
-                out.push(format!("{inst} x{dst}, x{src},{cond}"));
-            }
-            BaseInstr::XInst1(inst, a, val) => {
-                // Here the dst is also the source
-                let phys_reg = lookup_phys_xreg_dst(mapping, register_bank, a);
-                out.push(format!("{inst} x{phys_reg}, #{val}"));
-            }
-            // Encoding it in the fresh might be good
-            BaseInstr::VXInst2(inst, a, b) => {
-                let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
-                let phys_reg_b = lookup_phys_reg_src(mapping, b);
-                out.push(format!("{inst} v{phys_reg_src}, x{phys_reg_b}"));
-            }
-            BaseInstr::DXInst2(inst, a, b) => {
-                // d and v registers share so we pop from v
-                let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
-                let phys_reg_b = lookup_phys_reg_src(mapping, b);
-                out.push(format!("{inst} d{phys_reg_src}, x{phys_reg_b}"));
-            }
-            BaseInstr::VInst2(inst, a, b) => {
-                let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
-                let phys_reg_b = lookup_phys_reg_src(mapping, b);
-                out.push(format!("{inst} v{phys_reg_src}, v{phys_reg_b}"));
-            }
-            BaseInstr::XInst3(inst, a, b, c) => {
-                let phys_reg_src = lookup_phys_xreg_dst(mapping, register_bank, a);
-                let phys_reg_b = lookup_phys_reg_src(mapping, b);
-                let phys_reg_c = lookup_phys_reg_src(mapping, c);
-                out.push(format!(
-                    "{inst} x{phys_reg_src}, x{phys_reg_b}, x{phys_reg_c}"
-                ));
-            }
-            BaseInstr::VInst3I(inst, a, b, c, idx) => {
-                let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
-                let phys_reg_b = lookup_phys_reg_src(mapping, b);
-                let phys_reg_c = lookup_phys_reg_src(mapping, c);
-                out.push(format!(
-                    "{inst} v{phys_reg_src}, v{phys_reg_b}, v{phys_reg_c}[{idx}]"
-                ));
-            }
-            BaseInstr::Drop(fresh) => {
+    for instdrop in instructions {
+        match instdrop {
+            InstrDrop::Instr(inst) => match inst {
+                Instr::XInst2Cond(inst, a, b, cond) => {
+                    // Here the dst is also the source
+                    let dst = lookup_phys_xreg_dst(mapping, register_bank, a);
+                    let src = lookup_phys_reg_src(mapping, b);
+                    out.push(format!("{inst} x{dst}, x{src},{cond}"));
+                }
+                Instr::XInst1(inst, a, val) => {
+                    // Here the dst is also the source
+                    let phys_reg = lookup_phys_xreg_dst(mapping, register_bank, a);
+                    out.push(format!("{inst} x{phys_reg}, #{val}"));
+                }
+                // Encoding it in the fresh might be good
+                Instr::VXInst2(inst, a, b) => {
+                    let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
+                    let phys_reg_b = lookup_phys_reg_src(mapping, b);
+                    out.push(format!("{inst} v{phys_reg_src}, x{phys_reg_b}"));
+                }
+                Instr::DXInst2(inst, a, b) => {
+                    // d and v registers share so we pop from v
+                    let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
+                    let phys_reg_b = lookup_phys_reg_src(mapping, b);
+                    out.push(format!("{inst} d{phys_reg_src}, x{phys_reg_b}"));
+                }
+                Instr::VInst2(inst, a, b) => {
+                    let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
+                    let phys_reg_b = lookup_phys_reg_src(mapping, b);
+                    out.push(format!("{inst} v{phys_reg_src}, v{phys_reg_b}"));
+                }
+                Instr::XInst3(inst, a, b, c) => {
+                    let phys_reg_src = lookup_phys_xreg_dst(mapping, register_bank, a);
+                    let phys_reg_b = lookup_phys_reg_src(mapping, b);
+                    let phys_reg_c = lookup_phys_reg_src(mapping, c);
+                    out.push(format!(
+                        "{inst} x{phys_reg_src}, x{phys_reg_b}, x{phys_reg_c}"
+                    ));
+                }
+                Instr::VInst3I(inst, a, b, c, idx) => {
+                    let phys_reg_src = lookup_phys_vreg_dst(mapping, register_bank, a);
+                    let phys_reg_b = lookup_phys_reg_src(mapping, b);
+                    let phys_reg_c = lookup_phys_reg_src(mapping, c);
+                    out.push(format!(
+                        "{inst} v{phys_reg_src}, v{phys_reg_b}, v{phys_reg_c}[{idx}]"
+                    ));
+                }
+            },
+            InstrDrop::Drop(fresh) => {
                 let old = mem::replace(&mut mapping[fresh], RegState::Dropped);
                 match old {
                     RegState::Unassigned => unreachable!(
@@ -526,19 +530,6 @@ fn generate(
     out
 }
 
-fn convert_inst(inst: Instr) -> InstrDrop {
-    // This is easy to slip a mistake into
-    match inst {
-        BaseInstr::XInst1(a, b, c) => BaseInstr::XInst1(a, b, c),
-        BaseInstr::VXInst2(a, b, c) => BaseInstr::VXInst2(a, b, c),
-        BaseInstr::DXInst2(a, b, c) => BaseInstr::DXInst2(a, b, c),
-        BaseInstr::VInst2(a, b, c) => BaseInstr::VInst2(a, b, c),
-        BaseInstr::XInst2Cond(a, b, c, d) => BaseInstr::XInst2Cond(a, b, c, d),
-        BaseInstr::XInst3(a, b, c, d) => BaseInstr::XInst3(a, b, c, d),
-        BaseInstr::VInst3I(a, b, c, d, i) => BaseInstr::VInst3I(a, b, c, d, i),
-    }
-}
-
 fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
     // Can already calculate the size it's the amount of registers + the amount of free variables.
     // So we can just do it on a vector
@@ -547,12 +538,12 @@ fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
     let mut dinsts = VecDeque::new();
     for inst in insts.into_iter().rev() {
         match inst {
-            BaseInstr::XInst1(_, r, _) => {
+            Instr::XInst1(_, r, _) => {
                 if seen.insert(r) {
                     dinsts.push_front(InstrDrop::Drop(r));
                 }
             }
-            BaseInstr::XInst2Cond(_, r0, r1, _) => {
+            Instr::XInst2Cond(_, r0, r1, _) => {
                 if seen.insert(r0) {
                     dinsts.push_front(InstrDrop::Drop(r0));
                 }
@@ -560,7 +551,7 @@ fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
                     dinsts.push_front(InstrDrop::Drop(r1));
                 }
             }
-            BaseInstr::VInst2(_, r0, r1) => {
+            Instr::VInst2(_, r0, r1) => {
                 if seen.insert(r0) {
                     dinsts.push_front(InstrDrop::Drop(r0));
                 }
@@ -568,7 +559,7 @@ fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
                     dinsts.push_front(InstrDrop::Drop(r1));
                 }
             }
-            BaseInstr::VXInst2(_, r0, r1) => {
+            Instr::VXInst2(_, r0, r1) => {
                 if seen.insert(r0) {
                     dinsts.push_front(InstrDrop::Drop(r0));
                 }
@@ -576,7 +567,7 @@ fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
                     dinsts.push_front(InstrDrop::Drop(r1));
                 }
             }
-            BaseInstr::DXInst2(_, r0, r1) => {
+            Instr::DXInst2(_, r0, r1) => {
                 if seen.insert(r0) {
                     dinsts.push_front(InstrDrop::Drop(r0));
                 }
@@ -584,7 +575,7 @@ fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
                     dinsts.push_front(InstrDrop::Drop(r1));
                 }
             }
-            BaseInstr::XInst3(_, r0, r1, r2) => {
+            Instr::XInst3(_, r0, r1, r2) => {
                 if seen.insert(r0) {
                     dinsts.push_front(InstrDrop::Drop(r0));
                 }
@@ -596,7 +587,7 @@ fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
                 }
             }
 
-            BaseInstr::VInst3I(_, r0, r1, r2, _) => {
+            Instr::VInst3I(_, r0, r1, r2, _) => {
                 if seen.insert(r0) {
                     dinsts.push_front(InstrDrop::Drop(r0));
                 }
@@ -608,7 +599,7 @@ fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
                 }
             }
         }
-        dinsts.push_front(convert_inst(inst));
+        dinsts.push_front(inst.into());
     }
     dinsts
 }
