@@ -9,13 +9,13 @@ use montgomery_reduction::emmart;
 
 // See if these can be reduced. Took all of these as it was a u64 before
 #[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
-enum TReg {
-    X(u64),
-    V(u64),
+enum TReg<R> {
+    X(R),
+    V(R),
 }
 
-impl TReg {
-    fn reg(&self) -> u64 {
+impl<R: Copy> TReg<R> {
+    fn reg(&self) -> R {
         match self {
             TReg::X(r) => *r,
             TReg::V(r) => *r,
@@ -23,18 +23,16 @@ impl TReg {
     }
 }
 
+type FreshRegister = u64;
 // Vec<BlockInstr> - mixing -> Vec<Instr> -> Vec<InstrDrop> -> Vec<PhysInstr>
-// Naming convention here is very confusing
-// Instr models a single instruction
-// FreshInstr models atomic blocks of instructions
-type AtomicInstr = Vec<Instr>;
+type AtomicInstr = Vec<Instr<FreshRegister>>;
 
 // Maybe make a physical regs version of this as well
 #[derive(Debug)]
-struct Instr {
+struct Instr<R> {
     opcode: String,
-    dest: TReg,
-    src: Vec<TReg>,
+    dest: TReg<R>,
+    src: Vec<TReg<R>>,
     modifiers: Mod,
 }
 
@@ -47,7 +45,7 @@ enum Mod {
     Cond(String),
 }
 
-impl std::fmt::Display for TReg {
+impl<R: std::fmt::Display> std::fmt::Display for TReg<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TReg::X(reg) => write!(f, "x{}", reg),
@@ -56,12 +54,12 @@ impl std::fmt::Display for TReg {
     }
 }
 
-impl Instr {
+impl<R: std::fmt::Display + Copy> Instr<R> {
     // Format instruction using already resolved physical register numbers
     // TODO(might be better as Display)
-    fn format_instruction(mut self) -> String {
+    fn format_instruction(&self) -> String {
         let mut phys_regs = vec![self.dest];
-        phys_regs.append(&mut self.src);
+        phys_regs.append(&mut self.src.clone());
 
         let regs: String = phys_regs
             .iter()
@@ -69,26 +67,27 @@ impl Instr {
             .intersperse(", ".to_string())
             .collect();
 
-        let extra = match self.modifiers {
+        let extra = match &self.modifiers {
             Mod::None => String::new(),
             Mod::Imm(imm) => format!(", #{imm}"),
             Mod::Cond(cond) => format!(", {cond}"),
             Mod::Idx(idx) => format!("[{idx}]"),
         };
-        let inst = self.opcode;
+        let inst = &self.opcode;
         format!("{inst} {regs}{extra}")
     }
 }
 
 #[derive(Debug)]
-enum InstrDrop {
-    Instr(Instr),
-    Drop(TReg),
+/// Data structure that contains the instruction + live range analysis
+enum InstrRegScope {
+    Instr(Instr<FreshRegister>),
+    Drop(TReg<FreshRegister>),
 }
 
-impl From<Instr> for InstrDrop {
-    fn from(instr: Instr) -> Self {
-        InstrDrop::Instr(instr)
+impl From<Instr<FreshRegister>> for InstrRegScope {
+    fn from(instr: Instr<FreshRegister>) -> Self {
+        InstrRegScope::Instr(instr)
     }
 }
 
@@ -204,7 +203,7 @@ struct VReg {
 trait Reg {
     fn new(reg: u64) -> Self;
     // Created for input and output tying
-    fn treg(&self) -> TReg;
+    fn treg(&self) -> TReg<FreshRegister>;
     fn register_type() -> RegisterType;
 }
 
@@ -215,7 +214,7 @@ enum RegisterType {
 }
 
 impl Reg for XReg {
-    fn treg(&self) -> TReg {
+    fn treg(&self) -> TReg<FreshRegister> {
         TReg::X(self.reg)
     }
 
@@ -232,7 +231,7 @@ impl Reg for VReg {
     fn new(reg: u64) -> Self {
         Self { reg }
     }
-    fn treg(&self) -> TReg {
+    fn treg(&self) -> TReg<FreshRegister> {
         TReg::V(self.reg)
     }
 
@@ -270,18 +269,6 @@ impl Allocator {
         }
     }
 }
-
-// Macro for not having to do method chaining
-macro_rules! asm_op {
-    ($asm:ident, $($method:ident($($arg:expr),*));+) => {
-        $(
-            $asm.inst.push(vec![$method($($arg),*)]);
-        )+
-    };
-}
-
-// TODO Downside of the change is that builtin and own written now have a different feel to it
-// Maybe that should be brought together later
 
 // How do other allocating algorithms pass things along like Vec?
 // In this algorithm the inputs are not used after
@@ -322,7 +309,7 @@ fn carry_add(s: [&XReg; 2], add: &XReg) -> AtomicInstr {
 // Whole vector is in registers, but that might not be great. Better to have it on the stack and load it from there
 fn smult_noinit_simd(
     asm: &mut Allocator,
-    t: &[VReg; 6],
+    _t: &[VReg; 6],
     s: VReg,
     v: [XReg; 5],
 ) -> Vec<AtomicInstr> {
@@ -356,14 +343,14 @@ impl std::fmt::Debug for XReg {
 // Add another struct to prevent things from being created
 // Make a struct around here such that it can't be copied
 // THe phys_register file is the one that creates them
-type PhysicalReg = u64;
+type HardwareRegister = u64;
 
 // No Clone as the state of one free reg
 // does not make sense as the state of another free reg
 #[derive(PartialEq, Debug)]
-enum RegState {
+enum RegisterState {
     Unassigned,
-    Map(TReg),
+    Map(TReg<HardwareRegister>),
     Dropped,
 }
 
@@ -392,12 +379,12 @@ fn input<T: Reg>(
             }
         }
     }
-    mapping[treg] = RegState::Map(treg);
+    mapping[treg] = RegisterState::Map(treg);
 
     fresh
 }
 
-type Seen = HashSet<TReg>;
+type Seen = HashSet<TReg<FreshRegister>>;
 
 fn output_interface(seen: &mut Seen, fresh: impl Reg) {
     seen.insert(fresh.treg());
@@ -405,8 +392,8 @@ fn output_interface(seen: &mut Seen, fresh: impl Reg) {
 
 // TODO(xrvdg) Different types for the PhysicalRegs
 struct RegisterBank {
-    x: BTreeSet<PhysicalReg>,
-    v: BTreeSet<PhysicalReg>,
+    x: BTreeSet<HardwareRegister>,
+    v: BTreeSet<HardwareRegister>,
 }
 
 impl RegisterBank {
@@ -416,7 +403,7 @@ impl RegisterBank {
             v: BTreeSet::from_iter(Vec::from_iter(0..=30)),
         }
     }
-    fn insert(&mut self, phys_reg: TReg) -> bool {
+    fn insert(&mut self, phys_reg: TReg<HardwareRegister>) -> bool {
         match phys_reg {
             TReg::X(phys_reg) => self.x.insert(phys_reg),
             TReg::V(phys_reg) => self.v.insert(phys_reg),
@@ -466,8 +453,8 @@ fn main() {
     println!("\nmix: {mix:?}");
 
     // Mapping and phys_registers seem to go togetehr
-    let out = generate(&mut mapping, &mut phys_registers, mix);
-    println!("{out:?}");
+    let out = hardware_register_allocation(&mut mapping, &mut phys_registers, mix);
+    print_instrs(&out);
 
     let mut asm = Allocator::new();
     let mut mapping = RegisterMapping::new();
@@ -479,23 +466,25 @@ fn main() {
     let v = v_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
     let s = input(&mut asm, &mut mapping, &mut phys_registers, t.len() as u64);
     let ssimd = smult_noinit_simd(&mut asm, &t, s, v);
-    println!("ssimd");
+    println!("\nssimd");
     println!("{:?}", ssimd);
 
     let mut seen = HashSet::new();
     t.into_iter().for_each(|r| output_interface(&mut seen, r));
-    let out = generate(
+    let out = hardware_register_allocation(
         &mut mapping,
         &mut phys_registers,
         drop_pass(&mut seen, ssimd.into_iter().flatten().collect()),
     );
-    println!("\nmix: {out:?}");
+
+    println!();
+    print_instrs(&out);
 
     // Nicer debug output would be to take the predrop instruction list and zip it with the output
     // A next step would be to keep the label
 }
 
-fn interleave(lhs: Vec<AtomicInstr>, rhs: Vec<AtomicInstr>) -> Vec<Instr> {
+fn interleave(lhs: Vec<AtomicInstr>, rhs: Vec<AtomicInstr>) -> Vec<Instr<FreshRegister>> {
     lhs.into_iter()
         .zip(rhs)
         .flat_map(|(a, b)| [a, b])
@@ -503,84 +492,93 @@ fn interleave(lhs: Vec<AtomicInstr>, rhs: Vec<AtomicInstr>) -> Vec<Instr> {
         .collect()
 }
 
-struct RegisterMapping(Vec<RegState>);
+struct RegisterMapping(Vec<RegisterState>);
 
 impl RegisterMapping {
     fn new() -> Self {
         // TODO needs to be the same as registerbank
         Self(
-            std::iter::repeat_with(|| RegState::Unassigned)
+            std::iter::repeat_with(|| RegisterState::Unassigned)
                 .take(30)
                 .collect::<Vec<_>>(),
         )
     }
 
     // Get the physical register for a source register
-    fn get_phys_reg(&self, fresh: TReg) -> TReg {
+    fn get_phys_reg(&self, fresh: TReg<FreshRegister>) -> TReg<HardwareRegister> {
         match &self[fresh] {
-            RegState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
-            RegState::Map(reg) => *reg,
-            RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
+            RegisterState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
+            RegisterState::Map(reg) => *reg,
+            RegisterState::Dropped => unreachable!("{fresh:?} already has been dropped"),
         }
     }
 
     // Get or allocate a V register
-    fn get_or_allocate_reg(&mut self, register_bank: &mut RegisterBank, fresh: TReg) -> TReg {
+    fn get_or_allocate_reg(
+        &mut self,
+        register_bank: &mut RegisterBank,
+        fresh: TReg<FreshRegister>,
+    ) -> TReg<HardwareRegister> {
         match &self[fresh] {
-            RegState::Unassigned => match fresh {
+            RegisterState::Unassigned => match fresh {
                 TReg::X(_) => {
                     let reg = register_bank.x.pop_first().expect("ran out of registers");
-                    self[fresh] = RegState::Map(TReg::X(reg));
+                    self[fresh] = RegisterState::Map(TReg::X(reg));
                     TReg::X(reg)
                 }
                 TReg::V(_) => {
                     let reg = register_bank.v.pop_first().expect("ran out of registers");
-                    self[fresh] = RegState::Map(TReg::V(reg));
+                    self[fresh] = RegisterState::Map(TReg::V(reg));
                     TReg::V(reg)
                 }
             },
-            RegState::Map(reg) => *reg,
-            RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
+            RegisterState::Map(reg) => *reg,
+            RegisterState::Dropped => unreachable!("{fresh:?} already has been dropped"),
         }
     }
 
-    // Drop a register and return it to the register bank
-    fn drop_register(&mut self, register_bank: &mut RegisterBank, fresh: TReg) -> bool {
-        let old = mem::replace(&mut self[fresh], RegState::Dropped);
+    // Once a fresh register goes out of scope the hardware register that was assigned to that fresh register
+    // can be returned to the register bank.
+    fn drop_register(
+        &mut self,
+        register_bank: &mut RegisterBank,
+        fresh: TReg<FreshRegister>,
+    ) -> bool {
+        let old = mem::replace(&mut self[fresh], RegisterState::Dropped);
 
         match old {
-            RegState::Unassigned => {
+            RegisterState::Unassigned => {
                 unreachable!("There should never be a drop before the register has been assigned")
             }
-            RegState::Map(reg) => register_bank.insert(reg),
-            RegState::Dropped => {
+            RegisterState::Map(reg) => register_bank.insert(reg),
+            RegisterState::Dropped => {
                 unreachable!("A register that has been dropped can't be dropped again")
             }
         }
     }
 }
 
-impl std::ops::Index<TReg> for RegisterMapping {
-    type Output = RegState;
+impl std::ops::Index<TReg<FreshRegister>> for RegisterMapping {
+    type Output = RegisterState;
 
-    fn index(&self, idx: TReg) -> &Self::Output {
+    fn index(&self, idx: TReg<FreshRegister>) -> &Self::Output {
         &self.0[idx.reg() as usize]
     }
 }
 
-impl std::ops::IndexMut<TReg> for RegisterMapping {
-    fn index_mut(&mut self, idx: TReg) -> &mut Self::Output {
+impl std::ops::IndexMut<TReg<FreshRegister>> for RegisterMapping {
+    fn index_mut(&mut self, idx: TReg<FreshRegister>) -> &mut Self::Output {
         &mut self.0[idx.reg() as usize]
     }
 }
 
-fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
+fn drop_pass(seen: &mut Seen, insts: Vec<Instr<FreshRegister>>) -> VecDeque<InstrRegScope> {
     let mut dinsts = VecDeque::new();
     for inst in insts.into_iter().rev() {
         let registers = extract_regs(&inst);
         for reg in registers {
             if seen.insert(reg) {
-                dinsts.push_front(InstrDrop::Drop(reg));
+                dinsts.push_front(InstrRegScope::Drop(reg));
             }
         }
         dinsts.push_front(inst.into());
@@ -589,21 +587,21 @@ fn drop_pass(seen: &mut Seen, insts: Vec<Instr>) -> VecDeque<InstrDrop> {
 }
 
 // Can't assume order
-fn extract_regs(inst: &Instr) -> Vec<TReg> {
+fn extract_regs<R: Copy>(inst: &Instr<R>) -> Vec<TReg<R>> {
     let mut out = inst.src.clone();
     out.push(inst.dest);
     out
 }
 
-fn generate(
+fn hardware_register_allocation(
     mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
-    instructions: VecDeque<InstrDrop>,
-) -> Vec<String> {
+    instructions: VecDeque<InstrRegScope>,
+) -> Vec<Instr<HardwareRegister>> {
     let mut out = Vec::new();
     for instdrop in instructions {
         match instdrop {
-            InstrDrop::Instr(mut inst) => {
+            InstrRegScope::Instr(mut inst) => {
                 // Resolve registers first - just the physical register numbers
                 inst.dest = mapping.get_or_allocate_reg(register_bank, inst.dest);
                 inst.src = inst
@@ -611,14 +609,18 @@ fn generate(
                     .into_iter()
                     .map(|s| mapping.get_phys_reg(s))
                     .collect();
-
-                // Format using resolved physical register numbers
-                out.push(inst.format_instruction());
+                out.push(inst)
             }
-            InstrDrop::Drop(fresh) => {
+            InstrRegScope::Drop(fresh) => {
                 mapping.drop_register(register_bank, fresh);
             }
         }
     }
     out
+}
+
+fn print_instrs<R: std::fmt::Display + Copy>(instrs: &Vec<Instr<R>>) {
+    instrs
+        .iter()
+        .for_each(|inst| println!("{}", inst.format_instruction()));
 }
