@@ -27,7 +27,6 @@ type FreshRegister = u64;
 // Vec<BlockInstr> - mixing -> Vec<Instr> -> Vec<InstrDrop> -> Vec<PhysInstr>
 type AtomicInstr = Vec<Instr<FreshRegister>>;
 
-// Maybe make a physical regs version of this as well
 #[derive(Debug)]
 struct Instr<R> {
     opcode: String,
@@ -99,8 +98,8 @@ macro_rules! embed_asm {
         fn $name(dst: &XReg, a: &XReg, b: &XReg) -> crate::AtomicInstr {
             vec![crate::Instr {
                 opcode: stringify!($name).to_string(),
-                dest: TReg::X(dst.reg),
-                src: vec![TReg::X(a.reg), TReg::X(b.reg)],
+                dest: dst.treg(),
+                src: vec![a.treg(), b.treg()],
                 modifiers: Mod::None,
             }]
         }
@@ -110,8 +109,8 @@ macro_rules! embed_asm {
         fn $name(dst: &VReg, src_a: &VReg, src_b: &VReg, i: u8) -> crate::AtomicInstr {
             vec![crate::Instr {
                 opcode: $opcode.to_string(),
-                dest: TReg::V(dst.reg),
-                src: vec![TReg::V(src_a.reg), TReg::V(src_b.reg)],
+                dest: dst.treg(),
+                src: vec![src_a.treg(), src_b.treg()],
                 modifiers: Mod::Idx(i as u64),
             }]
         }
@@ -121,8 +120,8 @@ macro_rules! embed_asm {
         fn $name(dst: &VReg, src: &VReg) -> crate::AtomicInstr {
             vec![crate::Instr {
                 opcode: $opcode.to_string(),
-                dest: TReg::V(dst.reg),
-                src: vec![TReg::V(src.reg)],
+                dest: dst.treg(),
+                src: vec![src.treg()],
                 modifiers: Mod::None,
             }]
         }
@@ -132,8 +131,8 @@ macro_rules! embed_asm {
         fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstr {
             vec![crate::Instr {
                 opcode: $opcode.to_string(),
-                dest: TReg::V(dst.reg),
-                src: vec![TReg::X(src.reg)],
+                dest: dst.treg(),
+                src: vec![src.treg()],
                 modifiers: Mod::None,
             }]
         }
@@ -143,8 +142,8 @@ macro_rules! embed_asm {
         fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstr {
             vec![crate::Instr {
                 opcode: stringify!($name).to_string(),
-                dest: TReg::V(dst.reg),
-                src: vec![TReg::X(src.reg)],
+                dest: dst.treg(),
+                src: vec![src.treg()],
                 modifiers: Mod::None,
             }]
         }
@@ -154,7 +153,7 @@ macro_rules! embed_asm {
         fn $name(dst: &XReg, val: u64) -> crate::AtomicInstr {
             vec![crate::Instr {
                 opcode: stringify!($name).to_string(),
-                dest: TReg::X(dst.reg),
+                dest: dst.treg(),
                 src: vec![],
                 modifiers: Mod::Imm(val),
             }]
@@ -166,8 +165,8 @@ macro_rules! embed_asm {
         fn $name(dst: &XReg, src: &XReg, condition: &str) -> crate::AtomicInstr {
             vec![crate::Instr {
                 opcode: stringify!($name).to_string(),
-                dest: TReg::X(dst.reg),
-                src: vec![TReg::X(src.reg)],
+                dest: dst.treg(),
+                src: vec![src.treg()],
                 modifiers: Mod::Cond(condition.to_string()),
             }]
         }
