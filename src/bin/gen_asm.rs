@@ -32,15 +32,15 @@ type AtomicInstr = Vec<Instr>;
 // Maybe make a physical regs version of this as well
 #[derive(Debug)]
 struct Instr {
-    inst: String,
+    opcode: String,
     dest: TReg,
     src: Vec<TReg>,
-    extra: Extra,
+    modifiers: Mod,
 }
 
 // Proper name for this
 #[derive(Debug)]
-enum Extra {
+enum Mod {
     None,
     Imm(u64),
     Idx(u64),
@@ -58,26 +58,25 @@ impl std::fmt::Display for TReg {
 
 impl Instr {
     // Format instruction using already resolved physical register numbers
+    // TODO(might be better as Display)
     fn format_instruction(mut self) -> String {
-        let mut phys_regs = Vec::new();
-        phys_regs.push(self.dest);
-        let src = &mut self.src;
-        phys_regs.append(src);
+        let mut phys_regs = vec![self.dest];
+        phys_regs.append(&mut self.src);
+
         let regs: String = phys_regs
             .iter()
             .map(|x| x.to_string())
             .intersperse(", ".to_string())
             .collect();
-        let extra = match self.extra {
-            Extra::None => String::new(),
-            Extra::Imm(imm) => imm.to_string(),
-            Extra::Cond(cond) => cond,
-            Extra::Idx(idx) => format!("[{idx}]"), // TODO(xrvdg) this might need to be somewhere else no it's invalid
+
+        let extra = match self.modifiers {
+            Mod::None => String::new(),
+            Mod::Imm(imm) => format!(", #{imm}"),
+            Mod::Cond(cond) => format!(", {cond}"),
+            Mod::Idx(idx) => format!("[{idx}]"),
         };
-        [self.inst, regs, extra]
-            .into_iter()
-            .intersperse(" ".to_string())
-            .collect()
+        let inst = self.opcode;
+        format!("{inst} {regs}{extra}")
     }
 }
 
@@ -96,47 +95,47 @@ impl From<Instr> for InstrDrop {
 // Define a macro for generating assembler instruction methods
 // Don't write directly to the assembler as we would like to use these to construct grouped instructions
 macro_rules! embed_asm {
-    // For instructions with 3 register parameters
+    // For opcodeructions with 3 register parameters
     ($name:ident, 3) => {
         fn $name(dst: &XReg, a: &XReg, b: &XReg) -> crate::AtomicInstr {
             vec![crate::Instr {
-                inst: stringify!($name).to_string(),
+                opcode: stringify!($name).to_string(),
                 dest: TReg::X(dst.reg),
                 src: vec![TReg::X(a.reg), TReg::X(b.reg)],
-                extra: Extra::None,
+                modifiers: Mod::None,
             }]
         }
     };
 
-    ($name:ident, $inst:literal, 3) => {
+    ($name:ident, $opcode:literal, 3) => {
         fn $name(dst: &VReg, src_a: &VReg, src_b: &VReg, i: u8) -> crate::AtomicInstr {
             vec![crate::Instr {
-                inst: $inst.to_string(),
+                opcode: $opcode.to_string(),
                 dest: TReg::V(dst.reg),
                 src: vec![TReg::V(src_a.reg), TReg::V(src_b.reg)],
-                extra: Extra::Idx(i as u64),
+                modifiers: Mod::Idx(i as u64),
             }]
         }
     };
 
-    ($name:ident, $inst:literal, 2) => {
+    ($name:ident, $opcode:literal, 2) => {
         fn $name(dst: &VReg, src: &VReg) -> crate::AtomicInstr {
             vec![crate::Instr {
-                inst: $inst.to_string(),
+                opcode: $opcode.to_string(),
                 dest: TReg::V(dst.reg),
                 src: vec![TReg::V(src.reg)],
-                extra: Extra::None,
+                modifiers: Mod::None,
             }]
         }
     };
 
-    ($name:ident, $inst:literal, 2, m) => {
+    ($name:ident, $opcode:literal, 2, m) => {
         fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstr {
             vec![crate::Instr {
-                inst: $inst.to_string(),
+                opcode: $opcode.to_string(),
                 dest: TReg::V(dst.reg),
                 src: vec![TReg::X(src.reg)],
-                extra: Extra::None,
+                modifiers: Mod::None,
             }]
         }
     };
@@ -144,10 +143,10 @@ macro_rules! embed_asm {
     ($name:ident, 2, m) => {
         fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstr {
             vec![crate::Instr {
-                inst: stringify!($name).to_string(),
+                opcode: stringify!($name).to_string(),
                 dest: TReg::V(dst.reg),
                 src: vec![TReg::X(src.reg)],
-                extra: Extra::None,
+                modifiers: Mod::None,
             }]
         }
     };
@@ -155,22 +154,22 @@ macro_rules! embed_asm {
     ($name:ident, 1) => {
         fn $name(dst: &XReg, val: u64) -> crate::AtomicInstr {
             vec![crate::Instr {
-                inst: stringify!($name).to_string(),
+                opcode: stringify!($name).to_string(),
                 dest: TReg::X(dst.reg),
                 src: vec![],
-                extra: Extra::Imm(val),
+                modifiers: Mod::Imm(val),
             }]
         }
     };
 
-    // For instructions with 1 register and 1 string parameter (cinc)
+    // For opcodeructions with 1 register and 1 string parameter (cinc)
     ($name:ident, cond) => {
         fn $name(dst: &XReg, src: &XReg, condition: &str) -> crate::AtomicInstr {
             vec![crate::Instr {
-                inst: stringify!($name).to_string(),
+                opcode: stringify!($name).to_string(),
                 dest: TReg::X(dst.reg),
                 src: vec![TReg::X(src.reg)],
-                extra: Extra::Cond(condition.to_string()),
+                modifiers: Mod::Cond(condition.to_string()),
             }]
         }
     };
@@ -245,15 +244,15 @@ impl Reg for VReg {
 // Put both inside Assembler as I couldn't give a reference to Reg
 // if fresh was &mut self. But give it another try
 #[derive(Debug)]
-struct Assembler {
+struct Allocator {
     // It's about unique counters so we use the counter for both
     // q and v registers
     // this makes it easier to read the assembly
     fresh: u64,
-    inst: Vec<AtomicInstr>,
+    // inst: Vec<AtomicInstr>,
 }
 
-impl Assembler {
+impl Allocator {
     fn fresh<T: Reg>(&mut self) -> T {
         let x = self.fresh;
         self.fresh += 1;
@@ -267,7 +266,7 @@ impl Assembler {
     fn start_from(n: u64) -> Self {
         Self {
             fresh: n,
-            inst: Vec::new(),
+            // inst: Vec::new(),
         }
     }
 }
@@ -286,7 +285,7 @@ macro_rules! asm_op {
 
 // How do other allocating algorithms pass things along like Vec?
 // In this algorithm the inputs are not used after
-fn smult(asm: &mut Assembler, s: &[XReg; 5], a: [XReg; 4], b: XReg) -> Vec<AtomicInstr> {
+fn smult(asm: &mut Allocator, s: &[XReg; 5], a: [XReg; 4], b: XReg) -> Vec<AtomicInstr> {
     // tmp being reused instead of a fresh variable each time.
     // should not make much of a difference
     let tmp = asm.fresh();
@@ -314,7 +313,7 @@ fn smult(asm: &mut Assembler, s: &[XReg; 5], a: [XReg; 4], b: XReg) -> Vec<Atomi
 // with a parameter and then use slice and generalize it
 // Not everything has to have perfect types
 fn carry_add(s: [&XReg; 2], add: &XReg) -> AtomicInstr {
-    vec![adds(&s[0], &s[0], &add), cinc(&s[1], &s[1], "hs")]
+    vec![adds(s[0], s[0], add), cinc(s[1], s[1], "hs")]
         .into_iter()
         .flatten()
         .collect()
@@ -322,7 +321,7 @@ fn carry_add(s: [&XReg; 2], add: &XReg) -> AtomicInstr {
 
 // Whole vector is in registers, but that might not be great. Better to have it on the stack and load it from there
 fn smult_noinit_simd(
-    asm: &mut Assembler,
+    asm: &mut Allocator,
     t: &[VReg; 6],
     s: VReg,
     v: [XReg; 5],
@@ -348,7 +347,7 @@ impl std::fmt::Display for XReg {
     }
 }
 
-impl<'a> std::fmt::Debug for XReg {
+impl std::fmt::Debug for XReg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "x{}", self.reg)
     }
@@ -374,7 +373,7 @@ enum RegState {
 // This can also be done as part of the initialisation
 // A way out of the ordering for now is to just make it a big enough size
 fn input<T: Reg>(
-    asm: &mut Assembler,
+    asm: &mut Allocator,
     mapping: &mut RegisterMapping,
     phys_registers: &mut RegisterBank,
     phys: u64,
@@ -414,8 +413,8 @@ struct RegisterBank {
 impl RegisterBank {
     fn new() -> Self {
         Self {
-            x: BTreeSet::from_iter(Vec::from_iter(0..=30).iter().map(|&r| (r))),
-            v: BTreeSet::from_iter(Vec::from_iter(0..=30).iter().map(|&r| (r))),
+            x: BTreeSet::from_iter(Vec::from_iter(0..=30)),
+            v: BTreeSet::from_iter(Vec::from_iter(0..=30)),
         }
     }
 }
@@ -424,14 +423,14 @@ fn main() {
     // If the allocator reaches then it needs to start saving
     // that can be done in a separate pass in front and in the back
     // doesn't fully do the indirect result register
-    let mut asm = Assembler::new();
+    let mut asm = Allocator::new();
     let mut mapping = RegisterMapping::new();
     let mut phys_registers = RegisterBank::new();
 
     // Map how the element are mapped to physical registers
     // This needs in to be in part of the code that can talk about physical registers
     // Could structure this differently such that it gives a fresh reg
-    let b = input(&mut asm, &mut mapping, &mut phys_registers, (0));
+    let b = input(&mut asm, &mut mapping, &mut phys_registers, 0);
     let a_regs = array::from_fn(|ai| (1 + ai as u64));
     let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
 
@@ -442,7 +441,7 @@ fn main() {
 
     let old = sinst;
 
-    let mut asm = Assembler::start_from(asm.fresh);
+    let mut asm = Allocator::start_from(asm.fresh);
 
     let b = input(&mut asm, &mut mapping, &mut phys_registers, 5);
     let a_regs = array::from_fn(|ai| (6 + ai as u64));
@@ -451,12 +450,7 @@ fn main() {
     let p_inst = smult(&mut asm, &p, a, b);
     let new = p_inst;
 
-    let mix = old
-        .into_iter()
-        .zip(new.into_iter())
-        .flat_map(|(a, b)| [a, b])
-        .flatten()
-        .collect::<Vec<_>>();
+    let mix = interleave(old, new);
 
     // Is there something we can do to tie off the outputs.
     // and to make sure it happens before drop_pass
@@ -474,7 +468,7 @@ fn main() {
     let out = generate(&mut mapping, &mut phys_registers, mix);
     println!("{out:?}");
 
-    let mut asm = Assembler::new();
+    let mut asm = Allocator::new();
     let mut mapping = RegisterMapping::new();
     let mut phys_registers = RegisterBank::new();
 
@@ -486,7 +480,7 @@ fn main() {
         &mut asm,
         &mut mapping,
         &mut phys_registers,
-        (t.len() as u64),
+        t.len() as u64,
     );
     let ssimd = smult_noinit_simd(&mut asm, &t, s, v);
     println!("ssimd");
@@ -503,6 +497,14 @@ fn main() {
 
     // Nicer debug output would be to take the predrop instruction list and zip it with the output
     // A next step would be to keep the label
+}
+
+fn interleave(lhs: Vec<AtomicInstr>, rhs: Vec<AtomicInstr>) -> Vec<Instr> {
+    lhs.into_iter()
+        .zip(rhs)
+        .flat_map(|(a, b)| [a, b])
+        .flatten()
+        .collect()
 }
 
 struct RegisterMapping(Vec<RegState>);

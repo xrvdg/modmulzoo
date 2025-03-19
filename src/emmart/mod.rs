@@ -666,8 +666,8 @@ const fn pow_2(n: u32) -> f64 {
     f64::from_bits(exp)
 }
 
-pub(crate) const C1: f64 = pow_2(104); // 2.0^104
-pub(crate) const C2: f64 = pow_2(104) + pow_2(52); // 2.0^104 + 2.0^52
+pub const C1: f64 = pow_2(104); // 2.0^104
+pub const C2: f64 = pow_2(104) + pow_2(52); // 2.0^104 + 2.0^52
 const C3: f64 = pow_2(52); // 2.0^52
 
 #[inline]
