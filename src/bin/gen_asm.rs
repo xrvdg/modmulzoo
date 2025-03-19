@@ -44,6 +44,8 @@ enum Mod {
     Cond(String),
 }
 
+// TODO This could benefit from having really different types for FreshRegister and
+// Hardware Register. The output could be made different for this
 impl<R: std::fmt::Display> std::fmt::Display for TReg<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -54,8 +56,7 @@ impl<R: std::fmt::Display> std::fmt::Display for TReg<R> {
 }
 
 impl<R: std::fmt::Display + Copy> Instruction<R> {
-    // Format instruction using already resolved physical register numbers
-    // TODO(might be better as Display)
+    // TODO this might be better as Display and/or using Formatter
     fn format_instruction(&self) -> String {
         let mut phys_regs = vec![self.dest];
         phys_regs.append(&mut self.src.clone());
@@ -248,15 +249,12 @@ impl Reg for VReg {
     }
 }
 
-// Put both inside Assembler as I couldn't give a reference to Reg
-// if fresh was &mut self. But give it another try
 #[derive(Debug)]
 struct Allocator {
     // It's about unique counters so we use the counter for both
     // q and v registers
     // this makes it easier to read the assembly
     fresh: u64,
-    // inst: Vec<AtomicInstr>,
 }
 
 impl Allocator {
@@ -267,14 +265,7 @@ impl Allocator {
     }
 
     fn new() -> Self {
-        Self::start_from(0)
-    }
-
-    fn start_from(n: u64) -> Self {
-        Self {
-            fresh: n,
-            // inst: Vec::new(),
-        }
+        Self { fresh: 0 }
     }
 }
 
@@ -380,14 +371,15 @@ fn input<T: Reg>(
             if !phys_registers.x.remove(&phys) {
                 panic!("Register x{} is already in use", phys)
             }
+            mapping[treg] = RegisterState::Map(TReg::X(phys));
         }
         RegisterType::V => {
             if !phys_registers.v.remove(&phys) {
                 panic!("Register v{} is already in use", phys)
             }
+            mapping[treg] = RegisterState::Map(TReg::V(phys));
         }
     }
-    mapping[treg] = RegisterState::Map(treg);
 
     fresh
 }
@@ -398,6 +390,7 @@ fn output_interface(seen: &mut Seen, fresh: impl Reg) {
     seen.insert(fresh.treg());
 }
 
+#[derive(Debug)]
 struct RegisterBank {
     x: BTreeSet<HardwareRegister>,
     v: BTreeSet<HardwareRegister>,
@@ -410,6 +403,7 @@ impl RegisterBank {
             v: BTreeSet::from_iter(Vec::from_iter(0..=30)),
         }
     }
+    /// Returns
     fn insert(&mut self, phys_reg: TReg<HardwareRegister>) -> bool {
         match phys_reg {
             TReg::X(phys_reg) => self.x.insert(phys_reg),
@@ -418,9 +412,7 @@ impl RegisterBank {
     }
 }
 
-fn main() {
-    // If the allocator reaches then it needs to start saving
-    // that can be done in a separate pass in front and in the back
+fn interleave_test() {
     // doesn't fully do the indirect result register
     let mut asm = Allocator::new();
     let mut mapping = RegisterMapping::new();
@@ -439,8 +431,6 @@ fn main() {
     println!("{:?}", asm);
 
     let old = sinst;
-
-    let mut asm = Allocator::start_from(asm.fresh);
 
     let b = input(&mut asm, &mut mapping, &mut phys_registers, 5);
     let a_regs = array::from_fn(|ai| (6 + ai as u64));
@@ -461,8 +451,10 @@ fn main() {
 
     // Mapping and phys_registers seem to go togetehr
     let out = hardware_register_allocation(&mut mapping, &mut phys_registers, mix);
-    print_instrs(&out);
+    print_instructions(&out);
+}
 
+fn simd_test() {
     let mut asm = Allocator::new();
     let mut mapping = RegisterMapping::new();
     let mut phys_registers = RegisterBank::new();
@@ -474,21 +466,35 @@ fn main() {
     let s = input(&mut asm, &mut mapping, &mut phys_registers, t.len() as u64);
     let ssimd = smult_noinit_simd(&mut asm, &t, s, v);
     println!("\nssimd");
-    println!("{:?}", ssimd);
+    let inst = ssimd.into_iter().flatten().collect();
+    print_instructions(&inst);
 
     let mut seen = HashSet::new();
-    t.into_iter().for_each(|r| output_interface(&mut seen, r));
+    // t.into_iter().for_each(|r| output_interface(&mut seen, r));
     let out = hardware_register_allocation(
         &mut mapping,
         &mut phys_registers,
-        liveness_analysis(&mut seen, ssimd.into_iter().flatten().collect()),
+        liveness_analysis(&mut seen, inst),
     );
 
     println!();
-    print_instrs(&out);
+    print_instructions(&out);
+}
 
-    // Nicer debug output would be to take the predrop instruction list and zip it with the output
-    // A next step would be to keep the label
+fn main() {
+    let mut asm = Allocator::new();
+    let mut mapping = RegisterMapping::new();
+    let mut register_bank = RegisterBank::new();
+    let x = asm.fresh();
+
+    let inst = mul(&x, &x, &x);
+    print_instructions(&inst);
+    let mut seen_registers = HashSet::new();
+    let commands = liveness_analysis(&mut seen_registers, inst);
+    let physical_inst = hardware_register_allocation(&mut mapping, &mut register_bank, commands);
+    print_instructions(&physical_inst);
+
+    simd_test();
 }
 
 fn interleave(
@@ -502,11 +508,12 @@ fn interleave(
         .collect()
 }
 
+#[derive(Debug)]
 struct RegisterMapping(Vec<RegisterState>);
 
 impl RegisterMapping {
     fn new() -> Self {
-        // TODO needs to be the same as registerbank
+        // Needs to be equal to the number of free register in the allocator once it is finished
         Self(
             std::iter::repeat_with(|| RegisterState::Unassigned)
                 .take(30)
@@ -560,7 +567,14 @@ impl RegisterMapping {
             RegisterState::Unassigned => {
                 unreachable!("There should never be a drop before the register has been assigned")
             }
-            RegisterState::Map(reg) => register_bank.insert(reg),
+            RegisterState::Map(reg) => {
+                let new = register_bank.insert(reg);
+                assert!(
+                    new,
+                    "hardware:{reg} is assigned to more than one fresh register. "
+                );
+                new
+            }
             RegisterState::Dropped => {
                 unreachable!("A register that has been dropped can't be dropped again")
             }
@@ -603,27 +617,32 @@ fn hardware_register_allocation(
     register_bank: &mut RegisterBank,
     commands: VecDeque<LivenessCommand>,
 ) -> Vec<Instruction<HardwareRegister>> {
-    let f = |cmd| match cmd {
-        LivenessCommand::Instr(mut inst) => {
-            // Resolve registers to physical hardware registers
-            inst.dest = mapping.get_or_allocate_register(register_bank, inst.dest);
-            inst.src = inst
-                .src
-                .into_iter()
-                .map(|s| mapping.get_register(s))
-                .collect();
-            Some(inst)
-        }
-        LivenessCommand::Drop(fresh) => {
-            mapping.free_register(register_bank, fresh);
-            None
+    let f = |cmd| {
+        // println!("LivenessCommand: {cmd:?}");
+        // println!("mapping: {mapping:?}");
+        // println!("bank: {register_bank:?}");
+        match cmd {
+            LivenessCommand::Instr(mut inst) => {
+                // Resolve registers to physical hardware registers
+                inst.dest = mapping.get_or_allocate_register(register_bank, inst.dest);
+                inst.src = inst
+                    .src
+                    .into_iter()
+                    .map(|s| mapping.get_register(s))
+                    .collect();
+                Some(inst)
+            }
+            LivenessCommand::Drop(fresh) => {
+                mapping.free_register(register_bank, fresh);
+                None
+            }
         }
     };
 
     commands.into_iter().filter_map(f).collect()
 }
 
-fn print_instrs<R: std::fmt::Display + Copy>(instrs: &Vec<Instruction<R>>) {
+fn print_instructions<R: std::fmt::Display + Copy>(instrs: &Vec<Instruction<R>>) {
     instrs
         .iter()
         .for_each(|inst| println!("{}", inst.format_instruction()));
