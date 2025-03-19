@@ -204,7 +204,7 @@ struct VReg {
 trait Reg {
     fn new(reg: u64) -> Self;
     // Created for input and output tying
-    fn reg(&self) -> TReg;
+    fn treg(&self) -> TReg;
     fn register_type() -> RegisterType;
 }
 
@@ -215,7 +215,7 @@ enum RegisterType {
 }
 
 impl Reg for XReg {
-    fn reg(&self) -> TReg {
+    fn treg(&self) -> TReg {
         TReg::X(self.reg)
     }
 
@@ -232,7 +232,7 @@ impl Reg for VReg {
     fn new(reg: u64) -> Self {
         Self { reg }
     }
-    fn reg(&self) -> TReg {
+    fn treg(&self) -> TReg {
         TReg::V(self.reg)
     }
 
@@ -363,8 +363,7 @@ type PhysicalReg = u64;
 #[derive(PartialEq, Debug)]
 enum RegState {
     Unassigned,
-    XMap(PhysicalReg),
-    VMap(PhysicalReg),
+    Map(TReg),
     Dropped,
 }
 
@@ -379,21 +378,21 @@ fn input<T: Reg>(
     phys: u64,
 ) -> T {
     let fresh: T = asm.fresh();
+    let treg = fresh.treg();
 
     match T::register_type() {
         RegisterType::X => {
             if !phys_registers.x.remove(&phys) {
                 panic!("Register x{} is already in use", phys)
             }
-            mapping[fresh.reg()] = RegState::XMap(phys);
         }
         RegisterType::V => {
             if !phys_registers.v.remove(&phys) {
                 panic!("Register v{} is already in use", phys)
             }
-            mapping[fresh.reg()] = RegState::VMap(phys);
         }
     }
+    mapping[treg] = RegState::Map(treg);
 
     fresh
 }
@@ -401,7 +400,7 @@ fn input<T: Reg>(
 type Seen = HashSet<TReg>;
 
 fn output_interface(seen: &mut Seen, fresh: impl Reg) {
-    seen.insert(fresh.reg());
+    seen.insert(fresh.treg());
 }
 
 // TODO(xrvdg) Different types for the PhysicalRegs
@@ -415,6 +414,12 @@ impl RegisterBank {
         Self {
             x: BTreeSet::from_iter(Vec::from_iter(0..=30)),
             v: BTreeSet::from_iter(Vec::from_iter(0..=30)),
+        }
+    }
+    fn insert(&mut self, phys_reg: TReg) -> bool {
+        match phys_reg {
+            TReg::X(phys_reg) => self.x.insert(phys_reg),
+            TReg::V(phys_reg) => self.v.insert(phys_reg),
         }
     }
 }
@@ -460,10 +465,6 @@ fn main() {
     let mix = drop_pass(&mut seen, mix);
     println!("\nmix: {mix:?}");
 
-    // Fix this up later
-    // let size = asm.0.borrow().fresh;
-    // This can be an array doesn't need to be resizable, but also no benefits to not doing it.
-
     // Mapping and phys_registers seem to go togetehr
     let out = generate(&mut mapping, &mut phys_registers, mix);
     println!("{out:?}");
@@ -476,12 +477,7 @@ fn main() {
     let t = t_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
     let v_regs = array::from_fn(|ai| (ai as u64));
     let v = v_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
-    let s = input(
-        &mut asm,
-        &mut mapping,
-        &mut phys_registers,
-        t.len() as u64,
-    );
+    let s = input(&mut asm, &mut mapping, &mut phys_registers, t.len() as u64);
     let ssimd = smult_noinit_simd(&mut asm, &t, s, v);
     println!("ssimd");
     println!("{:?}", ssimd);
@@ -511,6 +507,7 @@ struct RegisterMapping(Vec<RegState>);
 
 impl RegisterMapping {
     fn new() -> Self {
+        // TODO needs to be the same as registerbank
         Self(
             std::iter::repeat_with(|| RegState::Unassigned)
                 .take(30)
@@ -522,9 +519,8 @@ impl RegisterMapping {
     fn get_phys_reg(&self, fresh: TReg) -> TReg {
         match &self[fresh] {
             RegState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
-            RegState::XMap(reg) => TReg::X(*reg),
+            RegState::Map(reg) => *reg,
             RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
-            RegState::VMap(reg) => TReg::V(*reg),
         }
     }
 
@@ -534,33 +530,32 @@ impl RegisterMapping {
             RegState::Unassigned => match fresh {
                 TReg::X(_) => {
                     let reg = register_bank.x.pop_first().expect("ran out of registers");
-                    self[fresh] = RegState::XMap(reg);
+                    self[fresh] = RegState::Map(TReg::X(reg));
                     TReg::X(reg)
                 }
                 TReg::V(_) => {
                     let reg = register_bank.v.pop_first().expect("ran out of registers");
-                    self[fresh] = RegState::VMap(reg);
+                    self[fresh] = RegState::Map(TReg::V(reg));
                     TReg::V(reg)
                 }
             },
-            RegState::VMap(reg) => TReg::V(*reg),
+            RegState::Map(reg) => *reg,
             RegState::Dropped => unreachable!("{fresh:?} already has been dropped"),
-            RegState::XMap(reg) => TReg::X(*reg),
         }
     }
 
     // Drop a register and return it to the register bank
     fn drop_register(&mut self, register_bank: &mut RegisterBank, fresh: TReg) -> bool {
         let old = mem::replace(&mut self[fresh], RegState::Dropped);
+
         match old {
             RegState::Unassigned => {
                 unreachable!("There should never be a drop before the register has been assigned")
             }
-            RegState::XMap(phys_reg) => register_bank.x.insert(phys_reg),
+            RegState::Map(reg) => register_bank.insert(reg),
             RegState::Dropped => {
                 unreachable!("A register that has been dropped can't be dropped again")
             }
-            RegState::VMap(physical_reg) => register_bank.v.insert(physical_reg),
         }
     }
 }
