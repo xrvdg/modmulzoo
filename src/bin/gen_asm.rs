@@ -25,10 +25,10 @@ impl<R: Copy> TReg<R> {
 
 type FreshRegister = u64;
 // Vec<BlockInstr> - mixing -> Vec<Instr> -> Vec<InstrDrop> -> Vec<PhysInstr>
-type AtomicInstr = Vec<Instr<FreshRegister>>;
+type AtomicInstruction = Vec<Instruction<FreshRegister>>;
 
 #[derive(Debug)]
-struct Instr<R> {
+struct Instruction<R> {
     opcode: String,
     dest: TReg<R>,
     src: Vec<TReg<R>>,
@@ -53,7 +53,7 @@ impl<R: std::fmt::Display> std::fmt::Display for TReg<R> {
     }
 }
 
-impl<R: std::fmt::Display + Copy> Instr<R> {
+impl<R: std::fmt::Display + Copy> Instruction<R> {
     // Format instruction using already resolved physical register numbers
     // TODO(might be better as Display)
     fn format_instruction(&self) -> String {
@@ -75,18 +75,27 @@ impl<R: std::fmt::Display + Copy> Instr<R> {
         let inst = &self.opcode;
         format!("{inst} {regs}{extra}")
     }
+
+    /// Returns all the registers mentioned in the instructions.
+    /// You can't assume the order in which they are returned.
+    fn extract_registers(&self) -> Vec<TReg<R>> {
+        let mut out = self.src.clone();
+        out.push(self.dest);
+        out
+    }
 }
 
 #[derive(Debug)]
-/// Data structure that contains the instruction + live range analysis
-enum InstrRegScope {
-    Instr(Instr<FreshRegister>),
+/// The result of the liveness analysis and it gives commands to the
+/// hardware register allocator
+enum LivenessCommand {
+    Instr(Instruction<FreshRegister>),
     Drop(TReg<FreshRegister>),
 }
 
-impl From<Instr<FreshRegister>> for InstrRegScope {
-    fn from(instr: Instr<FreshRegister>) -> Self {
-        InstrRegScope::Instr(instr)
+impl From<Instruction<FreshRegister>> for LivenessCommand {
+    fn from(instr: Instruction<FreshRegister>) -> Self {
+        LivenessCommand::Instr(instr)
     }
 }
 
@@ -95,8 +104,8 @@ impl From<Instr<FreshRegister>> for InstrRegScope {
 macro_rules! embed_asm {
     // For opcodeructions with 3 register parameters
     ($name:ident, 3) => {
-        fn $name(dst: &XReg, a: &XReg, b: &XReg) -> crate::AtomicInstr {
-            vec![crate::Instr {
+        fn $name(dst: &XReg, a: &XReg, b: &XReg) -> crate::AtomicInstruction {
+            vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
                 dest: dst.treg(),
                 src: vec![a.treg(), b.treg()],
@@ -106,8 +115,8 @@ macro_rules! embed_asm {
     };
 
     ($name:ident, $opcode:literal, 3) => {
-        fn $name(dst: &VReg, src_a: &VReg, src_b: &VReg, i: u8) -> crate::AtomicInstr {
-            vec![crate::Instr {
+        fn $name(dst: &VReg, src_a: &VReg, src_b: &VReg, i: u8) -> crate::AtomicInstruction {
+            vec![crate::Instruction {
                 opcode: $opcode.to_string(),
                 dest: dst.treg(),
                 src: vec![src_a.treg(), src_b.treg()],
@@ -117,8 +126,8 @@ macro_rules! embed_asm {
     };
 
     ($name:ident, $opcode:literal, 2) => {
-        fn $name(dst: &VReg, src: &VReg) -> crate::AtomicInstr {
-            vec![crate::Instr {
+        fn $name(dst: &VReg, src: &VReg) -> crate::AtomicInstruction {
+            vec![crate::Instruction {
                 opcode: $opcode.to_string(),
                 dest: dst.treg(),
                 src: vec![src.treg()],
@@ -128,8 +137,8 @@ macro_rules! embed_asm {
     };
 
     ($name:ident, $opcode:literal, 2, m) => {
-        fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstr {
-            vec![crate::Instr {
+        fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstruction {
+            vec![crate::Instruction {
                 opcode: $opcode.to_string(),
                 dest: dst.treg(),
                 src: vec![src.treg()],
@@ -139,8 +148,8 @@ macro_rules! embed_asm {
     };
 
     ($name:ident, 2, m) => {
-        fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstr {
-            vec![crate::Instr {
+        fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstruction {
+            vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
                 dest: dst.treg(),
                 src: vec![src.treg()],
@@ -150,8 +159,8 @@ macro_rules! embed_asm {
     };
 
     ($name:ident, 1) => {
-        fn $name(dst: &XReg, val: u64) -> crate::AtomicInstr {
-            vec![crate::Instr {
+        fn $name(dst: &XReg, val: u64) -> crate::AtomicInstruction {
+            vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
                 dest: dst.treg(),
                 src: vec![],
@@ -162,8 +171,8 @@ macro_rules! embed_asm {
 
     // For opcodeructions with 1 register and 1 string parameter (cinc)
     ($name:ident, cond) => {
-        fn $name(dst: &XReg, src: &XReg, condition: &str) -> crate::AtomicInstr {
-            vec![crate::Instr {
+        fn $name(dst: &XReg, src: &XReg, condition: &str) -> crate::AtomicInstruction {
+            vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
                 dest: dst.treg(),
                 src: vec![src.treg()],
@@ -271,7 +280,7 @@ impl Allocator {
 
 // How do other allocating algorithms pass things along like Vec?
 // In this algorithm the inputs are not used after
-fn smult(asm: &mut Allocator, s: &[XReg; 5], a: [XReg; 4], b: XReg) -> Vec<AtomicInstr> {
+fn smult(asm: &mut Allocator, s: &[XReg; 5], a: [XReg; 4], b: XReg) -> Vec<AtomicInstruction> {
     // tmp being reused instead of a fresh variable each time.
     // should not make much of a difference
     let tmp = asm.fresh();
@@ -298,7 +307,7 @@ fn smult(asm: &mut Allocator, s: &[XReg; 5], a: [XReg; 4], b: XReg) -> Vec<Atomi
 // Seeing this ahead might be nice
 // with a parameter and then use slice and generalize it
 // Not everything has to have perfect types
-fn carry_add(s: [&XReg; 2], add: &XReg) -> AtomicInstr {
+fn carry_add(s: [&XReg; 2], add: &XReg) -> AtomicInstruction {
     vec![adds(s[0], s[0], add), cinc(s[1], s[1], "hs")]
         .into_iter()
         .flatten()
@@ -311,7 +320,7 @@ fn smult_noinit_simd(
     _t: &[VReg; 6],
     s: VReg,
     v: [XReg; 5],
-) -> Vec<AtomicInstr> {
+) -> Vec<AtomicInstruction> {
     // first do it as is written
     let tmp = asm.fresh();
     let splat_c1 = asm.fresh();
@@ -389,7 +398,6 @@ fn output_interface(seen: &mut Seen, fresh: impl Reg) {
     seen.insert(fresh.treg());
 }
 
-// TODO(xrvdg) Different types for the PhysicalRegs
 struct RegisterBank {
     x: BTreeSet<HardwareRegister>,
     v: BTreeSet<HardwareRegister>,
@@ -448,7 +456,7 @@ fn main() {
     let mut seen = HashSet::new();
     s.into_iter().for_each(|r| output_interface(&mut seen, r));
     p.into_iter().for_each(|r| output_interface(&mut seen, r));
-    let mix = drop_pass(&mut seen, mix);
+    let mix = live_range_analysis(&mut seen, mix);
     println!("\nmix: {mix:?}");
 
     // Mapping and phys_registers seem to go togetehr
@@ -473,7 +481,7 @@ fn main() {
     let out = hardware_register_allocation(
         &mut mapping,
         &mut phys_registers,
-        drop_pass(&mut seen, ssimd.into_iter().flatten().collect()),
+        live_range_analysis(&mut seen, ssimd.into_iter().flatten().collect()),
     );
 
     println!();
@@ -483,7 +491,10 @@ fn main() {
     // A next step would be to keep the label
 }
 
-fn interleave(lhs: Vec<AtomicInstr>, rhs: Vec<AtomicInstr>) -> Vec<Instr<FreshRegister>> {
+fn interleave(
+    lhs: Vec<AtomicInstruction>,
+    rhs: Vec<AtomicInstruction>,
+) -> Vec<Instruction<FreshRegister>> {
     lhs.into_iter()
         .zip(rhs)
         .flat_map(|(a, b)| [a, b])
@@ -504,7 +515,7 @@ impl RegisterMapping {
     }
 
     // Get the physical register for a source register
-    fn get_phys_reg(&self, fresh: TReg<FreshRegister>) -> TReg<HardwareRegister> {
+    fn get_register(&self, fresh: TReg<FreshRegister>) -> TReg<HardwareRegister> {
         match &self[fresh] {
             RegisterState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
             RegisterState::Map(reg) => *reg,
@@ -512,8 +523,8 @@ impl RegisterMapping {
         }
     }
 
-    // Get or allocate a V register
-    fn get_or_allocate_reg(
+    // Get or allocate a register
+    fn get_or_allocate_register(
         &mut self,
         register_bank: &mut RegisterBank,
         fresh: TReg<FreshRegister>,
@@ -538,7 +549,7 @@ impl RegisterMapping {
 
     // Once a fresh register goes out of scope the hardware register that was assigned to that fresh register
     // can be returned to the register bank.
-    fn drop_register(
+    fn free_register(
         &mut self,
         register_bank: &mut RegisterBank,
         fresh: TReg<FreshRegister>,
@@ -571,13 +582,16 @@ impl std::ops::IndexMut<TReg<FreshRegister>> for RegisterMapping {
     }
 }
 
-fn drop_pass(seen: &mut Seen, insts: Vec<Instr<FreshRegister>>) -> VecDeque<InstrRegScope> {
+fn live_range_analysis(
+    seen: &mut Seen,
+    insts: Vec<Instruction<FreshRegister>>,
+) -> VecDeque<LivenessCommand> {
     let mut dinsts = VecDeque::new();
     for inst in insts.into_iter().rev() {
-        let registers = extract_regs(&inst);
+        let registers = inst.extract_registers();
         for reg in registers {
             if seen.insert(reg) {
-                dinsts.push_front(InstrRegScope::Drop(reg));
+                dinsts.push_front(LivenessCommand::Drop(reg));
             }
         }
         dinsts.push_front(inst.into());
@@ -585,40 +599,32 @@ fn drop_pass(seen: &mut Seen, insts: Vec<Instr<FreshRegister>>) -> VecDeque<Inst
     dinsts
 }
 
-// Can't assume order
-fn extract_regs<R: Copy>(inst: &Instr<R>) -> Vec<TReg<R>> {
-    let mut out = inst.src.clone();
-    out.push(inst.dest);
-    out
-}
-
 fn hardware_register_allocation(
     mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
-    instructions: VecDeque<InstrRegScope>,
-) -> Vec<Instr<HardwareRegister>> {
-    let mut out = Vec::new();
-    for instdrop in instructions {
-        match instdrop {
-            InstrRegScope::Instr(mut inst) => {
-                // Resolve registers first - just the physical register numbers
-                inst.dest = mapping.get_or_allocate_reg(register_bank, inst.dest);
-                inst.src = inst
-                    .src
-                    .into_iter()
-                    .map(|s| mapping.get_phys_reg(s))
-                    .collect();
-                out.push(inst)
-            }
-            InstrRegScope::Drop(fresh) => {
-                mapping.drop_register(register_bank, fresh);
-            }
+    commands: VecDeque<LivenessCommand>,
+) -> Vec<Instruction<HardwareRegister>> {
+    let f = |cmd| match cmd {
+        LivenessCommand::Instr(mut inst) => {
+            // Resolve registers to physical hardware registers
+            inst.dest = mapping.get_or_allocate_register(register_bank, inst.dest);
+            inst.src = inst
+                .src
+                .into_iter()
+                .map(|s| mapping.get_register(s))
+                .collect();
+            Some(inst)
         }
-    }
-    out
+        LivenessCommand::Drop(fresh) => {
+            mapping.free_register(register_bank, fresh);
+            None
+        }
+    };
+
+    commands.into_iter().filter_map(f).collect()
 }
 
-fn print_instrs<R: std::fmt::Display + Copy>(instrs: &Vec<Instr<R>>) {
+fn print_instrs<R: std::fmt::Display + Copy>(instrs: &Vec<Instruction<R>>) {
     instrs
         .iter()
         .for_each(|inst| println!("{}", inst.format_instruction()));
