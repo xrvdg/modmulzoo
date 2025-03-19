@@ -456,7 +456,7 @@ fn main() {
     let mut seen = HashSet::new();
     s.into_iter().for_each(|r| output_interface(&mut seen, r));
     p.into_iter().for_each(|r| output_interface(&mut seen, r));
-    let mix = live_range_analysis(&mut seen, mix);
+    let mix = liveness_analysis(&mut seen, mix);
     println!("\nmix: {mix:?}");
 
     // Mapping and phys_registers seem to go togetehr
@@ -481,7 +481,7 @@ fn main() {
     let out = hardware_register_allocation(
         &mut mapping,
         &mut phys_registers,
-        live_range_analysis(&mut seen, ssimd.into_iter().flatten().collect()),
+        liveness_analysis(&mut seen, ssimd.into_iter().flatten().collect()),
     );
 
     println!();
@@ -582,21 +582,20 @@ impl std::ops::IndexMut<TReg<FreshRegister>> for RegisterMapping {
     }
 }
 
-fn live_range_analysis(
-    seen: &mut Seen,
-    insts: Vec<Instruction<FreshRegister>>,
+fn liveness_analysis(
+    seen_registers: &mut Seen,
+    instructions: Vec<Instruction<FreshRegister>>,
 ) -> VecDeque<LivenessCommand> {
-    let mut dinsts = VecDeque::new();
-    for inst in insts.into_iter().rev() {
-        let registers = inst.extract_registers();
-        for reg in registers {
-            if seen.insert(reg) {
-                dinsts.push_front(LivenessCommand::Drop(reg));
+    let mut commands = VecDeque::new();
+    for instruction in instructions.into_iter().rev() {
+        for register in instruction.extract_registers() {
+            if seen_registers.insert(register) {
+                commands.push_front(LivenessCommand::Drop(register));
             }
         }
-        dinsts.push_front(inst.into());
+        commands.push_front(instruction.into());
     }
-    dinsts
+    commands
 }
 
 fn hardware_register_allocation(
