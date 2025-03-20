@@ -90,14 +90,6 @@ impl<R: std::fmt::Display + Copy> Instruction<R> {
     }
 }
 
-#[derive(Debug)]
-/// The result of the liveness analysis and it gives commands to the
-/// hardware register allocator
-pub enum LivenessCommand {
-    Instr(Instruction<FreshRegister>),
-    Drop(TypedRegisterF<FreshRegister, ()>),
-}
-
 impl From<Instruction<FreshRegister>> for LivenessCommand {
     fn from(instr: Instruction<FreshRegister>) -> Self {
         LivenessCommand::Instr(instr)
@@ -233,13 +225,14 @@ impl AliasedRegister for XReg {}
 impl<'a> AliasedRegister for DReg<'a> {}
 impl AliasedRegister for VReg {}
 
-/// Sealed traits for Aliased and Allocatable registers
-/// These are sealed as they have the fresh register info which should be
+/// Sealed traits for Aliased and Allocatable registers and LiveCommand
+/// These are sealed as they have the fresh register which should not be
 /// available to users, but we do need trait to handle the different registers
 /// and allow for the boundary code to be able to use it.
 /// Might turn out to be too limiting if we want to allow the user to construct Instructions
 /// manually
 mod private {
+
     #[derive(Debug)]
     pub enum RegisterType {
         X,
@@ -270,6 +263,16 @@ mod private {
     pub trait AliasedRegisterSealed {
         // internal, but on the border so input, output and inside the macros
         fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>;
+    }
+
+    use crate::Instruction;
+
+    /// The result of the liveness analysis and it gives commands to the
+    /// hardware register allocator
+    #[derive(Debug)]
+    pub enum LivenessCommand {
+        Instr(Instruction<FreshRegister>),
+        Drop(TypedRegisterF<FreshRegister, ()>),
     }
 }
 use private::*;
