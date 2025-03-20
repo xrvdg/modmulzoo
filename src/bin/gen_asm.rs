@@ -27,10 +27,12 @@ enum VectorSizes {
 
 impl<S> TypedRegisterF<FreshRegister, S> {
     // Should only be seen by RegisterMapping
-    fn reg(&self) -> FreshRegister {
+    // Could have been used for HardwareRegister, but it's better to convert types
+    // Only for 'internal' use
+    fn as_fresh(&self) -> &FreshRegister {
         match self {
-            TypedRegisterF::Scalar(r) => *r,
-            TypedRegisterF::Vector(r, _) => *r,
+            TypedRegisterF::Scalar(r) => r,
+            TypedRegisterF::Vector(r, _) => r,
         }
     }
 }
@@ -42,8 +44,8 @@ type AtomicInstruction = Vec<Instruction<FreshRegister>>;
 #[derive(Debug)]
 struct Instruction<R> {
     opcode: String,
-    dest: TypedRegisterF<R, VectorSizes>,
-    src: Vec<TypedRegisterF<R, VectorSizes>>,
+    dest: TypedSizedRegister<R>,
+    src: Vec<TypedSizedRegister<R>>,
     modifiers: Mod,
 }
 
@@ -129,8 +131,8 @@ macro_rules! embed_asm {
         fn $name(dst: &XReg, a: &XReg, b: &XReg) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
-                dest: dst.treg(),
-                src: vec![a.treg(), b.treg()],
+                dest: dst.to_typed_register(),
+                src: vec![a.to_typed_register(), b.to_typed_register()],
                 modifiers: Mod::None,
             }]
         }
@@ -140,8 +142,8 @@ macro_rules! embed_asm {
         fn $name(dst: &VReg, src_a: &VReg, src_b: &VReg, i: u8) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: $opcode.to_string(),
-                dest: dst.treg(),
-                src: vec![src_a.treg(), src_b.treg()],
+                dest: dst.to_typed_register(),
+                src: vec![src_a.to_typed_register(), src_b.to_typed_register()],
                 modifiers: Mod::Idx(i as u64),
             }]
         }
@@ -151,8 +153,8 @@ macro_rules! embed_asm {
         fn $name(dst: &VReg, src: &VReg) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: $opcode.to_string(),
-                dest: dst.treg(),
-                src: vec![src.treg()],
+                dest: dst.to_typed_register(),
+                src: vec![src.to_typed_register()],
                 modifiers: Mod::None,
             }]
         }
@@ -162,19 +164,19 @@ macro_rules! embed_asm {
         fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: $opcode.to_string(),
-                dest: dst.treg(),
-                src: vec![src.treg()],
+                dest: dst.to_typed_register(),
+                src: vec![src.to_typed_register()],
                 modifiers: Mod::None,
             }]
         }
     };
 
     ($name:ident, 2, m) => {
-        fn $name<'a, T: Reg64Bit + Reg>(dst: &'a DReg, src: &T) -> crate::AtomicInstruction {
+        fn $name<T: Reg64Bit + AliasedRegister>(dst: &DReg, src: &T) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
-                dest: dst.treg(),
-                src: vec![src.treg()],
+                dest: dst.to_typed_register(),
+                src: vec![src.to_typed_register()],
                 modifiers: Mod::None,
             }]
         }
@@ -184,7 +186,7 @@ macro_rules! embed_asm {
         fn $name(dst: &XReg, val: u64) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
-                dest: dst.treg(),
+                dest: dst.to_typed_register(),
                 src: vec![],
                 modifiers: Mod::Imm(val),
             }]
@@ -196,8 +198,8 @@ macro_rules! embed_asm {
         fn $name(dst: &XReg, src: &XReg, condition: &str) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
-                dest: dst.treg(),
-                src: vec![src.treg()],
+                dest: dst.to_typed_register(),
+                src: vec![src.to_typed_register()],
                 modifiers: Mod::Cond(condition.to_string()),
             }]
         }
@@ -245,10 +247,9 @@ trait AllocatableRegister {
     fn register_type() -> RegisterType;
 }
 
-// This can become a From
-trait Reg {
-    // Created for input and output tying
-    fn treg(&self) -> TypedSizedRegister<FreshRegister>;
+trait AliasedRegister {
+    // internal, but on the border so input, output and inside the macros
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>;
 }
 
 #[derive(Debug)]
@@ -267,8 +268,8 @@ impl AllocatableRegister for XReg {
     }
 }
 
-impl Reg for XReg {
-    fn treg(&self) -> TypedSizedRegister<FreshRegister> {
+impl AliasedRegister for XReg {
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
         TypedRegisterF::Scalar(self.reg)
     }
 }
@@ -282,19 +283,20 @@ impl AllocatableRegister for VReg {
     }
 }
 
-impl Reg for VReg {
-    fn treg(&self) -> TypedSizedRegister<FreshRegister> {
+impl AliasedRegister for VReg {
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
         TypedRegisterF::Vector(self.reg, VectorSizes::V)
     }
 }
 
-impl<'a> Reg for DReg<'a> {
-    fn treg(&self) -> TypedSizedRegister<FreshRegister> {
+impl<'a> AliasedRegister for DReg<'a> {
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
         TypedRegisterF::Vector(*self.reg, VectorSizes::D)
     }
 }
 
 impl VReg {
+    // Should this be an AsRef
     fn as_d<'a>(&'a self) -> DReg<'a> {
         DReg { reg: &self.reg }
     }
@@ -400,7 +402,7 @@ type HardwareRegister = u64;
 #[derive(PartialEq, Debug)]
 enum RegisterState {
     Unassigned,
-    Map(TypedSizedRegister<HardwareRegister>),
+    Assigned(TypedSizedRegister<HardwareRegister>),
     Dropped,
 }
 
@@ -408,27 +410,27 @@ enum RegisterState {
 // BUt for the interface we do need to map them some way
 // This can also be done as part of the initialisation
 // A way out of the ordering for now is to just make it a big enough size
-fn input<T: AllocatableRegister + Reg>(
+fn input<T: AllocatableRegister + AliasedRegister>(
     asm: &mut Allocator,
     mapping: &mut RegisterMapping,
     phys_registers: &mut RegisterBank,
     phys: u64,
 ) -> T {
     let fresh: T = asm.fresh();
-    let treg = fresh.treg();
+    let treg = fresh.to_typed_register();
 
     match T::register_type() {
         RegisterType::X => {
             if !phys_registers.x.remove(&phys) {
                 panic!("Register x{} is already in use", phys)
             }
-            mapping[treg] = RegisterState::Map(TypedRegisterF::Scalar(phys));
+            mapping[treg] = RegisterState::Assigned(TypedRegisterF::Scalar(phys));
         }
         RegisterType::V => {
             if !phys_registers.v.remove(&phys) {
                 panic!("Register v{} is already in use", phys)
             }
-            mapping[treg] = RegisterState::Map(TypedRegisterF::Vector(phys, VectorSizes::V));
+            mapping[treg] = RegisterState::Assigned(TypedRegisterF::Vector(phys, VectorSizes::V));
         }
     }
 
@@ -442,8 +444,8 @@ impl Seen {
         Self(HashSet::new())
     }
 
-    fn output_interface(&mut self, fresh: impl Reg) -> bool {
-        self.insert(drop_size(fresh.treg()))
+    fn output_interface(&mut self, fresh: impl AliasedRegister) -> bool {
+        self.insert(drop_size(fresh.to_typed_register()))
     }
 
     fn insert(&mut self, fresh: TypedRegister<FreshRegister>) -> bool {
@@ -538,16 +540,15 @@ fn simd_test() {
     let s = input(&mut asm, &mut mapping, &mut phys_registers, t.len() as u64);
     let ssimd = smult_noinit_simd(&mut asm, &t, s, v);
     println!("\nssimd");
-    let inst = ssimd.into_iter().flatten().collect();
+    let inst: Vec<_> = ssimd.into_iter().flatten().collect();
     print_instructions(&inst);
 
     let mut seen = Seen::new();
-    // t.into_iter().for_each(|r| output_interface(&mut seen, r));
-    let out = hardware_register_allocation(
-        &mut mapping,
-        &mut phys_registers,
-        liveness_analysis(&mut seen, inst),
-    );
+    t.into_iter().for_each(|r| {
+        seen.output_interface(r);
+    });
+    let commands = liveness_analysis(&mut seen, inst);
+    let out = hardware_register_allocation(&mut mapping, &mut phys_registers, commands);
 
     println!();
     print_instructions(&out);
@@ -566,6 +567,7 @@ fn main() {
     let physical_inst = hardware_register_allocation(&mut mapping, &mut register_bank, commands);
     print_instructions(&physical_inst);
 
+    interleave_test();
     simd_test();
 }
 
@@ -589,7 +591,7 @@ impl std::fmt::Display for RegisterMapping {
         for (i, state) in self.0.iter().enumerate() {
             match state {
                 RegisterState::Unassigned => write!(f, "  {}: U", i)?,
-                RegisterState::Map(reg) => write!(f, "  {}: M{}", i, reg)?,
+                RegisterState::Assigned(reg) => write!(f, "  {}: M{}", i, reg)?,
                 RegisterState::Dropped => write!(f, "  {}: D", i)?,
             }
             write!(f, ", ")?
@@ -601,7 +603,10 @@ impl std::fmt::Display for RegisterMapping {
 
 impl RegisterMapping {
     fn new() -> Self {
-        // Needs to be equal to the number of free register in the allocator once it is finished
+        // TODO Needs to be equal to the number of free register in the allocator once it is finished
+        // but also needs space for the elements in the beginning
+        // In the beginning there can't be more than all the vector registers combined, so that can be allocated initially
+        // get_or_allocate_register needs to deal with the resizing
         Self(
             std::iter::repeat_with(|| RegisterState::Unassigned)
                 .take(30)
@@ -616,7 +621,7 @@ impl RegisterMapping {
     ) -> TypedSizedRegister<HardwareRegister> {
         match &self[fresh] {
             RegisterState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
-            RegisterState::Map(reg) => *reg,
+            RegisterState::Assigned(reg) => *reg,
             RegisterState::Dropped => unreachable!("{fresh:?} already has been dropped"),
         }
     }
@@ -627,21 +632,24 @@ impl RegisterMapping {
         register_bank: &mut RegisterBank,
         fresh: TypedSizedRegister<FreshRegister>,
     ) -> TypedSizedRegister<HardwareRegister> {
-        match &self[fresh] {
-            RegisterState::Unassigned => match fresh {
-                TypedRegisterF::Scalar(_) => {
-                    let reg = register_bank.x.pop_first().expect("ran out of registers");
-                    self[fresh] = RegisterState::Map(TypedRegisterF::Scalar(reg));
-                    TypedRegisterF::Scalar(reg)
-                }
-                TypedRegisterF::Vector(_, size) => {
-                    let reg = register_bank.v.pop_first().expect("ran out of registers");
-                    let treg = TypedRegisterF::Vector(reg, size);
-                    self[fresh] = RegisterState::Map(treg);
-                    treg
-                }
-            },
-            RegisterState::Map(reg) => *reg,
+        // Possible to do a mutable reference here
+        match self[fresh] {
+            RegisterState::Unassigned => {
+                let hw_reg = match fresh {
+                    TypedRegisterF::Scalar(_) => {
+                        let reg = register_bank.x.pop_first().expect("ran out of registers");
+                        TypedRegisterF::Scalar(reg)
+                    }
+                    TypedRegisterF::Vector(_, size) => {
+                        let reg = register_bank.v.pop_first().expect("ran out of registers");
+                        TypedRegisterF::Vector(reg, size)
+                    }
+                };
+
+                self[fresh] = RegisterState::Assigned(hw_reg);
+                hw_reg
+            }
+            RegisterState::Assigned(reg) => reg,
             RegisterState::Dropped => unreachable!("{fresh:?} already has been dropped"),
         }
     }
@@ -659,7 +667,7 @@ impl RegisterMapping {
             RegisterState::Unassigned => {
                 unreachable!("There should never be a drop before the register has been assigned")
             }
-            RegisterState::Map(reg) => {
+            RegisterState::Assigned(reg) => {
                 let new = register_bank.insert(reg);
                 assert!(
                     new,
@@ -678,13 +686,13 @@ impl<S> std::ops::Index<TypedRegisterF<FreshRegister, S>> for RegisterMapping {
     type Output = RegisterState;
 
     fn index(&self, idx: TypedRegisterF<FreshRegister, S>) -> &Self::Output {
-        &self.0[idx.reg() as usize]
+        &self.0[*idx.as_fresh() as usize]
     }
 }
 
 impl<S> std::ops::IndexMut<TypedRegisterF<FreshRegister, S>> for RegisterMapping {
     fn index_mut(&mut self, idx: TypedRegisterF<FreshRegister, S>) -> &mut Self::Output {
-        &mut self.0[idx.reg() as usize]
+        &mut self.0[*idx.as_fresh() as usize]
     }
 }
 
@@ -737,7 +745,7 @@ fn hardware_register_allocation(
     commands.into_iter().filter_map(f).collect()
 }
 
-fn print_instructions<R: std::fmt::Display + Copy>(instrs: &Vec<Instruction<R>>) {
+fn print_instructions<R: std::fmt::Display + Copy>(instrs: &[Instruction<R>]) {
     instrs
         .iter()
         .for_each(|inst| println!("{}", inst.format_instruction()));

@@ -78,7 +78,7 @@ fn main() {
         rng.random::<u64>(),
     ];
 
-    for _ in 0..1_000_000_000 {
+    for _ in 0..1_000_000 {
         // let _ = black_box(acar::cios_opt(a, b, P, NP0));
         // let _ = black_box(acar::cios_opt(black_box(a64), black_box(b64), P, NP0));
         let _ = black_box(emmart::fios_opt_sub_simd_sat_seq(
