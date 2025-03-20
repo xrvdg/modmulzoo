@@ -1,5 +1,4 @@
 /// All these method operate on b64
-/// TODO: generalise these functions to work on b52 without performance loss for either b52 or b64
 
 pub fn school_method(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
     let mut ab = [0_u64; 8];
@@ -56,7 +55,6 @@ pub fn adds(t: &mut [u64], mut carry: u64) {
     }
 }
 
-// TODO: Generalize this so that it can deal with multiple
 #[inline]
 pub fn subtraction_step<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
     let mut borrow: i64 = 0;

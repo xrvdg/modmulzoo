@@ -197,7 +197,7 @@ pub fn parallel(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
 mod tests {
     use crate::{
         arith::modulus,
-        gen::U256b64,
+        test_generator::U256b64,
         yuval::{mul_logjumps_unr_2, parallel},
         P, R2,
     };

@@ -1,9 +1,7 @@
-use std::mem;
-
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
-
 #[cfg(target_os = "linux")]
 fn main() {
+    use dynasmrt::{DynasmApi, DynasmLabelApi, dynasm};
+    use std::mem;
     let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();
 
     // dynasm!(ops

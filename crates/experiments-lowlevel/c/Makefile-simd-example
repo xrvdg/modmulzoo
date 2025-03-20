@@ -1,0 +1,3 @@
+all: src/simd_example.cpp
+	clang++ -framework Accelerate -o simd_example ./simd_example.cpp
+

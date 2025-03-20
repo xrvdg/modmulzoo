@@ -232,8 +232,9 @@ mod tests {
     use super::*;
     use crate::{
         arith::{modulus, subtraction_step},
-        gen::U256b64,
-        subarray, NP0, P, R2,
+        subarray,
+        test_generator::U256b64,
+        NP0, P, R2,
     };
     use quickcheck_macros::quickcheck;
 

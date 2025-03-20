@@ -79,7 +79,7 @@ mod tests {
     use quickcheck_macros::quickcheck;
 
     use crate::subarray;
-    use crate::{emmart::subtraction_step_u52, gen::U256b52, U52_NP0, U52_P, U52_R2};
+    use crate::{emmart::subtraction_step_u52, test_generator::U256b52, U52_NP0, U52_P, U52_R2};
 
     #[quickcheck]
     fn sos_round(a: U256b52) -> bool {

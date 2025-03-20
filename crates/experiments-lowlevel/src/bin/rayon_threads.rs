@@ -3,10 +3,6 @@ use rayon::prelude::*;
 use std::thread;
 use std::sync::Mutex;
 use std::collections::HashSet;
-// Import the set_round_to_zero function
-// Use the root crate name from Cargo.toml
-extern crate montgomery_reduction;
-use montgomery_reduction::emmart::set_round_to_zero;
 #[macro_use]
 extern crate lazy_static;
 
@@ -30,6 +26,36 @@ fn get_cpu_core() -> Option<usize> {
             None
         }
     }
+}
+
+#[cfg(target_arch = "aarch64")]
+#[inline(never)]
+/// Set the floating point rounding mode to round to zero
+///
+/// inline(never) to prevent to compiler from reordering
+pub fn set_round_to_zero() -> u64 {
+    let fpcr: u64;
+    unsafe {
+        // Set RMode (bits 22-23) to 0b11 for round toward zero
+        core::arch::asm!(
+            "mrs {fpcr}, fpcr",             // Read current FPCR
+            "orr {tmp}, {fpcr}, #0b11<<22", // Set RMode bits to 11 using bit shift notation
+            "msr fpcr, {tmp}",             // Write back to FPCR
+            tmp = out(reg) _,
+            fpcr = out(reg) fpcr,
+        );
+    }
+
+    // Defense-in-depth but can't be relied on
+    // From the documentation:
+    // Programs cannot rely on black_box for correctness, beyond it behaving as the identity function. As such, it must not be relied upon to control critical program behavior.
+    std::hint::black_box(fpcr)
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+pub fn set_round_to_zero() -> u64 {
+    // No-op or panic depending on your needs for non-ARM platforms
+    unimplemented!("Round to zero is only implemented for ARM64");
 }
 
 #[cfg(not(target_os = "linux"))]

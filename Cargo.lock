@@ -344,6 +344,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "experiments-other"
+version = "0.1.0"
+dependencies = [
+ "dynasm",
+ "dynasmrt",
+ "lazy_static",
+ "num-traits",
+ "num_cpus",
+ "rayon",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -488,17 +500,11 @@ version = "0.1.0"
 dependencies = [
  "ark-ff",
  "criterion",
- "dynasm",
- "dynasmrt",
- "lazy_static",
  "libc",
  "num-bigint",
- "num-traits",
- "num_cpus",
  "quickcheck",
  "quickcheck_macros",
  "rand 0.9.0",
- "rayon",
  "seq-macro",
 ]
 

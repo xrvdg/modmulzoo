@@ -97,7 +97,6 @@ pub fn trans_vmultadd_noinit_simd(
     seq!( i in 0..5 {
         let avi = Simd::from_array([a[0][i] as f64, a[1][i] as f64]);
         seq!(j in 0..5 {
-            // TODO: use vector ucvtf?
             let bvj = Simd::from_array([b[0][j] as f64, b[1][j] as f64]);
             let p_hi = (avi).mul_add(bvj, Simd::splat(emmart::C1));
             let p_lo = (avi).mul_add(bvj, Simd::splat(emmart::C2) - p_hi);
@@ -208,7 +207,6 @@ pub fn parallel_ref(a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     // The rest of the algorithm can start afeter the first 4 rounds
     let mut t = vmult(a, b);
 
-    // TODO this can be a seq! loop
     t[1] += t[0] >> 52;
     t[2] += t[1] >> 52;
     t[3] += t[2] >> 52;
@@ -436,7 +434,6 @@ pub fn transpose_u256_to_simd_stub(limbs: [[u64; 4]; 2]) -> [Simd<u64, 2>; 4] {
 }
 
 #[inline(always)]
-// TODO: mention in name that it does SIMD
 pub fn transpose_u256_to_simd(limbs: [[u64; 4]; 2]) -> [Simd<u64, 2>; 4] {
     // This does not issue multiple ldp and zip which might be marginally faster.
     [
@@ -466,7 +463,7 @@ mod tests {
     use crate::{
         arith,
         emmart::{modulus_u52, set_round_to_zero},
-        gen::{U256b52, U256b64},
+        test_generator::{U256b52, U256b64},
         yuval, P, R2, U52_P, U52_R2,
     };
     use quickcheck_macros::quickcheck;

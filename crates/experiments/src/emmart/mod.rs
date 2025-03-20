@@ -681,9 +681,9 @@ mod tests {
     use crate::arith;
     use crate::emmart::modulus_u52;
     use crate::emmart::subtraction_step_u52;
-    use crate::gen::U256b52;
-    use crate::gen::U256b64;
     use crate::subarray;
+    use crate::test_generator::U256b52;
+    use crate::test_generator::U256b64;
     use crate::P;
     use crate::R2;
     use crate::U52_NP0;
