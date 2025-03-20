@@ -1,27 +1,11 @@
 #![feature(iter_intersperse)]
 use std::{
-    array,
     collections::{BTreeSet, HashSet, VecDeque},
     io::Write,
     mem::{self},
 };
 
 // See if these can be reduced. Took all of these as it was a u64 before
-
-type TypedRegister<R> = TypedRegisterF<R, ()>;
-type TypedSizedRegister<R> = TypedRegisterF<R, VectorSizes>;
-
-#[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
-enum TypedRegisterF<R, Sizes> {
-    Scalar(R),
-    Vector(R, Sizes),
-}
-
-#[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
-enum VectorSizes {
-    V,
-    D,
-}
 
 impl<S> TypedRegisterF<FreshRegister, S> {
     // Should only be seen by RegisterMapping
@@ -35,7 +19,6 @@ impl<S> TypedRegisterF<FreshRegister, S> {
     }
 }
 
-type FreshRegister = u64;
 // Vec<BlockInstr> - mixing -> Vec<Instr> -> Vec<InstrDrop> -> Vec<PhysInstr>
 pub type AtomicInstruction = Vec<Instruction<FreshRegister>>;
 
@@ -237,29 +220,61 @@ pub struct DReg<'a> {
     reg: &'a u64,
 }
 
-trait Reg64Bit {}
+pub trait Reg64Bit {}
 impl Reg64Bit for XReg {}
 impl<'a> Reg64Bit for DReg<'a> {}
 
-trait AllocatableRegister {
-    // For use in the allocator
-    fn new(reg: u64) -> Self;
-    // For use in input
-    fn register_type() -> RegisterType;
-}
+pub trait AllocatableRegister: AllocatableRegisterSealed {}
+impl AllocatableRegister for VReg {}
+impl AllocatableRegister for XReg {}
 
-trait AliasedRegister {
-    // internal, but on the border so input, output and inside the macros
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>;
-}
+pub trait AliasedRegister: AliasedRegisterSealed {}
+impl AliasedRegister for XReg {}
+impl<'a> AliasedRegister for DReg<'a> {}
+impl AliasedRegister for VReg {}
 
-#[derive(Debug)]
-enum RegisterType {
-    X,
-    V,
-}
+/// Sealed traits for Aliased and Allocatable registers
+/// These are sealed as they have the fresh register info which should be
+/// available to users, but we do need trait to handle the different registers
+/// and allow for the boundary code to be able to use it.
+/// Might turn out to be too limiting if we want to allow the user to construct Instructions
+/// manually
+mod private {
+    #[derive(Debug)]
+    pub enum RegisterType {
+        X,
+        V,
+    }
+    pub type FreshRegister = u64;
+    #[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
+    pub enum VectorSizes {
+        V,
+        D,
+    }
 
-impl AllocatableRegister for XReg {
+    pub type TypedRegister<R> = TypedRegisterF<R, ()>;
+    pub type TypedSizedRegister<R> = TypedRegisterF<R, VectorSizes>;
+
+    #[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
+    pub enum TypedRegisterF<R, Sizes> {
+        Scalar(R),
+        Vector(R, Sizes),
+    }
+
+    pub trait AllocatableRegisterSealed {
+        // For use in the allocator
+        fn new(reg: u64) -> Self;
+        // For use in input
+        fn register_type() -> RegisterType;
+    }
+    pub trait AliasedRegisterSealed {
+        // internal, but on the border so input, output and inside the macros
+        fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>;
+    }
+}
+use private::*;
+
+impl AllocatableRegisterSealed for XReg {
     fn new(reg: u64) -> Self {
         Self { reg }
     }
@@ -269,13 +284,13 @@ impl AllocatableRegister for XReg {
     }
 }
 
-impl AliasedRegister for XReg {
+impl AliasedRegisterSealed for XReg {
     fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
         TypedRegisterF::Scalar(self.reg)
     }
 }
 
-impl AllocatableRegister for VReg {
+impl AllocatableRegisterSealed for VReg {
     fn new(reg: u64) -> Self {
         Self { reg }
     }
@@ -284,13 +299,13 @@ impl AllocatableRegister for VReg {
     }
 }
 
-impl AliasedRegister for VReg {
+impl AliasedRegisterSealed for VReg {
     fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
         TypedRegisterF::Vector(self.reg, VectorSizes::V)
     }
 }
 
-impl<'a> AliasedRegister for DReg<'a> {
+impl<'a> AliasedRegisterSealed for DReg<'a> {
     fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
         TypedRegisterF::Vector(*self.reg, VectorSizes::D)
     }
@@ -367,13 +382,14 @@ pub fn input<T: AllocatableRegister + AliasedRegister>(
             if !phys_registers.x.remove(&phys) {
                 panic!("Register x{} is already in use", phys)
             }
-            mapping[treg] = RegisterState::Assigned(TypedRegisterF::Scalar(phys));
+            *mapping.index_mut(treg) = RegisterState::Assigned(TypedRegisterF::Scalar(phys));
         }
         RegisterType::V => {
             if !phys_registers.v.remove(&phys) {
                 panic!("Register v{} is already in use", phys)
             }
-            mapping[treg] = RegisterState::Assigned(TypedRegisterF::Vector(phys, VectorSizes::V));
+            *mapping.index_mut(treg) =
+                RegisterState::Assigned(TypedRegisterF::Vector(phys, VectorSizes::V));
         }
     }
 
@@ -473,9 +489,9 @@ impl RegisterMapping {
         &self,
         fresh: TypedSizedRegister<FreshRegister>,
     ) -> TypedSizedRegister<HardwareRegister> {
-        match &self[fresh] {
+        match *self.index(fresh) {
             RegisterState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
-            RegisterState::Assigned(reg) => *reg,
+            RegisterState::Assigned(reg) => reg,
             RegisterState::Dropped => unreachable!("{fresh:?} already has been dropped"),
         }
     }
@@ -487,7 +503,8 @@ impl RegisterMapping {
         fresh: TypedSizedRegister<FreshRegister>,
     ) -> TypedSizedRegister<HardwareRegister> {
         // Possible to do a mutable reference here
-        match self[fresh] {
+        let entry = self.index_mut(fresh);
+        match *entry {
             RegisterState::Unassigned => {
                 let hw_reg = match fresh {
                     TypedRegisterF::Scalar(_) => {
@@ -500,7 +517,7 @@ impl RegisterMapping {
                     }
                 };
 
-                self[fresh] = RegisterState::Assigned(hw_reg);
+                *entry = RegisterState::Assigned(hw_reg);
                 hw_reg
             }
             RegisterState::Assigned(reg) => reg,
@@ -515,7 +532,7 @@ impl RegisterMapping {
         register_bank: &mut RegisterBank,
         fresh: TypedRegister<FreshRegister>,
     ) -> bool {
-        let old = mem::replace(&mut self[fresh], RegisterState::Dropped);
+        let old = mem::replace(self.index_mut(fresh), RegisterState::Dropped);
 
         match old {
             RegisterState::Unassigned => {
@@ -536,16 +553,12 @@ impl RegisterMapping {
     }
 }
 
-impl<S> std::ops::Index<TypedRegisterF<FreshRegister, S>> for RegisterMapping {
-    type Output = RegisterState;
-
-    fn index(&self, idx: TypedRegisterF<FreshRegister, S>) -> &Self::Output {
+/// We do not implement the Index Trait as that would leak the private RegisterState
+impl RegisterMapping {
+    fn index<S>(&self, idx: TypedRegisterF<FreshRegister, S>) -> &RegisterState {
         &self.0[*idx.as_fresh() as usize]
     }
-}
-
-impl<S> std::ops::IndexMut<TypedRegisterF<FreshRegister, S>> for RegisterMapping {
-    fn index_mut(&mut self, idx: TypedRegisterF<FreshRegister, S>) -> &mut Self::Output {
+    fn index_mut<S>(&mut self, idx: TypedRegisterF<FreshRegister, S>) -> &mut RegisterState {
         &mut self.0[*idx.as_fresh() as usize]
     }
 }
