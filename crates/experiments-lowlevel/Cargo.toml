@@ -1,5 +1,5 @@
 [package]
-name = "experiments-other"
+name = "experiments-lowlevel"
 version = "0.1.0"
 edition = "2024"
 

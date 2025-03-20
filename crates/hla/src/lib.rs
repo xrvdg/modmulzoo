@@ -3,10 +3,8 @@ use std::{
     array,
     collections::{BTreeSet, HashSet, VecDeque},
     io::Write,
-    mem,
+    mem::{self},
 };
-
-use montgomery_reduction::emmart;
 
 // See if these can be reduced. Took all of these as it was a u64 before
 
@@ -358,6 +356,9 @@ fn carry_add(s: [&XReg; 2], add: &XReg) -> AtomicInstruction {
         .collect()
 }
 
+// TODO initiliase constant
+const C1: f64 = 0.;
+
 // Whole vector is in registers, but that might not be great. Better to have it on the stack and load it from there
 fn smult_noinit_simd(
     asm: &mut Allocator,
@@ -372,7 +373,7 @@ fn smult_noinit_simd(
     let fv0: VReg = asm.fresh();
     vec![
         ucvtf2d(&s, &s),
-        mov(&tmp, emmart::C1.to_bits()),
+        mov(&tmp, C1.to_bits()),
         ucvtf(&fv0.as_d(), &v[0]),
         dup2d(&splat_c1, &tmp),
         mov16b(&cc1, &splat_c1),
