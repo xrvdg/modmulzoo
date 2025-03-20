@@ -5,7 +5,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use montgomery_reduction::arith::school_method;
 use montgomery_reduction::emmart;
 use montgomery_reduction::{acar, NP0, P, U52_NP0, U52_P};
-use montgomery_reduction::{domb, yuval};
+use montgomery_reduction::{domb, yuval, interleaved};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -397,6 +397,70 @@ fn bench_domb(c: &mut Criterion) {
     group.finish();
 }
 
+
+fn bench_interleaved(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Interleaved");
+
+    let seed: u64 = rand::random();
+    println!("Using random seed for parallel benchmarks: {}", seed);
+    let mut rng = StdRng::seed_from_u64(seed);
+
+    let yuval_a = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+    let yuval_b = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+
+    // Generate random test cases for domb (u64 arrays of length 5)
+    let domb_a = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+    let domb_b = [
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+        rng.random::<u64>(),
+    ];
+
+    emmart::set_round_to_zero();
+
+    group.bench_function("interleaved", |bencher| {
+        bencher.iter(|| {
+            interleaved::interleaved(
+                black_box(yuval_a),
+                black_box(yuval_b),
+                black_box( [domb_a, domb_b]),
+                black_box([domb_b, domb_a])
+            )
+        })
+    });
+
+    group.bench_function("interleaved_naive", |bencher| {
+        bencher.iter(|| {
+            interleaved::interleaved_naive(
+                black_box(yuval_a),
+                black_box(yuval_b),
+                black_box( [domb_a, domb_b]),
+                black_box([domb_b, domb_a])
+            )
+        })
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     name = benches;
     config = Criterion::default()
@@ -404,6 +468,6 @@ criterion_group!(
         // Warm up is warm because it literally warms up the pi
         .warm_up_time(std::time::Duration::new(1,0))
         .measurement_time(std::time::Duration::new(10,0));
-    targets = bench_acar, bench_emmart, bench_domb, bench_fpcr
+    targets = bench_acar, bench_emmart, bench_domb, bench_fpcr, bench_interleaved
 );
 criterion_main!(benches);
