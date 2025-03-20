@@ -1,3 +1,4 @@
+; smult notes
 .global _main
 .align 2
 
@@ -30,38 +31,7 @@ _main:
     ldp     x29, x30, [sp], #16
     ret
 
-
-
-; alloc and free, and put the freed register in the back of the list.
-; how to track numbers that aren't free
-; keep in mind that not all registers are free to use
-
-; tricky part is too keep enough registers free
-; write a test function to see if the NEON (q,v) registers and x register overlap. They shouldn't
-; there are registers internally in use, but those can't be used by anything else. So just a simple macro approach is going to get stuck quickly 
-
-; adds and cinc need to form a block those can't be interleaved by other adds instructions without having to spillover. 
-; where spill over can also be spilling over to a register. I.e. flag -> register -> memory
-
-; write test that this actually works
-
-; writing it this way probably lower the pressure on the flag
-
-; allocate the array in assembly contiguously to make it easier to understand which are temps and which are not?
-
-; register renaming is something to take account of
-; an optimizer can move things around as long as it doesn't change the order of instructions that mention a certain register.
-
-; multiprecision multiplication:
-; (x0 x1 x2 x3) x x4 -> x9 x10 x12 x14 x16
-; x11 x13 x15 are temps
-; but it could have done with a single temp register, after freeing x11 it could be used instead of x13 etc
-; -> using less temp registers does make it harder for a later optimiser. 
-; optimisation has to be done on the register like structure
-; don't want to go full ssa to still have some control over how things are collected
-; look into write after read for a register
-
-smult:
+ smult:
   ; all the register numbers can be reduced by one
   ; x4 round
   mul x9, x0, x4
