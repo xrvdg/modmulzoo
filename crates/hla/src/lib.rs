@@ -37,10 +37,10 @@ impl<S> TypedRegisterF<FreshRegister, S> {
 
 type FreshRegister = u64;
 // Vec<BlockInstr> - mixing -> Vec<Instr> -> Vec<InstrDrop> -> Vec<PhysInstr>
-type AtomicInstruction = Vec<Instruction<FreshRegister>>;
+pub type AtomicInstruction = Vec<Instruction<FreshRegister>>;
 
 #[derive(Debug)]
-struct Instruction<R> {
+pub struct Instruction<R> {
     opcode: String,
     dest: TypedSizedRegister<R>,
     src: Vec<TypedSizedRegister<R>>,
@@ -110,7 +110,7 @@ impl<R: std::fmt::Display + Copy> Instruction<R> {
 #[derive(Debug)]
 /// The result of the liveness analysis and it gives commands to the
 /// hardware register allocator
-enum LivenessCommand {
+pub enum LivenessCommand {
     Instr(Instruction<FreshRegister>),
     Drop(TypedRegisterF<FreshRegister, ()>),
 }
@@ -126,7 +126,7 @@ impl From<Instruction<FreshRegister>> for LivenessCommand {
 macro_rules! embed_asm {
     // For opcodeructions with 3 register parameters
     ($name:ident, 3) => {
-        fn $name(dst: &XReg, a: &XReg, b: &XReg) -> crate::AtomicInstruction {
+        pub fn $name(dst: &XReg, a: &XReg, b: &XReg) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
                 dest: dst.to_typed_register(),
@@ -137,7 +137,7 @@ macro_rules! embed_asm {
     };
 
     ($name:ident, $opcode:literal, 3) => {
-        fn $name(dst: &VReg, src_a: &VReg, src_b: &VReg, i: u8) -> crate::AtomicInstruction {
+        pub fn $name(dst: &VReg, src_a: &VReg, src_b: &VReg, i: u8) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: $opcode.to_string(),
                 dest: dst.to_typed_register(),
@@ -148,7 +148,7 @@ macro_rules! embed_asm {
     };
 
     ($name:ident, $opcode:literal, 2) => {
-        fn $name(dst: &VReg, src: &VReg) -> crate::AtomicInstruction {
+        pub fn $name(dst: &VReg, src: &VReg) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: $opcode.to_string(),
                 dest: dst.to_typed_register(),
@@ -159,7 +159,7 @@ macro_rules! embed_asm {
     };
 
     ($name:ident, $opcode:literal, 2, m) => {
-        fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstruction {
+        pub fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: $opcode.to_string(),
                 dest: dst.to_typed_register(),
@@ -170,7 +170,10 @@ macro_rules! embed_asm {
     };
 
     ($name:ident, 2, m) => {
-        fn $name<T: Reg64Bit + AliasedRegister>(dst: &DReg, src: &T) -> crate::AtomicInstruction {
+        pub fn $name<T: Reg64Bit + AliasedRegister>(
+            dst: &DReg,
+            src: &T,
+        ) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
                 dest: dst.to_typed_register(),
@@ -181,7 +184,7 @@ macro_rules! embed_asm {
     };
 
     ($name:ident, 1) => {
-        fn $name(dst: &XReg, val: u64) -> crate::AtomicInstruction {
+        pub fn $name(dst: &XReg, val: u64) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
                 dest: dst.to_typed_register(),
@@ -193,7 +196,7 @@ macro_rules! embed_asm {
 
     // For opcodeructions with 1 register and 1 string parameter (cinc)
     ($name:ident, cond) => {
-        fn $name(dst: &XReg, src: &XReg, condition: &str) -> crate::AtomicInstruction {
+        pub fn $name(dst: &XReg, src: &XReg, condition: &str) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
                 dest: dst.to_typed_register(),
@@ -220,17 +223,17 @@ embed_asm!(fmla2d, "fmla.2d", 3);
 
 // Different types as I don't want to have type erasure on the
 // functions themselves
-struct XReg {
+pub struct XReg {
     // Maybe make reg a usize instead
     reg: u64,
 }
 
-struct VReg {
+pub struct VReg {
     // Maybe make reg a usize instead
     reg: u64,
 }
 
-struct DReg<'a> {
+pub struct DReg<'a> {
     reg: &'a u64,
 }
 
@@ -295,13 +298,13 @@ impl<'a> AliasedRegister for DReg<'a> {
 
 impl VReg {
     // Should this be an AsRef
-    fn as_d<'a>(&'a self) -> DReg<'a> {
+    pub fn as_d<'a>(&'a self) -> DReg<'a> {
         DReg { reg: &self.reg }
     }
 }
 
 #[derive(Debug)]
-struct Allocator {
+pub struct Allocator {
     // It's about unique counters so we use the counter for both
     // q and v registers
     // this makes it easier to read the assembly
@@ -309,76 +312,15 @@ struct Allocator {
 }
 
 impl Allocator {
-    fn fresh<T: AllocatableRegister>(&mut self) -> T {
+    pub fn fresh<T: AllocatableRegister>(&mut self) -> T {
         let x = self.fresh;
         self.fresh += 1;
         T::new(x)
     }
 
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self { fresh: 0 }
     }
-}
-
-// How do other allocating algorithms pass things along like Vec?
-// In this algorithm the inputs are not used after
-fn smult(asm: &mut Allocator, s: &[XReg; 5], a: [XReg; 4], b: XReg) -> Vec<AtomicInstruction> {
-    // tmp being reused instead of a fresh variable each time.
-    // should not make much of a difference
-    let tmp = asm.fresh();
-    vec![
-        mul(&s[0], &a[0], &b),
-        umulh(&s[1], &a[0], &b),
-        //
-        mul(&tmp, &a[1], &b),
-        umulh(&s[2], &a[1], &b),
-        carry_add([&s[1], &s[2]], &tmp),
-        //
-        mul(&tmp, &a[2], &b),
-        umulh(&s[3], &a[2], &b),
-        carry_add([&s[2], &s[3]], &tmp),
-        //
-        mul(&tmp, &a[3], &b),
-        umulh(&s[4], &a[3], &b),
-        carry_add([&s[3], &s[4]], &tmp),
-    ]
-}
-
-// In this case we know that carry_add only needs to propagate 2
-// but in other situations that is not the case.
-// Seeing this ahead might be nice
-// with a parameter and then use slice and generalize it
-// Not everything has to have perfect types
-fn carry_add(s: [&XReg; 2], add: &XReg) -> AtomicInstruction {
-    vec![adds(s[0], s[0], add), cinc(s[1], s[1], "hs")]
-        .into_iter()
-        .flatten()
-        .collect()
-}
-
-// TODO initiliase constant
-const C1: f64 = 0.;
-
-// Whole vector is in registers, but that might not be great. Better to have it on the stack and load it from there
-fn smult_noinit_simd(
-    asm: &mut Allocator,
-    _t: &[VReg; 6],
-    s: VReg,
-    v: [XReg; 5],
-) -> Vec<AtomicInstruction> {
-    // first do it as is written
-    let tmp = asm.fresh();
-    let splat_c1 = asm.fresh();
-    let cc1 = asm.fresh();
-    let fv0: VReg = asm.fresh();
-    vec![
-        ucvtf2d(&s, &s),
-        mov(&tmp, C1.to_bits()),
-        ucvtf(&fv0.as_d(), &v[0]),
-        dup2d(&splat_c1, &tmp),
-        mov16b(&cc1, &splat_c1),
-        fmla2d(&cc1, &s, &fv0, 0),
-    ]
 }
 
 impl std::fmt::Display for XReg {
@@ -411,7 +353,7 @@ enum RegisterState {
 // BUt for the interface we do need to map them some way
 // This can also be done as part of the initialisation
 // A way out of the ordering for now is to just make it a big enough size
-fn input<T: AllocatableRegister + AliasedRegister>(
+pub fn input<T: AllocatableRegister + AliasedRegister>(
     asm: &mut Allocator,
     mapping: &mut RegisterMapping,
     phys_registers: &mut RegisterBank,
@@ -438,14 +380,14 @@ fn input<T: AllocatableRegister + AliasedRegister>(
     fresh
 }
 
-struct Seen(HashSet<TypedRegister<FreshRegister>>);
+pub struct Seen(HashSet<TypedRegister<FreshRegister>>);
 
 impl Seen {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self(HashSet::new())
     }
 
-    fn output_interface(&mut self, fresh: impl AliasedRegister) -> bool {
+    pub fn output_interface(&mut self, fresh: impl AliasedRegister) -> bool {
         self.insert(drop_size(fresh.to_typed_register()))
     }
 
@@ -462,13 +404,13 @@ fn drop_size<R>(t: TypedSizedRegister<R>) -> TypedRegister<R> {
 }
 
 #[derive(Debug)]
-struct RegisterBank {
+pub struct RegisterBank {
     x: BTreeSet<HardwareRegister>,
     v: BTreeSet<HardwareRegister>,
 }
 
 impl RegisterBank {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             x: BTreeSet::from_iter(Vec::from_iter(0..=30)),
             v: BTreeSet::from_iter(Vec::from_iter(0..=30)),
@@ -483,96 +425,7 @@ impl RegisterBank {
     }
 }
 
-fn interleave_test() {
-    // doesn't fully do the indirect result register
-    let mut asm = Allocator::new();
-    let mut mapping = RegisterMapping::new();
-    let mut phys_registers = RegisterBank::new();
-
-    // Map how the element are mapped to physical registers
-    // This needs in to be in part of the code that can talk about physical registers
-    // Could structure this differently such that it gives a fresh reg
-    let b = input(&mut asm, &mut mapping, &mut phys_registers, 0);
-    let a_regs = array::from_fn(|ai| (1 + ai as u64));
-    let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
-
-    let s: [XReg; 5] = array::from_fn(|_| asm.fresh());
-
-    let sinst = smult(&mut asm, &s, a, b);
-    println!("{:?}", asm);
-
-    let old = sinst;
-
-    let b = input(&mut asm, &mut mapping, &mut phys_registers, 5);
-    let a_regs = array::from_fn(|ai| (6 + ai as u64));
-    let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
-    let p: [XReg; 5] = array::from_fn(|_| asm.fresh());
-    let p_inst = smult(&mut asm, &p, a, b);
-    let new = p_inst;
-
-    let mix = interleave(old, new);
-
-    // Is there something we can do to tie off the outputs.
-    // and to make sure it happens before drop_pass
-    let mut seen = Seen::new();
-    s.into_iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-    p.into_iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-    let mix = liveness_analysis(&mut seen, mix);
-    println!("\nmix: {mix:?}");
-
-    // Mapping and phys_registers seem to go togetehr
-    let out = hardware_register_allocation(&mut mapping, &mut phys_registers, mix);
-    print_instructions(&out);
-}
-
-fn simd_test() {
-    let mut asm = Allocator::new();
-    let mut mapping = RegisterMapping::new();
-    let mut phys_registers = RegisterBank::new();
-
-    let t_regs = array::from_fn(|ai| (ai as u64));
-    let t = t_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
-    let v_regs = array::from_fn(|ai| (ai as u64));
-    let v = v_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
-    let s = input(&mut asm, &mut mapping, &mut phys_registers, t.len() as u64);
-    let ssimd = smult_noinit_simd(&mut asm, &t, s, v);
-    println!("\nssimd");
-    let inst: Vec<_> = ssimd.into_iter().flatten().collect();
-    print_instructions(&inst);
-
-    let mut seen = Seen::new();
-    t.into_iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-    let commands = liveness_analysis(&mut seen, inst);
-    let out = hardware_register_allocation(&mut mapping, &mut phys_registers, commands);
-
-    println!();
-    print_instructions(&out);
-}
-
-fn main() {
-    let mut asm = Allocator::new();
-    let mut mapping = RegisterMapping::new();
-    let mut register_bank = RegisterBank::new();
-    let x = asm.fresh();
-
-    let inst = mul(&x, &x, &x);
-    print_instructions(&inst);
-    let mut seen_registers = Seen::new();
-    let commands = liveness_analysis(&mut seen_registers, inst);
-    let physical_inst = hardware_register_allocation(&mut mapping, &mut register_bank, commands);
-    print_instructions(&physical_inst);
-
-    interleave_test();
-    simd_test();
-}
-
-fn interleave(
+pub fn interleave(
     lhs: Vec<AtomicInstruction>,
     rhs: Vec<AtomicInstruction>,
 ) -> Vec<Instruction<FreshRegister>> {
@@ -584,7 +437,7 @@ fn interleave(
 }
 
 #[derive(Debug)]
-struct RegisterMapping(Vec<RegisterState>);
+pub struct RegisterMapping(Vec<RegisterState>);
 
 impl std::fmt::Display for RegisterMapping {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -603,7 +456,7 @@ impl std::fmt::Display for RegisterMapping {
 }
 
 impl RegisterMapping {
-    fn new() -> Self {
+    pub fn new() -> Self {
         // TODO Needs to be equal to the number of free register in the allocator once it is finished
         // but also needs space for the elements in the beginning
         // In the beginning there can't be more than all the vector registers combined, so that can be allocated initially
@@ -697,7 +550,7 @@ impl<S> std::ops::IndexMut<TypedRegisterF<FreshRegister, S>> for RegisterMapping
     }
 }
 
-fn liveness_analysis(
+pub fn liveness_analysis(
     seen_registers: &mut Seen,
     instructions: Vec<Instruction<FreshRegister>>,
 ) -> VecDeque<LivenessCommand> {
@@ -713,7 +566,7 @@ fn liveness_analysis(
     commands
 }
 
-fn hardware_register_allocation(
+pub fn hardware_register_allocation(
     mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
     commands: VecDeque<LivenessCommand>,
@@ -746,7 +599,7 @@ fn hardware_register_allocation(
     commands.into_iter().filter_map(f).collect()
 }
 
-fn print_instructions<R: std::fmt::Display + Copy>(instrs: &[Instruction<R>]) {
+pub fn print_instructions<R: std::fmt::Display + Copy>(instrs: &[Instruction<R>]) {
     instrs
         .iter()
         .for_each(|inst| println!("{}", inst.format_instruction()));
