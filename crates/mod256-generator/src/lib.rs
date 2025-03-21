@@ -1,3 +1,5 @@
+use std::array;
+
 // Test generators
 use quickcheck::Arbitrary;
 
@@ -38,78 +40,46 @@ impl From<U256b52> for U256b64 {
 
 impl Arbitrary for U256b52 {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        U256b52([
-            u64::arbitrary(g) & MASK52,
-            u64::arbitrary(g) & MASK52,
-            u64::arbitrary(g) & MASK52,
-            u64::arbitrary(g) & MASK52,
-            u64::arbitrary(g) & MASK48,
-        ])
+        U256b52(array::from_fn(|_| u64::arbitrary(g) & MASK52))
     }
 
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let a = self.0;
-
-        if a.iter().all(|&ai| ai == 0) {
-            return Box::new(std::iter::empty());
-        }
-
-        // Create vector of shrunk values
-        let mut shrunk = Vec::new();
-
-        // Add zero as the smallest possible value
-        shrunk.push(Self(Default::default()));
-
-        for (i, &elem) in a.iter().enumerate() {
-            if elem != 0 {
-                let mut zero_limb = a.clone();
-                zero_limb[i] = 0;
-                let mut half_limb = a.clone();
-                half_limb[i] = elem >> 1;
-                shrunk.push(Self(zero_limb));
-                shrunk.push(Self(half_limb));
-            }
-        }
-
-        Box::new(shrunk.into_iter())
+        Box::new(shrink(self.0).map(U256b52))
     }
+}
+
+fn shrink<const N: usize>(a: [u64; N]) -> Box<dyn Iterator<Item = [u64; N]>> {
+    if a.iter().all(|&ai| ai == 0) {
+        return Box::new(std::iter::empty());
+    }
+
+    // Create vector of shrunk values
+    let mut shrunk = Vec::new();
+
+    // Add zero as the smallest possible value
+    shrunk.push([0; N]);
+
+    for (i, &elem) in a.iter().enumerate() {
+        if elem != 0 {
+            let mut zero_limb = a.clone();
+            zero_limb[i] = 0;
+            let mut half_limb = a.clone();
+            half_limb[i] = elem >> 1;
+            shrunk.push(zero_limb);
+            shrunk.push(half_limb);
+        }
+    }
+
+    Box::new(shrunk.into_iter())
 }
 
 impl Arbitrary for U256b64 {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        U256b64([
-            u64::arbitrary(g),
-            u64::arbitrary(g),
-            u64::arbitrary(g),
-            u64::arbitrary(g),
-        ])
+        U256b64(array::from_fn(|_| u64::arbitrary(g)))
     }
 
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        let a = self.0;
-
-        if a.iter().all(|&ai| ai == 0) {
-            return Box::new(std::iter::empty());
-        }
-
-        // Create vector of shrunk values
-        let mut shrunk = Vec::new();
-
-        // Add zero as the smallest possible value
-        shrunk.push(Self(Default::default()));
-
-        for (i, &elem) in a.iter().enumerate() {
-            if elem != 0 {
-                let mut zero_limb = a.clone();
-                zero_limb[i] = 0;
-                let mut half_limb = a.clone();
-                half_limb[i] = elem >> 1;
-                shrunk.push(Self(zero_limb));
-                shrunk.push(Self(half_limb));
-            }
-        }
-
-        Box::new(shrunk.into_iter())
+        Box::new(shrink(self.0).map(U256b64))
     }
 }
 
