@@ -1,11 +1,11 @@
 #![feature(portable_simd)]
 use std::simd::Simd;
 
+use block_multiplier::constants::{NP0, P, U52_NP0, U52_P};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use montgomery_reduction::arith::school_method;
 use montgomery_reduction::emmart;
-use montgomery_reduction::{acar, NP0, P, U52_NP0, U52_P};
-use montgomery_reduction::{domb, yuval, interleaved};
+use montgomery_reduction::{acar, domb, interleaved, yuval};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -397,7 +397,6 @@ fn bench_domb(c: &mut Criterion) {
     group.finish();
 }
 
-
 fn bench_interleaved(c: &mut Criterion) {
     let mut group = c.benchmark_group("Interleaved");
 
@@ -441,8 +440,8 @@ fn bench_interleaved(c: &mut Criterion) {
             interleaved::interleaved(
                 black_box(yuval_a),
                 black_box(yuval_b),
-                black_box( [domb_a, domb_b]),
-                black_box([domb_b, domb_a])
+                black_box([domb_a, domb_b]),
+                black_box([domb_b, domb_a]),
             )
         })
     });
@@ -452,8 +451,8 @@ fn bench_interleaved(c: &mut Criterion) {
             interleaved::interleaved_naive(
                 black_box(yuval_a),
                 black_box(yuval_b),
-                black_box( [domb_a, domb_b]),
-                black_box([domb_b, domb_a])
+                black_box([domb_a, domb_b]),
+                black_box([domb_b, domb_a]),
             )
         })
     });

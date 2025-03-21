@@ -1,6 +1,7 @@
 #![allow(dead_code)]
+
+use block_multiplier::constants::MASK52;
 /// 52 bit integer reference implementation
-use super::MASK52;
 
 #[inline(always)]
 pub fn adds_u52(t: &mut [u64], mut carry: u64) {
@@ -78,8 +79,10 @@ pub fn carrying_mul_add_u104(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64)
 mod tests {
     use quickcheck_macros::quickcheck;
 
-    use crate::subarray;
-    use crate::{emmart::subtraction_step_u52, test_generator::U256b52, U52_NP0, U52_P, U52_R2};
+    use crate::emmart::subtraction_step_u52;
+    use block_multiplier::constants::{U52_NP0, U52_P, U52_R2};
+    use block_multiplier::subarray;
+    use mod256_generator::U256b52;
 
     #[quickcheck]
     fn sos_round(a: U256b52) -> bool {

@@ -1,6 +1,7 @@
+use block_multiplier::constants::P;
 /// Explore the differences between the single step unsigned and floating point algorithm
 /// and how many excessive Ps they contain.
-use montgomery_reduction::{arith, domb, yuval, P};
+use montgomery_reduction::{arith, domb, yuval};
 use num_bigint::BigUint;
 use rand::Rng;
 use std::collections::HashMap;

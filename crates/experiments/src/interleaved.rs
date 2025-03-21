@@ -1,8 +1,6 @@
 use crate::arith::{self, carrying_mul_add, school_method};
-use crate::{
-    emmart::{self, make_initial, MASK52},
-    U52_NP0, U52_P,
-};
+use crate::emmart::{self, make_initial};
+use block_multiplier::constants::{MASK52, U52_NP0, U52_P};
 use std::{
     arch::aarch64::vcvtq_f64_u64,
     ops::BitAnd,

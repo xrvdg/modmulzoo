@@ -230,13 +230,14 @@ pub fn fios(a: U256, b: U256, n: U256, np0: u64) -> [u64; 6] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        arith::{modulus, subtraction_step},
+    use crate::arith::{modulus, subtraction_step};
+    use block_multiplier::{
+        constants::{NP0, P, R2},
         subarray,
-        test_generator::U256b64,
-        NP0, P, R2,
     };
     use quickcheck_macros::quickcheck;
+
+    use mod256_generator::U256b64;
 
     #[quickcheck]
     /// Test whether montgomery multiplication gives the same result as repeatedly subtraction

@@ -1,6 +1,7 @@
 use std::hint::black_box;
 
-use montgomery_reduction::{emmart, U52_NP0, U52_P};
+use block_multiplier::constants::{U52_NP0, U52_P};
+use montgomery_reduction::emmart;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
 fn main() {

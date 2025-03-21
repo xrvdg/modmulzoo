@@ -6,14 +6,12 @@ use std::{
 
 use seq_macro::seq;
 
-use crate::{acar, F52_P, NP0, P, U52_NP0};
+use crate::acar;
+use block_multiplier::constants::{F52_P, MASK52, NP0, P, U52_NP0};
 
 /// Make sure to call set_round_to_zero before using any of the functions in this module
 pub mod paper;
 mod uint52;
-
-pub const MASK52: u64 = 2_u64.pow(52) - 1;
-pub const MASK48: u64 = 2_u64.pow(48) - 1;
 
 pub fn subtraction_step_u52<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
     let mut borrow: i64 = 0;
@@ -681,14 +679,9 @@ mod tests {
     use crate::arith;
     use crate::emmart::modulus_u52;
     use crate::emmart::subtraction_step_u52;
-    use crate::subarray;
-    use crate::test_generator::U256b52;
-    use crate::test_generator::U256b64;
-    use crate::P;
-    use crate::R2;
-    use crate::U52_NP0;
-    use crate::U52_P;
-    use crate::U52_R2;
+    use block_multiplier::constants::{P, R2, U52_NP0, U52_P, U52_R2};
+    use block_multiplier::subarray;
+    use mod256_generator::{U256b52, U256b64};
 
     use super::set_round_to_zero;
     use quickcheck_macros::quickcheck;

@@ -3,12 +3,6 @@ name = "montgomery_reduction"
 version = "0.1.0"
 edition = "2021"
 
-[profile.release]
-debug = 2
-lto = true
-
-[profile.bench]
-lto = true
 
 [dependencies]
 libc = "0.2.170"
@@ -16,6 +10,7 @@ libc = "0.2.170"
 num-bigint = { version = "0.4.6" }
 rand = "0.9"
 seq-macro = "0.3.5"
+block-multiplier = { path = "../block-multiplier" }
 
 [dev-dependencies]
 ark-ff = "0.5.0"
@@ -23,6 +18,8 @@ criterion = "0.5"
 rand = "0.9"
 quickcheck = "1.0.3"
 quickcheck_macros = "1.0.0"
+block-multiplier = { path = "../block-multiplier" }
+mod256-generator = { path = "../mod256-generator" }
 
 [[bench]]
 name = "montgomery"

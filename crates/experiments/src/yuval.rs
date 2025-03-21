@@ -1,5 +1,5 @@
 use crate::arith::{self, school_method};
-use crate::subarray;
+use block_multiplier::subarray;
 
 pub const U64_P: [u64; 4] = [
     0x43e1f593f0000001,
@@ -197,10 +197,10 @@ pub fn parallel(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
 mod tests {
     use crate::{
         arith::modulus,
-        test_generator::U256b64,
         yuval::{mul_logjumps_unr_2, parallel},
-        P, R2,
     };
+    use block_multiplier::constants::{P, R2};
+    use mod256_generator::U256b64;
     use quickcheck_macros::quickcheck;
 
     #[quickcheck]

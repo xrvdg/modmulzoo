@@ -6,12 +6,10 @@ use std::{
 
 use seq_macro::seq;
 
-use crate::{
-    emmart::{self, make_initial, set_fpcr, set_round_to_zero, MASK52},
-    U52_NP0, U52_P,
-};
+use crate::emmart::{self, make_initial, set_fpcr, set_round_to_zero};
+use block_multiplier::constants::{MASK52, U52_NP0, U52_P};
 
-use crate::subarray;
+use block_multiplier::subarray;
 
 const RHO_1: [u64; 5] = [
     0x82e644ee4c3d2,
@@ -463,9 +461,10 @@ mod tests {
     use crate::{
         arith,
         emmart::{modulus_u52, set_round_to_zero},
-        test_generator::{U256b52, U256b64},
-        yuval, P, R2, U52_P, U52_R2,
+        yuval,
     };
+    use block_multiplier::constants::{P, R2, U52_P, U52_R2};
+    use mod256_generator::{U256b52, U256b64};
     use quickcheck_macros::quickcheck;
 
     #[quickcheck]
