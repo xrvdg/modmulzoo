@@ -679,14 +679,9 @@ mod tests {
     use crate::arith;
     use crate::emmart::modulus_u52;
     use crate::emmart::subtraction_step_u52;
-    use crate::subarray;
-    use crate::test_generator::U256b52;
-    use crate::test_generator::U256b64;
-    use crate::P;
-    use crate::R2;
-    use crate::U52_NP0;
-    use crate::U52_P;
-    use crate::U52_R2;
+    use block_multiplier::constants::{P, R2, U52_NP0, U52_P, U52_R2};
+    use block_multiplier::subarray;
+    use mod256_generator::{U256b52, U256b64};
 
     use super::set_round_to_zero;
     use quickcheck_macros::quickcheck;

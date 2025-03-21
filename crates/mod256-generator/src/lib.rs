@@ -1,8 +1,8 @@
 // Test generators
-#![cfg(test)]
 use quickcheck::Arbitrary;
 
-use crate::constants::{MASK48, MASK52};
+pub const MASK52: u64 = 2_u64.pow(52) - 1;
+pub const MASK48: u64 = 2_u64.pow(48) - 1;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub struct U256b64(pub [u64; 4]);

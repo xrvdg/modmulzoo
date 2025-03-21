@@ -234,9 +234,10 @@ mod tests {
     use block_multiplier::{
         constants::{NP0, P, R2},
         subarray,
-        test_generator::U256b64,
     };
     use quickcheck_macros::quickcheck;
+
+    use mod256_generator::U256b64;
 
     #[quickcheck]
     /// Test whether montgomery multiplication gives the same result as repeatedly subtraction

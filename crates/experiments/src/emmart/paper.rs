@@ -112,7 +112,7 @@ mod tests {
     use super::*;
     use crate::arith::school_method;
     use crate::emmart::*;
-    use crate::test_generator::{U256b52, U256b64};
+    use mod256_generator::{U256b52, U256b64};
     use quickcheck_macros::quickcheck;
 
     /// Buggy doesn't work when reducing a 5x52bit containing a 256 number to 4x64 bit.

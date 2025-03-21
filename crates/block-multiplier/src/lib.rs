@@ -1,5 +1,4 @@
 pub mod constants;
-pub mod test_generator;
 
 /// Macro to extract a subarray from an array.
 ///
@@ -15,7 +14,7 @@ pub mod test_generator;
 /// # Example
 ///
 /// ```
-/// use montgomery_reduction::subarray;
+/// use block_multiplier::subarray;
 /// let array = [1, 2, 3, 4, 5];
 /// let sub = subarray!(array, 1, 3); // Creates [2, 3, 4]
 /// ```

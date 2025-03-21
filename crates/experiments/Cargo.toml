@@ -19,6 +19,7 @@ rand = "0.9"
 quickcheck = "1.0.3"
 quickcheck_macros = "1.0.0"
 block-multiplier = { path = "../block-multiplier" }
+mod256-generator = { path = "../mod256-generator" }
 
 [[bench]]
 name = "montgomery"

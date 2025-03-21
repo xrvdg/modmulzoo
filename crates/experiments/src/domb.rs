@@ -461,9 +461,10 @@ mod tests {
     use crate::{
         arith,
         emmart::{modulus_u52, set_round_to_zero},
-        test_generator::{U256b52, U256b64},
-        yuval, P, R2, U52_P, U52_R2,
+        yuval,
     };
+    use block_multiplier::constants::{P, R2, U52_P, U52_R2};
+    use mod256_generator::{U256b52, U256b64};
     use quickcheck_macros::quickcheck;
 
     #[quickcheck]
