@@ -1,5 +1,5 @@
 use crate::arith::{self, school_method};
-use crate::subarray;
+use block_multiplier::subarray;
 
 pub const U64_P: [u64; 4] = [
     0x43e1f593f0000001,

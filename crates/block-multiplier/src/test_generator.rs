@@ -2,7 +2,7 @@
 #![cfg(test)]
 use quickcheck::Arbitrary;
 
-use crate::emmart::{MASK48, MASK52};
+use crate::constants::{MASK48, MASK52};
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub struct U256b64(pub [u64; 4]);

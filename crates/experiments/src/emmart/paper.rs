@@ -1,6 +1,8 @@
 #![allow(dead_code)]
+use block_multiplier::constants::MASK52;
+
 /// Functions that are in the paper or related to it, but currently not directly used.
-use super::{make_initial, C1, C2, C3, MASK52};
+use super::{make_initial, C1, C2, C3};
 
 /// Technique for extracting the truncated part of a f64 multiplication
 fn full_product(a: f64, b: f64) -> (f64, f64) {

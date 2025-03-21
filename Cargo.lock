@@ -107,6 +107,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f68f53c83ab957f72c32642f3868eec03eb974d1fb82e453128456482613d36"
 
 [[package]]
+name = "block-multiplier"
+version = "0.1.0"
+dependencies = [
+ "quickcheck",
+ "quickcheck_macros",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -503,6 +511,7 @@ name = "montgomery_reduction"
 version = "0.1.0"
 dependencies = [
  "ark-ff",
+ "block-multiplier",
  "criterion",
  "libc",
  "num-bigint",

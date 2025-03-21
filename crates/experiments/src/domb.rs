@@ -6,12 +6,10 @@ use std::{
 
 use seq_macro::seq;
 
-use crate::{
-    emmart::{self, make_initial, set_fpcr, set_round_to_zero, MASK52},
-    U52_NP0, U52_P,
-};
+use crate::emmart::{self, make_initial, set_fpcr, set_round_to_zero};
+use block_multiplier::constants::{MASK52, U52_NP0, U52_P};
 
-use crate::subarray;
+use block_multiplier::subarray;
 
 const RHO_1: [u64; 5] = [
     0x82e644ee4c3d2,
