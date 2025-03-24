@@ -147,9 +147,9 @@ macro_rules! embed_asm {
     };
 
     ($name:ident, 2, m) => {
-        pub fn $name<T: Reg64Bit + AliasedRegister>(
+        pub fn $name<T: Reg64Bit + RegisterSource>(
             dst: &DReg,
-            src: &T,
+            src: &Reg<T>,
         ) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
@@ -202,11 +202,10 @@ pub struct Reg<T> {
     reg: u64,
     _marker: PhantomData<T>,
 }
-// Different types as I don't want to have type erasure on the
-// functions themselves
 
 pub type XReg = Reg<u64>;
 
+/// Define the struct ourself as to not have to import it
 pub struct Simd<T, const N: usize>(PhantomData<T>);
 
 pub type VReg = Reg<Simd<u64, 2>>;
@@ -214,18 +213,8 @@ pub type VReg = Reg<Simd<u64, 2>>;
 pub type DReg = Reg<f64>;
 
 pub trait Reg64Bit {}
-impl Reg64Bit for XReg {}
-impl<'a> Reg64Bit for DReg {}
-
-// How are the Register changes going to affect this?
-pub trait AllocatableRegister: AllocatableRegisterSealed {}
-impl AllocatableRegister for VReg {}
-impl AllocatableRegister for XReg {}
-
-pub trait AliasedRegister: AliasedRegisterSealed {}
-impl AliasedRegister for XReg {}
-impl AliasedRegister for DReg {}
-impl AliasedRegister for VReg {}
+impl Reg64Bit for u64 {}
+impl Reg64Bit for f64 {}
 
 /// Sealed traits for Aliased and Allocatable registers and LiveCommand
 /// These are sealed as they have the fresh register which should not be
@@ -235,12 +224,8 @@ impl AliasedRegister for VReg {}
 /// manually
 mod private {
 
-    #[derive(Debug)]
-    pub enum RegisterType {
-        X,
-        V,
-    }
     pub type FreshRegister = u64;
+    /// Vector sizes to erase the difference between address float64 or u64
     #[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
     pub enum VectorSizes {
         V,
@@ -256,17 +241,6 @@ mod private {
         Vector(R, Sizes),
     }
 
-    pub trait AllocatableRegisterSealed {
-        // For use in the allocator
-        fn new(reg: u64) -> Self;
-        // For use in input
-        fn register_type() -> RegisterType;
-    }
-    pub trait AliasedRegisterSealed {
-        // internal, but on the border so input, output and inside the macros
-        fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>;
-    }
-
     use crate::InstructionF;
 
     /// The result of the liveness analysis and it gives commands to the
@@ -279,7 +253,7 @@ mod private {
 }
 use private::*;
 
-impl AllocatableRegisterSealed for XReg {
+impl<T> Reg<T> {
     fn new(reg: u64) -> Self {
         Self {
             reg,
@@ -287,44 +261,17 @@ impl AllocatableRegisterSealed for XReg {
         }
     }
 
-    fn register_type() -> RegisterType {
-        RegisterType::X
+    // (temporary?) indirection to bring the typing under the type itself
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>
+    where
+        T: RegisterSource,
+    {
+        T::to_typed_register(self.reg)
     }
 }
 
-impl AliasedRegisterSealed for XReg {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        TypedRegisterF::Scalar(self.reg)
-    }
-}
-
-impl AllocatableRegisterSealed for VReg {
-    fn new(reg: u64) -> Self {
-        Self {
-            reg,
-            _marker: Default::default(),
-        }
-    }
-    fn register_type() -> RegisterType {
-        RegisterType::V
-    }
-}
-
-impl AliasedRegisterSealed for VReg {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        TypedRegisterF::Vector(self.reg, VectorSizes::V)
-    }
-}
-
-impl AliasedRegisterSealed for DReg {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        TypedRegisterF::Vector(self.reg, VectorSizes::D)
-    }
-}
-
-impl VReg {
-    // Should this be an AsRef
-    pub fn as_d(&self) -> &DReg {
+impl Reg<Simd<u64, 2>> {
+    pub fn as_f64(&self) -> &Reg<f64> {
         unsafe { std::mem::transmute(self) }
     }
 }
@@ -338,10 +285,10 @@ pub struct Allocator {
 }
 
 impl Allocator {
-    pub fn fresh<T: AllocatableRegister>(&mut self) -> T {
+    pub fn fresh<T>(&mut self) -> Reg<T> {
         let x = self.fresh;
         self.fresh += 1;
-        T::new(x)
+        Reg::new(x)
     }
 
     pub fn new() -> Self {
@@ -375,34 +322,63 @@ enum RegisterState {
     Dropped,
 }
 
-// Both Reg and PhysicalReg are not supposed to be copied.
-// BUt for the interface we do need to map them some way
-// This can also be done as part of the initialisation
-// A way out of the ordering for now is to just make it a big enough size
-pub fn input<T: AllocatableRegister + AliasedRegister>(
+type RegisterPool = BTreeSet<HardwareRegister>;
+
+// TODO different name than RegisterSource
+pub trait RegisterSource {
+    fn get_register_pool<'a>(pools: &'a mut RegisterBank) -> &'a mut RegisterPool;
+    fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R>;
+}
+
+impl RegisterSource for u64 {
+    fn get_register_pool<'a>(pools: &'a mut RegisterBank) -> &'a mut RegisterPool {
+        &mut pools.x
+    }
+
+    fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
+        TypedRegisterF::Scalar(reg)
+    }
+}
+
+impl RegisterSource for f64 {
+    fn get_register_pool<'a>(pools: &'a mut RegisterBank) -> &'a mut RegisterPool {
+        &mut pools.v
+    }
+
+    fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
+        TypedRegisterF::Vector(reg, VectorSizes::D)
+    }
+}
+
+impl RegisterSource for Simd<u64, 2> {
+    fn get_register_pool<'a>(pools: &'a mut RegisterBank) -> &'a mut RegisterPool {
+        &mut pools.v
+    }
+
+    fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
+        TypedRegisterF::Vector(reg, VectorSizes::V)
+    }
+}
+
+pub fn input<T>(
     asm: &mut Allocator,
     mapping: &mut RegisterMapping,
     phys_registers: &mut RegisterBank,
     phys: u64,
-) -> T {
-    let fresh: T = asm.fresh();
-    let treg = fresh.to_typed_register();
+) -> Reg<T>
+where
+    T: RegisterSource,
+{
+    let fresh = asm.fresh();
 
-    match T::register_type() {
-        RegisterType::X => {
-            if !phys_registers.x.remove(&phys) {
-                panic!("Register x{} is already in use", phys)
-            }
-            *mapping.index_mut(treg) = RegisterState::Assigned(TypedRegisterF::Scalar(phys));
-        }
-        RegisterType::V => {
-            if !phys_registers.v.remove(&phys) {
-                panic!("Register v{} is already in use", phys)
-            }
-            *mapping.index_mut(treg) =
-                RegisterState::Assigned(TypedRegisterF::Vector(phys, VectorSizes::V));
-        }
+    let pool = T::get_register_pool(phys_registers);
+    if !pool.remove(&phys) {
+        panic!("Register {} is already in use", phys)
     }
+
+    // TODO look at indexing
+    *mapping.index_mut(T::to_typed_register(fresh.reg)) =
+        RegisterState::Assigned(T::to_typed_register(phys));
 
     fresh
 }
@@ -414,7 +390,7 @@ impl Seen {
         Self(HashSet::new())
     }
 
-    pub fn output_interface(&mut self, fresh: &impl AliasedRegister) -> bool {
+    pub fn output_interface<T: RegisterSource>(&mut self, fresh: &Reg<T>) -> bool {
         self.insert(drop_size(fresh.to_typed_register()))
     }
 
@@ -432,8 +408,8 @@ fn drop_size<R>(t: TypedSizedRegister<R>) -> TypedRegister<R> {
 
 #[derive(Debug)]
 pub struct RegisterBank {
-    x: BTreeSet<HardwareRegister>,
-    v: BTreeSet<HardwareRegister>,
+    x: RegisterPool,
+    v: RegisterPool,
 }
 
 impl RegisterBank {
@@ -565,7 +541,7 @@ impl RegisterMapping {
 
     // Integrate with seen?
     // This output only should output
-    pub fn output_register(&self, reg: &impl AliasedRegister) -> String {
+    pub fn output_register<T: RegisterSource>(&self, reg: &Reg<T>) -> String {
         match self.index(reg.to_typed_register()) {
             RegisterState::Unassigned => panic!("requested output register for some"),
             RegisterState::Assigned(hw_reg) => format!("{}", hw_reg),
