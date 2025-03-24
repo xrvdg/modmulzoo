@@ -8,15 +8,12 @@ use std::{
 
 // See if these can be reduced. Took all of these as it was a u64 before
 
-impl<S> TypedRegisterF<FreshRegister, S> {
+impl TypedSizedRegister<FreshRegister> {
     // Should only be seen by RegisterMapping
     // Could have been used for HardwareRegister, but it's better to convert types
     // Only for 'internal' use
     fn as_fresh(&self) -> &FreshRegister {
-        match self {
-            TypedRegisterF::Scalar(r) => r,
-            TypedRegisterF::Vector(r, _) => r,
-        }
+        &self.reg
     }
 }
 
@@ -43,20 +40,20 @@ enum Mod {
 
 // TODO This could benefit from having really different types for FreshRegister and
 // Hardware Register. The output could be made different for this
-impl<R: std::fmt::Display> std::fmt::Display for TypedRegisterF<R, VectorSizes> {
+impl<R: std::fmt::Display> std::fmt::Display for TypedSizedRegister<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TypedRegisterF::Scalar(reg) => write!(f, "x{}", reg),
-            TypedRegisterF::Vector(reg, vectorsize) => write!(f, "{vectorsize}{reg}"),
-        }
+        let reg = &self.reg;
+        let addr = self.addressing;
+        write!(f, "{addr}{reg}")
     }
 }
 
-impl std::fmt::Display for VectorSizes {
+impl std::fmt::Display for Addressing {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VectorSizes::V => write!(f, "v"),
-            VectorSizes::D => write!(f, "d"),
+            Addressing::V => write!(f, "v"),
+            Addressing::D => write!(f, "d"),
+            Addressing::X => write!(f, "x"),
         }
     }
 }
@@ -216,42 +213,32 @@ pub trait Reg64Bit {}
 impl Reg64Bit for u64 {}
 impl Reg64Bit for f64 {}
 
-/// Sealed traits for Aliased and Allocatable registers and LiveCommand
-/// These are sealed as they have the fresh register which should not be
-/// available to users, but we do need trait to handle the different registers
-/// and allow for the boundary code to be able to use it.
-/// Might turn out to be too limiting if we want to allow the user to construct Instructions
-/// manually
-mod private {
-
-    pub type FreshRegister = u64;
-    /// Vector sizes to erase the difference between address float64 or u64
-    #[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
-    pub enum VectorSizes {
-        V,
-        D,
-    }
-
-    pub type TypedRegister<R> = TypedRegisterF<R, ()>;
-    pub type TypedSizedRegister<R> = TypedRegisterF<R, VectorSizes>;
-
-    #[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
-    pub enum TypedRegisterF<R, Sizes> {
-        Scalar(R),
-        Vector(R, Sizes),
-    }
-
-    use crate::InstructionF;
-
-    /// The result of the liveness analysis and it gives commands to the
-    /// hardware register allocator
-    #[derive(Debug)]
-    pub enum LivenessCommand {
-        Instr(InstructionF<FreshRegister>),
-        Drop(TypedRegisterF<FreshRegister, ()>),
-    }
+pub type FreshRegister = u64;
+/// Vector sizes to erase the difference between address float64 or u64
+/// TODO different name for addressing
+#[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
+pub enum Addressing {
+    // Unsigned
+    X,
+    // SIMD/FP
+    V,
+    D,
 }
-use private::*;
+
+/// TODO new name under this construction
+#[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
+pub struct TypedSizedRegister<R> {
+    reg: R,
+    addressing: Addressing,
+}
+
+/// The result of the liveness analysis and it gives commands to the
+/// hardware register allocator
+#[derive(Debug)]
+pub enum LivenessCommand {
+    Instr(InstructionF<FreshRegister>),
+    Drop(FreshRegister),
+}
 
 impl<T> Reg<T> {
     fn new(reg: u64) -> Self {
@@ -336,7 +323,10 @@ impl RegisterSource for u64 {
     }
 
     fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
-        TypedRegisterF::Scalar(reg)
+        TypedSizedRegister {
+            reg,
+            addressing: Addressing::D,
+        }
     }
 }
 
@@ -346,7 +336,10 @@ impl RegisterSource for f64 {
     }
 
     fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
-        TypedRegisterF::Vector(reg, VectorSizes::D)
+        TypedSizedRegister {
+            reg,
+            addressing: Addressing::D,
+        }
     }
 }
 
@@ -356,7 +349,10 @@ impl RegisterSource for Simd<u64, 2> {
     }
 
     fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
-        TypedRegisterF::Vector(reg, VectorSizes::V)
+        TypedSizedRegister {
+            reg,
+            addressing: Addressing::V,
+        }
     }
 }
 
@@ -381,7 +377,7 @@ where
     fresh
 }
 
-pub struct Seen(HashSet<TypedRegister<FreshRegister>>);
+pub struct Seen(HashSet<FreshRegister>);
 
 impl Seen {
     pub fn new() -> Self {
@@ -389,18 +385,11 @@ impl Seen {
     }
 
     pub fn output_interface<T: RegisterSource>(&mut self, fresh: &Reg<T>) -> bool {
-        self.insert(drop_size(fresh.to_typed_register()))
+        self.seen(fresh.reg)
     }
 
-    fn insert(&mut self, fresh: TypedRegister<FreshRegister>) -> bool {
+    fn seen(&mut self, fresh: FreshRegister) -> bool {
         self.0.insert(fresh)
-    }
-}
-
-fn drop_size<R>(t: TypedSizedRegister<R>) -> TypedRegister<R> {
-    match t {
-        TypedRegisterF::Scalar(reg) => TypedRegisterF::Scalar(reg),
-        TypedRegisterF::Vector(reg, _) => TypedRegisterF::Vector(reg, ()),
     }
 }
 
@@ -417,12 +406,18 @@ impl RegisterBank {
             v: BTreeSet::from_iter(Vec::from_iter(0..=30)),
         }
     }
-    /// Returns
-    fn insert<S>(&mut self, register: TypedRegisterF<HardwareRegister, S>) -> bool {
-        match register {
-            TypedRegisterF::Scalar(reg) => self.x.insert(reg),
-            TypedRegisterF::Vector(reg, _) => self.v.insert(reg),
+
+    fn get_register_pool(&mut self, addr: Addressing) -> &mut BTreeSet<u64> {
+        match addr {
+            Addressing::X => &mut self.x,
+            Addressing::V | Addressing::D => &mut self.v,
         }
+    }
+
+    /// Return the hardware register back into the register pool
+    fn insert(&mut self, register: TypedSizedRegister<HardwareRegister>) -> bool {
+        self.get_register_pool(register.addressing)
+            .insert(register.reg)
     }
 }
 
@@ -491,19 +486,18 @@ impl RegisterMapping {
         let entry = self.index_mut(*typed_register.as_fresh());
         match *entry {
             RegisterState::Unassigned => {
-                let hw_reg = match typed_register {
-                    TypedRegisterF::Scalar(_) => {
-                        let reg = register_bank.x.pop_first().expect("ran out of registers");
-                        TypedRegisterF::Scalar(reg)
-                    }
-                    TypedRegisterF::Vector(_, size) => {
-                        let reg = register_bank.v.pop_first().expect("ran out of registers");
-                        TypedRegisterF::Vector(reg, size)
-                    }
+                let addr = typed_register.addressing;
+                let pool = register_bank.get_register_pool(addr);
+
+                let hw_reg = pool.pop_first().expect("ran out of registers");
+
+                let typed_hw_reg = TypedSizedRegister {
+                    reg: hw_reg,
+                    addressing: addr,
                 };
 
-                *entry = RegisterState::Assigned(hw_reg);
-                hw_reg
+                *entry = RegisterState::Assigned(typed_hw_reg);
+                typed_hw_reg
             }
             RegisterState::Assigned(reg) => reg,
             RegisterState::Dropped => unreachable!("{typed_register:?} already has been dropped"),
@@ -512,15 +506,8 @@ impl RegisterMapping {
 
     // Once a fresh register goes out of scope the hardware register that was assigned to that fresh register
     // can be returned to the register bank.
-    fn free_register(
-        &mut self,
-        register_bank: &mut RegisterBank,
-        typed_register: TypedRegister<FreshRegister>,
-    ) -> bool {
-        let old = mem::replace(
-            self.index_mut(*typed_register.as_fresh()),
-            RegisterState::Dropped,
-        );
+    fn free_register(&mut self, register_bank: &mut RegisterBank, fresh: FreshRegister) -> bool {
+        let old = mem::replace(self.index_mut(fresh), RegisterState::Dropped);
 
         match old {
             RegisterState::Unassigned => {
@@ -568,8 +555,12 @@ pub fn liveness_analysis(
 ) -> VecDeque<LivenessCommand> {
     let mut commands = VecDeque::new();
     for instruction in instructions.into_iter().rev() {
-        for register in instruction.extract_registers().into_iter().map(drop_size) {
-            if seen_registers.insert(register) {
+        for register in instruction
+            .extract_registers()
+            .into_iter()
+            .map(|reg| reg.reg)
+        {
+            if seen_registers.seen(register) {
                 commands.push_front(LivenessCommand::Drop(register));
             }
         }
