@@ -100,7 +100,7 @@ impl From<InstructionF<FreshRegister>> for LivenessCommand {
 macro_rules! embed_asm {
     // For opcodeructions with 3 register parameters
     ($name:ident, 3) => {
-        pub fn $name(dst: &XReg, a: &XReg, b: &XReg) -> crate::AtomicInstruction {
+        pub fn $name(dst: &Reg<u64>, a: &Reg<u64>, b: &Reg<u64>) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
                 dest: dst.to_typed_register(),
@@ -111,7 +111,12 @@ macro_rules! embed_asm {
     };
 
     ($name:ident, $opcode:literal, 3) => {
-        pub fn $name(dst: &VReg, src_a: &VReg, src_b: &VReg, i: u8) -> crate::AtomicInstruction {
+        pub fn $name(
+            dst: &Reg<Simd<u64, 2>>,
+            src_a: &Reg<Simd<u64, 2>>,
+            src_b: &Reg<Simd<u64, 2>>,
+            i: u8,
+        ) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: $opcode.to_string(),
                 dest: dst.to_typed_register(),
@@ -122,7 +127,7 @@ macro_rules! embed_asm {
     };
 
     ($name:ident, $opcode:literal, 2) => {
-        pub fn $name(dst: &VReg, src: &VReg) -> crate::AtomicInstruction {
+        pub fn $name(dst: &Reg<Simd<u64, 2>>, src: &Reg<Simd<u64, 2>>) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: $opcode.to_string(),
                 dest: dst.to_typed_register(),
@@ -133,7 +138,7 @@ macro_rules! embed_asm {
     };
 
     ($name:ident, $opcode:literal, 2, m) => {
-        pub fn $name(dst: &VReg, src: &XReg) -> crate::AtomicInstruction {
+        pub fn $name(dst: &Reg<Simd<u64, 2>>, src: &Reg<u64>) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: $opcode.to_string(),
                 dest: dst.to_typed_register(),
@@ -145,7 +150,7 @@ macro_rules! embed_asm {
 
     ($name:ident, 2, m) => {
         pub fn $name<T: Reg64Bit + RegisterSource>(
-            dst: &DReg,
+            dst: &Reg<f64>,
             src: &Reg<T>,
         ) -> crate::AtomicInstruction {
             vec![crate::Instruction {
@@ -158,7 +163,7 @@ macro_rules! embed_asm {
     };
 
     ($name:ident, 1) => {
-        pub fn $name(dst: &XReg, val: u64) -> crate::AtomicInstruction {
+        pub fn $name(dst: &Reg<u64>, val: u64) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
                 dest: dst.to_typed_register(),
@@ -170,7 +175,7 @@ macro_rules! embed_asm {
 
     // For opcodeructions with 1 register and 1 string parameter (cinc)
     ($name:ident, cond) => {
-        pub fn $name(dst: &XReg, src: &XReg, condition: &str) -> crate::AtomicInstruction {
+        pub fn $name(dst: &Reg<u64>, src: &Reg<u64>, condition: &str) -> crate::AtomicInstruction {
             vec![crate::Instruction {
                 opcode: stringify!($name).to_string(),
                 dest: dst.to_typed_register(),
@@ -200,14 +205,8 @@ pub struct Reg<T> {
     _marker: PhantomData<T>,
 }
 
-pub type XReg = Reg<u64>;
-
 /// Define the struct ourself as to not have to import it
 pub struct Simd<T, const N: usize>(PhantomData<T>);
-
-pub type VReg = Reg<Simd<u64, 2>>;
-
-pub type DReg = Reg<f64>;
 
 pub trait Reg64Bit {}
 impl Reg64Bit for u64 {}
@@ -299,13 +298,13 @@ impl Allocator {
     }
 }
 
-impl std::fmt::Display for XReg {
+impl std::fmt::Display for Reg<u64> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "x{}", self.reg)
     }
 }
 
-impl std::fmt::Debug for XReg {
+impl std::fmt::Debug for Reg<u64> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "x{}", self.reg)
     }

@@ -10,7 +10,7 @@ use hla::*;
 // Seeing this ahead might be nice
 // with a parameter and then use slice and generalize it
 // Not everything has to have perfect types
-pub fn carry_add(s: [&XReg; 2], add: &XReg) -> AtomicInstruction {
+pub fn carry_add(s: [&Reg<u64>; 2], add: &Reg<u64>) -> AtomicInstruction {
     vec![adds(s[0], s[0], add), cinc(s[1], s[1], "hs")]
         .into_iter()
         .flatten()
@@ -30,7 +30,7 @@ fn interleave_test() {
     let a_regs = array::from_fn(|ai| (1 + ai as u64));
     let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
 
-    let s: [XReg; 5] = array::from_fn(|_| asm.fresh());
+    let s: [Reg<u64>; 5] = array::from_fn(|_| asm.fresh());
 
     let sinst = smult(&mut asm, &s, a, b);
     println!("{:?}", asm);
@@ -40,7 +40,7 @@ fn interleave_test() {
     let b = input(&mut asm, &mut mapping, &mut phys_registers, 5);
     let a_regs = array::from_fn(|ai| (6 + ai as u64));
     let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
-    let p: [XReg; 5] = array::from_fn(|_| asm.fresh());
+    let p: [Reg<u64>; 5] = array::from_fn(|_| asm.fresh());
     let p_inst = smult(&mut asm, &p, a, b);
     let new = p_inst;
 
@@ -96,7 +96,7 @@ global_asm!(include_str!("../asm/mulu128.s"));
 //     unsafe { asm!(include_str!("../asm/asm_test.s")) };
 // }
 
-fn gen_mulu128(c: &[XReg; 2], a: &XReg, b: &XReg) -> Vec<Instruction> {
+fn gen_mulu128(c: &[Reg<u64>; 2], a: &Reg<u64>, b: &Reg<u64>) -> Vec<Instruction> {
     vec![mul(&c[0], a, b), umulh(&c[1], a, b)]
         .into_iter()
         .flatten()
@@ -185,7 +185,12 @@ fn main() {
 
 // How do other allocating algorithms pass things along like Vec?
 // In this algorithm the inputs are not used after
-pub fn smult(asm: &mut Allocator, s: &[XReg; 5], a: [XReg; 4], b: XReg) -> Vec<AtomicInstruction> {
+pub fn smult(
+    asm: &mut Allocator,
+    s: &[Reg<u64>; 5],
+    a: [Reg<u64>; 4],
+    b: Reg<u64>,
+) -> Vec<AtomicInstruction> {
     // tmp being reused instead of a fresh variable each time.
     // should not make much of a difference
     let tmp = asm.fresh();
@@ -228,15 +233,15 @@ const C1: f64 = 0.;
 // Whole vector is in registers, but that might not be great. Better to have it on the stack and load it from there
 pub fn smult_noinit_simd(
     asm: &mut Allocator,
-    _t: &[VReg; 6],
-    s: VReg,
-    v: [XReg; 5],
+    _t: &[Reg<Simd<u64, 2>>; 6],
+    s: Reg<Simd<u64, 2>>,
+    v: [Reg<u64>; 5],
 ) -> Vec<AtomicInstruction> {
     // first do it as is written
     let tmp = asm.fresh();
     let splat_c1 = asm.fresh();
     let cc1 = asm.fresh();
-    let fv0: VReg = asm.fresh();
+    let fv0: Reg<Simd<u64, 2>> = asm.fresh();
     vec![
         ucvtf2d(&s, &s),
         mov(&tmp, C1.to_bits()),
