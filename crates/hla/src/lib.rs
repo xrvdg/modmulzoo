@@ -213,7 +213,23 @@ pub trait Reg64Bit {}
 impl Reg64Bit for u64 {}
 impl Reg64Bit for f64 {}
 
-pub type FreshRegister = u64;
+/// `Reg` represents the fresh variable and has (as much as possible) the same semantics as a regular rust variable.
+/// FreshRegister represent the label for the fresh variable.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct FreshRegister(u64);
+
+impl std::fmt::Display for FreshRegister {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<u64> for FreshRegister {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
 /// Vector sizes to erase the difference between address float64 or u64
 /// TODO different name for addressing
 #[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
@@ -243,7 +259,7 @@ pub enum LivenessCommand {
 impl<T> Reg<T> {
     fn new(reg: u64) -> Self {
         Self {
-            reg,
+            reg: reg.into(),
             _marker: Default::default(),
         }
     }
@@ -298,8 +314,14 @@ impl std::fmt::Debug for XReg {
 // Add another struct to prevent things from being created
 // Make a struct around here such that it can't be copied
 // THe phys_register file is the one that creates them
-type HardwareRegister = u64;
+#[derive(PartialEq, Debug, Ord, PartialOrd, Eq, Clone, Copy)]
+pub struct HardwareRegister(u64);
 
+impl std::fmt::Display for HardwareRegister {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 // No Clone as the state of one free reg
 // does not make sense as the state of another free reg
 #[derive(PartialEq, Debug)]
@@ -367,12 +389,14 @@ where
 {
     let fresh = asm.fresh();
 
+    let hw_reg = HardwareRegister(phys);
+
     let pool = T::get_register_pool(phys_registers);
-    if !pool.remove(&phys) {
-        panic!("Register {} is already in use", phys)
+    if !pool.remove(&hw_reg) {
+        panic!("{:?} is already in use", phys)
     }
 
-    *mapping.index_mut(fresh.reg) = RegisterState::Assigned(T::to_typed_register(phys));
+    *mapping.index_mut(fresh.reg) = RegisterState::Assigned(T::to_typed_register(hw_reg));
 
     fresh
 }
@@ -402,12 +426,12 @@ pub struct RegisterBank {
 impl RegisterBank {
     pub fn new() -> Self {
         Self {
-            x: BTreeSet::from_iter(Vec::from_iter(0..=30)),
-            v: BTreeSet::from_iter(Vec::from_iter(0..=30)),
+            x: BTreeSet::from_iter((0..=30).map(|r| HardwareRegister(r))),
+            v: BTreeSet::from_iter((0..=30).map(|r| HardwareRegister(r))),
         }
     }
 
-    fn get_register_pool(&mut self, addr: Addressing) -> &mut BTreeSet<u64> {
+    fn get_register_pool(&mut self, addr: Addressing) -> &mut RegisterPool {
         match addr {
             Addressing::X => &mut self.x,
             Addressing::V | Addressing::D => &mut self.v,
@@ -542,10 +566,10 @@ impl RegisterMapping {
 /// We do not implement the Index Trait as that would leak the private RegisterState
 impl RegisterMapping {
     fn index(&self, idx: FreshRegister) -> &RegisterState {
-        &self.0[idx as usize]
+        &self.0[idx.0 as usize]
     }
     fn index_mut(&mut self, idx: FreshRegister) -> &mut RegisterState {
-        &mut self.0[idx as usize]
+        &mut self.0[idx.0 as usize]
     }
 }
 
@@ -582,15 +606,21 @@ pub fn hardware_register_allocation(
         // println!("LivenessCommand: {cmd:?}");
         std::io::stdout().flush().unwrap();
         match cmd {
-            LivenessCommand::Instr(mut inst) => {
+            LivenessCommand::Instr(InstructionF {
+                opcode,
+                dest,
+                src,
+                modifiers,
+            }) => {
                 // Resolve registers to physical hardware registers
-                inst.dest = mapping.get_or_allocate_register(register_bank, inst.dest);
-                inst.src = inst
-                    .src
-                    .into_iter()
-                    .map(|s| mapping.get_register(s))
-                    .collect();
-                Some(inst)
+                let dest = mapping.get_or_allocate_register(register_bank, dest);
+                let src = src.into_iter().map(|s| mapping.get_register(s)).collect();
+                Some(InstructionF {
+                    opcode,
+                    dest,
+                    src,
+                    modifiers,
+                })
             }
             LivenessCommand::Drop(fresh) => {
                 mapping.free_register(register_bank, fresh);
