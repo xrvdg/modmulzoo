@@ -1,4 +1,9 @@
-use std::array;
+use std::{
+    arch::{asm, global_asm},
+    array,
+    marker::PhantomData,
+    mem::transmute,
+};
 
 use hla::*;
 
@@ -46,10 +51,10 @@ fn interleave_test() {
     // Is there something we can do to tie off the outputs.
     // and to make sure it happens before drop_pass
     let mut seen = Seen::new();
-    s.into_iter().for_each(|r| {
+    s.iter().for_each(|r| {
         seen.output_interface(r);
     });
-    p.into_iter().for_each(|r| {
+    p.iter().for_each(|r| {
         seen.output_interface(r);
     });
     let mix = liveness_analysis(&mut seen, mix);
@@ -76,7 +81,7 @@ fn simd_test() {
     print_instructions(&inst);
 
     let mut seen = Seen::new();
-    t.into_iter().for_each(|r| {
+    t.iter().for_each(|r| {
         seen.output_interface(r);
     });
     let commands = liveness_analysis(&mut seen, inst);
@@ -86,19 +91,96 @@ fn simd_test() {
     print_instructions(&out);
 }
 
-fn main() {
+global_asm!(include_str!("../asm/mulu128.s"));
+
+// Doesn't work
+// fn inline_asm() {
+//     unsafe { asm!(include_str!("../asm/asm_test.s")) };
+// }
+
+fn gen_mulu128(c: &[XReg; 2], a: &XReg, b: &XReg) -> Vec<Instruction> {
+    vec![mul(&c[0], a, b), umulh(&c[1], a, b)]
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+#[inline(never)]
+fn call_mulu128(a: u64, b: u64) -> u128 {
+    let mut lo: u64;
+    let mut hi: u64;
+    // For now hard code since it only generated every now and then
+    unsafe { asm!("bl _mulu128", in("x0") a, in("x1") b, out("x2") lo, out("x3") hi) };
+    (hi as u128) << 64 | lo as u128
+}
+
+// This might be the best approach to include it into Rust, but depends on if it destroys the order
+#[inline(never)]
+fn inline_call_mulu128(a: u64, b: u64) -> u128 {
+    let mut lo: u64;
+    let mut hi: u64;
+    // For now hard code since it only generated every now and then
+    unsafe {
+        asm!(r#"
+    mul x2, x0,x1
+    umulh x3, x0, x1
+    "#, in("x0") a, in("x1") b, out("x2") lo, out("x3") hi)
+    };
+    (hi as u128) << 64 | lo as u128
+}
+
+fn build_mulu128() {
     let mut asm = Allocator::new();
     let mut mapping = RegisterMapping::new();
     let mut register_bank = RegisterBank::new();
-    let x = asm.fresh();
+    let a = input(&mut asm, &mut mapping, &mut register_bank, 0);
+    let b = input(&mut asm, &mut mapping, &mut register_bank, 1);
+    let ret = array::from_fn(|_| asm.fresh());
 
-    let inst = mul(&x, &x, &x);
-    print_instructions(&inst);
+    let inst = gen_mulu128(&ret, &a, &b);
+
     let mut seen_registers = Seen::new();
+    ret.iter().for_each(|r| {
+        seen_registers.output_interface(r);
+    });
     let commands = liveness_analysis(&mut seen_registers, inst);
     let physical_inst = hardware_register_allocation(&mut mapping, &mut register_bank, commands);
     print_instructions(&physical_inst);
+    ret.iter()
+        .for_each(|r| println!("{}", mapping.output_register(r)));
+}
+#[derive(Debug)]
+#[repr(C)]
+pub struct U128S {
+    lo: u64,
+    hi: u64,
+}
 
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct U128L([u64; 3]);
+
+#[inline(never)]
+pub extern "C" fn struct_return(a: u64, c: u64, d: u64, b: u64) -> U128L {
+    let lo = a * b;
+    let hi = c * b;
+    let c = d * b;
+    U128L([lo, hi, lo - c])
+}
+
+fn main() {
+    let r = struct_return(
+        std::hint::black_box(3),
+        std::hint::black_box(3),
+        std::hint::black_box(3),
+        std::hint::black_box(6),
+    );
+    println!("r: {r:?}");
+    let r = call_mulu128(5, 6);
+    println!("r: {r:?}");
+    let r = inline_call_mulu128(5, 6);
+    println!("r: {r:?}");
+    build_mulu128();
     interleave_test();
     simd_test();
 }
@@ -126,6 +208,21 @@ pub fn smult(asm: &mut Allocator, s: &[XReg; 5], a: [XReg; 4], b: XReg) -> Vec<A
         carry_add([&s[3], &s[4]], &tmp),
     ]
 }
+
+#[inline(never)]
+pub extern "C" fn test_input(a: [u64; 4], b: u64) -> [u64; 5] {
+    let mut out = [0; 5];
+    let mut sum = 0;
+    for (i, ai) in a.iter().enumerate() {
+        sum += ai;
+        out[i] = ai * b;
+    }
+    out[4] = sum;
+    out
+}
+
+#[inline(never)]
+pub extern "C" fn c_test_input(v: *const u64, size: u64, s: u64) {}
 
 // TODO initiliase constant
 const C1: f64 = 0.;

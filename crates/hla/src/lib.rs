@@ -20,10 +20,11 @@ impl<S> TypedRegisterF<FreshRegister, S> {
 }
 
 // Vec<BlockInstr> - mixing -> Vec<Instr> -> Vec<InstrDrop> -> Vec<PhysInstr>
-pub type AtomicInstruction = Vec<Instruction<FreshRegister>>;
+pub type AtomicInstruction = Vec<InstructionF<FreshRegister>>;
+pub type Instruction = InstructionF<FreshRegister>;
 
 #[derive(Debug)]
-pub struct Instruction<R> {
+pub struct InstructionF<R> {
     opcode: String,
     dest: TypedSizedRegister<R>,
     src: Vec<TypedSizedRegister<R>>,
@@ -59,7 +60,7 @@ impl std::fmt::Display for VectorSizes {
     }
 }
 
-impl<R: std::fmt::Display + Copy> Instruction<R> {
+impl<R: std::fmt::Display + Copy> InstructionF<R> {
     // TODO this might be better as Display and/or using Formatter
     fn format_instruction(&self) -> String {
         let mut phys_regs = vec![self.dest];
@@ -90,8 +91,8 @@ impl<R: std::fmt::Display + Copy> Instruction<R> {
     }
 }
 
-impl From<Instruction<FreshRegister>> for LivenessCommand {
-    fn from(instr: Instruction<FreshRegister>) -> Self {
+impl From<InstructionF<FreshRegister>> for LivenessCommand {
+    fn from(instr: InstructionF<FreshRegister>) -> Self {
         LivenessCommand::Instr(instr)
     }
 }
@@ -265,13 +266,13 @@ mod private {
         fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>;
     }
 
-    use crate::Instruction;
+    use crate::InstructionF;
 
     /// The result of the liveness analysis and it gives commands to the
     /// hardware register allocator
     #[derive(Debug)]
     pub enum LivenessCommand {
-        Instr(Instruction<FreshRegister>),
+        Instr(InstructionF<FreshRegister>),
         Drop(TypedRegisterF<FreshRegister, ()>),
     }
 }
@@ -406,7 +407,7 @@ impl Seen {
         Self(HashSet::new())
     }
 
-    pub fn output_interface(&mut self, fresh: impl AliasedRegister) -> bool {
+    pub fn output_interface(&mut self, fresh: &impl AliasedRegister) -> bool {
         self.insert(drop_size(fresh.to_typed_register()))
     }
 
@@ -447,7 +448,7 @@ impl RegisterBank {
 pub fn interleave(
     lhs: Vec<AtomicInstruction>,
     rhs: Vec<AtomicInstruction>,
-) -> Vec<Instruction<FreshRegister>> {
+) -> Vec<InstructionF<FreshRegister>> {
     lhs.into_iter()
         .zip(rhs)
         .flat_map(|(a, b)| [a, b])
@@ -554,6 +555,16 @@ impl RegisterMapping {
             }
         }
     }
+
+    // Integrate with seen?
+    // This output only should output
+    pub fn output_register(&self, reg: &impl AliasedRegister) -> String {
+        match self.index(reg.to_typed_register()) {
+            RegisterState::Unassigned => panic!("requested output register for some"),
+            RegisterState::Assigned(hw_reg) => format!("{}", hw_reg),
+            RegisterState::Dropped => "Dropped".to_string(),
+        }
+    }
 }
 
 /// We do not implement the Index Trait as that would leak the private RegisterState
@@ -568,7 +579,7 @@ impl RegisterMapping {
 
 pub fn liveness_analysis(
     seen_registers: &mut Seen,
-    instructions: Vec<Instruction<FreshRegister>>,
+    instructions: Vec<InstructionF<FreshRegister>>,
 ) -> VecDeque<LivenessCommand> {
     let mut commands = VecDeque::new();
     for instruction in instructions.into_iter().rev() {
@@ -586,7 +597,7 @@ pub fn hardware_register_allocation(
     mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
     commands: VecDeque<LivenessCommand>,
-) -> Vec<Instruction<HardwareRegister>> {
+) -> Vec<InstructionF<HardwareRegister>> {
     // println!("LivenessCommand: {commands:?}");
     let f = |cmd| {
         // println!();
@@ -615,7 +626,7 @@ pub fn hardware_register_allocation(
     commands.into_iter().filter_map(f).collect()
 }
 
-pub fn print_instructions<R: std::fmt::Display + Copy>(instrs: &[Instruction<R>]) {
+pub fn print_instructions<R: std::fmt::Display + Copy>(instrs: &[InstructionF<R>]) {
     instrs
         .iter()
         .for_each(|inst| println!("{}", inst.format_instruction()));
