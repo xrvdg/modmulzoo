@@ -246,7 +246,7 @@ pub fn smult_noinit_simd(
     vec![
         ucvtf2d(&s, &s),
         mov(&tmp, C1.to_bits()),
-        ucvtf(&fv0.as_f64(), &v[0]),
+        ucvtf(fv0.as_f64(), &v[0]),
         dup2d(&splat_c1, &tmp),
         mov16b(&cc1, &splat_c1),
         fmla2d(&cc1, &s, &fv0, 0),

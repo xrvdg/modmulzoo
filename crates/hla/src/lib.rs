@@ -1,7 +1,6 @@
 #![feature(iter_intersperse)]
 use std::{
     collections::{BTreeSet, HashSet, VecDeque},
-    io::Write,
     marker::PhantomData,
     mem::{self},
 };
@@ -339,7 +338,7 @@ pub trait RegisterSource {
 }
 
 impl RegisterSource for u64 {
-    fn get_register_pool<'a>(pools: &'a mut RegisterBank) -> &'a mut RegisterPool {
+    fn get_register_pool(pools: &mut RegisterBank) -> &mut RegisterPool {
         &mut pools.x
     }
 
@@ -592,7 +591,7 @@ pub fn liveness_analysis(
             .collect();
         // The difference could be mutable
         let release: HashSet<_> = registers.difference(&seen_registers.0).cloned().collect();
-        if release.get(&*instruction.dest.as_fresh()).is_some() {
+        if release.contains(instruction.dest.as_fresh()) {
             // Better way to give feedback? Now the user doesn't know where it comes from
             // We view an unused instruction as a problem
             panic!("{instruction:?} does not use the destination")
@@ -642,11 +641,7 @@ pub fn hardware_register_allocation(
         }
     };
 
-    instructions
-        .into_iter()
-        .zip(releases.into_iter())
-        .map(f)
-        .collect()
+    instructions.into_iter().zip(releases).map(f).collect()
 }
 
 pub fn print_instructions<R: std::fmt::Display + Copy>(instrs: &[InstructionF<R>]) {
