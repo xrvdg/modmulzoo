@@ -55,11 +55,11 @@ fn interleave_test() {
     p.iter().for_each(|r| {
         seen.output_interface(r);
     });
-    let mix = liveness_analysis(&mut seen, mix);
+    let releases = liveness_analysis(&mut seen, &mix);
     println!("\nmix: {mix:?}");
 
     // Mapping and phys_registers seem to go togetehr
-    let out = hardware_register_allocation(&mut mapping, &mut phys_registers, mix);
+    let out = hardware_register_allocation(&mut mapping, &mut phys_registers, mix, releases);
     print_instructions(&out);
 }
 
@@ -82,8 +82,8 @@ fn simd_test() {
     t.iter().for_each(|r| {
         seen.output_interface(r);
     });
-    let commands = liveness_analysis(&mut seen, inst);
-    let out = hardware_register_allocation(&mut mapping, &mut phys_registers, commands);
+    let releases = liveness_analysis(&mut seen, &inst);
+    let out = hardware_register_allocation(&mut mapping, &mut phys_registers, inst, releases);
 
     println!();
     print_instructions(&out);
@@ -141,8 +141,9 @@ fn build_mulu128() {
     ret.iter().for_each(|r| {
         seen_registers.output_interface(r);
     });
-    let commands = liveness_analysis(&mut seen_registers, inst);
-    let physical_inst = hardware_register_allocation(&mut mapping, &mut register_bank, commands);
+    let releases = liveness_analysis(&mut seen_registers, &inst);
+    let physical_inst =
+        hardware_register_allocation(&mut mapping, &mut register_bank, inst, releases);
     print_instructions(&physical_inst);
     ret.iter()
         .for_each(|r| println!("{}", mapping.output_register(r)));

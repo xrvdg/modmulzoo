@@ -334,7 +334,7 @@ type RegisterPool = BTreeSet<HardwareRegister>;
 
 // TODO different name than RegisterSource
 pub trait RegisterSource {
-    fn get_register_pool<'a>(pools: &'a mut RegisterBank) -> &'a mut RegisterPool;
+    fn get_register_pool(pools: &mut RegisterBank) -> &mut RegisterPool;
     fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R>;
 }
 
@@ -346,13 +346,13 @@ impl RegisterSource for u64 {
     fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
         TypedSizedRegister {
             reg,
-            addressing: Addressing::D,
+            addressing: Addressing::X,
         }
     }
 }
 
 impl RegisterSource for f64 {
-    fn get_register_pool<'a>(pools: &'a mut RegisterBank) -> &'a mut RegisterPool {
+    fn get_register_pool(pools: &mut RegisterBank) -> &mut RegisterPool {
         &mut pools.v
     }
 
@@ -365,7 +365,7 @@ impl RegisterSource for f64 {
 }
 
 impl RegisterSource for Simd<u64, 2> {
-    fn get_register_pool<'a>(pools: &'a mut RegisterBank) -> &'a mut RegisterPool {
+    fn get_register_pool(pools: &mut RegisterBank) -> &mut RegisterPool {
         &mut pools.v
     }
 
@@ -425,8 +425,8 @@ pub struct RegisterBank {
 impl RegisterBank {
     pub fn new() -> Self {
         Self {
-            x: BTreeSet::from_iter((0..=30).map(|r| HardwareRegister(r))),
-            v: BTreeSet::from_iter((0..=30).map(|r| HardwareRegister(r))),
+            x: BTreeSet::from_iter((0..=30).map(HardwareRegister)),
+            v: BTreeSet::from_iter((0..=30).map(HardwareRegister)),
         }
     }
 
@@ -572,22 +572,33 @@ impl RegisterMapping {
     }
 }
 
+// TODO optimise
+// The invariant is that the hashset will only contain the sources and therefore always free to deallocate
+// because if not it means that it's either been used earlier so it would not show up in release.
+// The other way it shows up if the source
 pub fn liveness_analysis(
     seen_registers: &mut Seen,
-    instructions: Vec<InstructionF<FreshRegister>>,
-) -> VecDeque<LivenessCommand> {
+    instructions: &[Instruction],
+) -> VecDeque<HashSet<FreshRegister>> {
     let mut commands = VecDeque::new();
-    for instruction in instructions.into_iter().rev() {
-        for register in instruction
+    for instruction in instructions.iter().rev() {
+        // Add check whether the source is released here.
+        // If we don't want to check for that later it is required that the instruction is filtered out here
+        // otherwise we need a special structure that checks for both
+        let registers: HashSet<_> = instruction
             .extract_registers()
             .into_iter()
-            .map(|reg| reg.reg)
-        {
-            if seen_registers.seen(register) {
-                commands.push_front(LivenessCommand::Drop(register));
-            }
-        }
-        commands.push_front(instruction.into());
+            .map(|tr| *tr.as_fresh())
+            .collect();
+        // The difference could be mutable
+        let release: HashSet<_> = registers.difference(&seen_registers.0).cloned().collect();
+        if release.get(&*instruction.dest.as_fresh()).is_some() {
+            // Better way to give feedback? Now the user doesn't know where it comes from
+            // We view an unused instruction as a problem
+            panic!("{instruction:?} does not use the destination")
+        }; // The union could be mutable
+        seen_registers.0 = seen_registers.0.union(&registers).cloned().collect();
+        commands.push_front(release);
     }
     commands
 }
@@ -595,40 +606,47 @@ pub fn liveness_analysis(
 pub fn hardware_register_allocation(
     mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
-    commands: VecDeque<LivenessCommand>,
+    instructions: Vec<Instruction>,
+    // Change this into a Seen?
+    releases: VecDeque<HashSet<FreshRegister>>,
 ) -> Vec<InstructionF<HardwareRegister>> {
-    // println!("LivenessCommand: {commands:?}");
-    let f = |cmd| {
+    assert_eq!(
+        instructions.len(),
+        releases.len(),
+        "The instructions and release collections need to be the same lenght"
+    );
+
+    let f = |(instruction, release): (Instruction, HashSet<_>)| {
         // println!();
         // println!("mapping: {mapping}");
         // println!("bank: {register_bank:?}");
-        // println!("LivenessCommand: {cmd:?}");
-        std::io::stdout().flush().unwrap();
-        match cmd {
-            LivenessCommand::Instr(InstructionF {
-                opcode,
-                dest,
-                src,
-                modifiers,
-            }) => {
-                // Resolve registers to physical hardware registers
-                let dest = mapping.get_or_allocate_register(register_bank, dest);
-                let src = src.into_iter().map(|s| mapping.get_register(s)).collect();
-                Some(InstructionF {
-                    opcode,
-                    dest,
-                    src,
-                    modifiers,
-                })
-            }
-            LivenessCommand::Drop(fresh) => {
-                mapping.free_register(register_bank, fresh);
-                None
-            }
+        // println!("instruction: {instruction:?}");
+        // println!("release: {release:?}");
+        // std::io::stdout().flush().unwrap();
+
+        let src = instruction
+            .src
+            .into_iter()
+            .map(|s| mapping.get_register(s))
+            .collect();
+        // assert on the return of free register?
+        release.into_iter().for_each(|fresh| {
+            mapping.free_register(register_bank, fresh);
+        });
+        let dest = mapping.get_or_allocate_register(register_bank, instruction.dest);
+        InstructionF {
+            opcode: instruction.opcode,
+            dest,
+            src,
+            modifiers: instruction.modifiers,
         }
     };
 
-    commands.into_iter().filter_map(f).collect()
+    instructions
+        .into_iter()
+        .zip(releases.into_iter())
+        .map(f)
+        .collect()
 }
 
 pub fn print_instructions<R: std::fmt::Display + Copy>(instrs: &[InstructionF<R>]) {
