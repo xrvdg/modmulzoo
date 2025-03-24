@@ -2,6 +2,7 @@
 use std::{
     collections::{BTreeSet, HashSet, VecDeque},
     io::Write,
+    marker::PhantomData,
     mem::{self},
 };
 
@@ -197,33 +198,33 @@ embed_asm!(dup2d, "dup.2d", 2, m);
 embed_asm!(ucvtf, 2, m);
 embed_asm!(fmla2d, "fmla.2d", 3);
 
+pub struct Reg<T> {
+    reg: u64,
+    _marker: PhantomData<T>,
+}
 // Different types as I don't want to have type erasure on the
 // functions themselves
-pub struct XReg {
-    // Maybe make reg a usize instead
-    reg: u64,
-}
 
-pub struct VReg {
-    // Maybe make reg a usize instead
-    reg: u64,
-}
+pub type XReg = Reg<u64>;
 
-pub struct DReg<'a> {
-    reg: &'a u64,
-}
+pub struct Simd<T, const N: usize>(PhantomData<T>);
+
+pub type VReg = Reg<Simd<u64, 2>>;
+
+pub type DReg = Reg<f64>;
 
 pub trait Reg64Bit {}
 impl Reg64Bit for XReg {}
-impl<'a> Reg64Bit for DReg<'a> {}
+impl<'a> Reg64Bit for DReg {}
 
+// How are the Register changes going to affect this?
 pub trait AllocatableRegister: AllocatableRegisterSealed {}
 impl AllocatableRegister for VReg {}
 impl AllocatableRegister for XReg {}
 
 pub trait AliasedRegister: AliasedRegisterSealed {}
 impl AliasedRegister for XReg {}
-impl<'a> AliasedRegister for DReg<'a> {}
+impl AliasedRegister for DReg {}
 impl AliasedRegister for VReg {}
 
 /// Sealed traits for Aliased and Allocatable registers and LiveCommand
@@ -280,7 +281,10 @@ use private::*;
 
 impl AllocatableRegisterSealed for XReg {
     fn new(reg: u64) -> Self {
-        Self { reg }
+        Self {
+            reg,
+            _marker: Default::default(),
+        }
     }
 
     fn register_type() -> RegisterType {
@@ -296,7 +300,10 @@ impl AliasedRegisterSealed for XReg {
 
 impl AllocatableRegisterSealed for VReg {
     fn new(reg: u64) -> Self {
-        Self { reg }
+        Self {
+            reg,
+            _marker: Default::default(),
+        }
     }
     fn register_type() -> RegisterType {
         RegisterType::V
@@ -309,16 +316,16 @@ impl AliasedRegisterSealed for VReg {
     }
 }
 
-impl<'a> AliasedRegisterSealed for DReg<'a> {
+impl AliasedRegisterSealed for DReg {
     fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        TypedRegisterF::Vector(*self.reg, VectorSizes::D)
+        TypedRegisterF::Vector(self.reg, VectorSizes::D)
     }
 }
 
 impl VReg {
     // Should this be an AsRef
-    pub fn as_d<'a>(&'a self) -> DReg<'a> {
-        DReg { reg: &self.reg }
+    pub fn as_d(&self) -> &DReg {
+        unsafe { std::mem::transmute(self) }
     }
 }
 

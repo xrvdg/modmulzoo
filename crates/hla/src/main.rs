@@ -1,8 +1,6 @@
 use std::{
     arch::{asm, global_asm},
     array,
-    marker::PhantomData,
-    mem::transmute,
 };
 
 use hla::*;
