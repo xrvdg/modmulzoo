@@ -199,7 +199,7 @@ embed_asm!(ucvtf, 2, m);
 embed_asm!(fmla2d, "fmla.2d", 3);
 
 pub struct Reg<T> {
-    reg: u64,
+    reg: FreshRegister,
     _marker: PhantomData<T>,
 }
 
@@ -376,9 +376,7 @@ where
         panic!("Register {} is already in use", phys)
     }
 
-    // TODO look at indexing
-    *mapping.index_mut(T::to_typed_register(fresh.reg)) =
-        RegisterState::Assigned(T::to_typed_register(phys));
+    *mapping.index_mut(fresh.reg) = RegisterState::Assigned(T::to_typed_register(phys));
 
     fresh
 }
@@ -476,7 +474,7 @@ impl RegisterMapping {
         &self,
         fresh: TypedSizedRegister<FreshRegister>,
     ) -> TypedSizedRegister<HardwareRegister> {
-        match *self.index(fresh) {
+        match *self.index(*fresh.as_fresh()) {
             RegisterState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
             RegisterState::Assigned(reg) => reg,
             RegisterState::Dropped => unreachable!("{fresh:?} already has been dropped"),
@@ -487,13 +485,13 @@ impl RegisterMapping {
     fn get_or_allocate_register(
         &mut self,
         register_bank: &mut RegisterBank,
-        fresh: TypedSizedRegister<FreshRegister>,
+        typed_register: TypedSizedRegister<FreshRegister>,
     ) -> TypedSizedRegister<HardwareRegister> {
         // Possible to do a mutable reference here
-        let entry = self.index_mut(fresh);
+        let entry = self.index_mut(*typed_register.as_fresh());
         match *entry {
             RegisterState::Unassigned => {
-                let hw_reg = match fresh {
+                let hw_reg = match typed_register {
                     TypedRegisterF::Scalar(_) => {
                         let reg = register_bank.x.pop_first().expect("ran out of registers");
                         TypedRegisterF::Scalar(reg)
@@ -508,7 +506,7 @@ impl RegisterMapping {
                 hw_reg
             }
             RegisterState::Assigned(reg) => reg,
-            RegisterState::Dropped => unreachable!("{fresh:?} already has been dropped"),
+            RegisterState::Dropped => unreachable!("{typed_register:?} already has been dropped"),
         }
     }
 
@@ -517,9 +515,12 @@ impl RegisterMapping {
     fn free_register(
         &mut self,
         register_bank: &mut RegisterBank,
-        fresh: TypedRegister<FreshRegister>,
+        typed_register: TypedRegister<FreshRegister>,
     ) -> bool {
-        let old = mem::replace(self.index_mut(fresh), RegisterState::Dropped);
+        let old = mem::replace(
+            self.index_mut(*typed_register.as_fresh()),
+            RegisterState::Dropped,
+        );
 
         match old {
             RegisterState::Unassigned => {
@@ -542,7 +543,8 @@ impl RegisterMapping {
     // Integrate with seen?
     // This output only should output
     pub fn output_register<T: RegisterSource>(&self, reg: &Reg<T>) -> String {
-        match self.index(reg.to_typed_register()) {
+        // Todo this could go from Reg to index instead of to_type_registers
+        match self.index(reg.reg) {
             RegisterState::Unassigned => panic!("requested output register for some"),
             RegisterState::Assigned(hw_reg) => format!("{}", hw_reg),
             RegisterState::Dropped => "Dropped".to_string(),
@@ -552,11 +554,11 @@ impl RegisterMapping {
 
 /// We do not implement the Index Trait as that would leak the private RegisterState
 impl RegisterMapping {
-    fn index<S>(&self, idx: TypedRegisterF<FreshRegister, S>) -> &RegisterState {
-        &self.0[*idx.as_fresh() as usize]
+    fn index(&self, idx: FreshRegister) -> &RegisterState {
+        &self.0[idx as usize]
     }
-    fn index_mut<S>(&mut self, idx: TypedRegisterF<FreshRegister, S>) -> &mut RegisterState {
-        &mut self.0[*idx.as_fresh() as usize]
+    fn index_mut(&mut self, idx: FreshRegister) -> &mut RegisterState {
+        &mut self.0[idx as usize]
     }
 }
 
