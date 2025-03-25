@@ -33,7 +33,7 @@ pub struct InstructionF<R> {
 enum Mod {
     None,
     Imm(u64),
-    Idx(u64),
+    Idx(u8),
     Cond(String),
 }
 
@@ -94,14 +94,18 @@ impl From<InstructionF<FreshRegister>> for LivenessCommand {
     }
 }
 
-pub struct Assembler {}
+pub struct Assembler {
+    pub instructions: Vec<AtomicInstruction>,
+}
 
 impl Assembler {
-    fn fresh<T>(&mut self) -> Reg<T> {
-        todo!()
+    pub fn new() -> Self {
+        Self {
+            instructions: Vec::new(),
+        }
     }
-    fn append_instruction(&mut self, inst: AtomicInstruction) {
-        todo!()
+    pub fn append_instruction(&mut self, inst: AtomicInstruction) {
+        self.instructions.push(inst)
     }
 }
 
@@ -109,8 +113,8 @@ use paste::paste;
 macro_rules! embed_asm {
     ($name:ident, $opcode:literal, ($($arg:ident : $arg_ty:ty),*) -> $ret_ty:ty) => {
         paste! {
-            pub fn $name(asm: &mut Assembler, $($arg: &Reg<$arg_ty>),*) -> Reg<$ret_ty> {
-                let ret = asm.fresh();
+            pub fn $name(alloc: &mut Allocator, asm: &mut Assembler, $($arg: &Reg<$arg_ty>),*) -> Reg<$ret_ty> {
+                let ret = alloc.fresh();
                 asm.append_instruction(vec![ [<$name _inst>](&ret, $($arg),*) ]);
                 ret
             }
@@ -130,8 +134,8 @@ macro_rules! embed_asm {
 // To quickly write these kind of macros just write the general structure
 // with embed_asm and then inline all the macros and modify accordingly
 
-pub fn mov(asm: &mut Assembler, imm: u64) -> Reg<u64> {
-    let ret = asm.fresh();
+pub fn mov(alloc: &mut Allocator, asm: &mut Assembler, imm: u64) -> Reg<u64> {
+    let ret = alloc.fresh();
     asm.append_instruction(vec![mov_inst(&ret, imm)]);
     ret
 }
@@ -145,8 +149,8 @@ pub fn mov_inst(dest: &Reg<u64>, imm: u64) -> Instruction {
     }
 }
 
-pub fn cinc(asm: &mut Assembler, a: &Reg<u64>, cond: String) -> Reg<u64> {
-    let ret = asm.fresh();
+pub fn cinc(alloc: &mut Allocator, asm: &mut Assembler, a: &Reg<u64>, cond: String) -> Reg<u64> {
+    let ret = alloc.fresh();
     asm.append_instruction(vec![cinc_inst(&ret, a, cond)]);
     ret
 }
@@ -160,26 +164,30 @@ pub fn cinc_inst(dest: &Reg<u64>, a: &Reg<u64>, cond: String) -> Instruction {
     }
 }
 
+// Create a new type for b that takes into account the index
 pub fn fmla2d(
+    _alloc: &mut Allocator, // Done to have the same pattern as the rest
     asm: &mut Assembler,
-    add: Reg<Simd<u64, 2>>,
-    a: &Reg<Simd<u64, 2>>,
-    b: &Reg<Simd<u64, 2>>,
-) -> Reg<Simd<u64, 2>> {
-    asm.append_instruction(vec![fmla2d_inst(&add, a, b)]);
+    add: Reg<Simd<f64, 2>>,
+    a: &Reg<Simd<f64, 2>>,
+    b: &Reg<Simd<f64, 2>>,
+    idx: u8,
+) -> Reg<Simd<f64, 2>> {
+    asm.append_instruction(vec![fmla2d_inst(&add, a, b, idx)]);
     add
 }
 
 pub fn fmla2d_inst(
-    dest_add: &Reg<Simd<u64, 2>>,
-    a: &Reg<Simd<u64, 2>>,
-    b: &Reg<Simd<u64, 2>>,
+    dest_add: &Reg<Simd<f64, 2>>,
+    a: &Reg<Simd<f64, 2>>,
+    b: &Reg<Simd<f64, 2>>,
+    idx: u8,
 ) -> Instruction {
     InstructionF {
         opcode: "fmla.2d".to_string(),
         dest: dest_add.to_typed_register(),
         src: vec![a.to_typed_register(), b.to_typed_register()],
-        modifiers: Mod::None,
+        modifiers: Mod::Idx(idx),
     }
 }
 
@@ -264,8 +272,14 @@ impl<T> Reg<T> {
     }
 }
 
-impl Reg<Simd<u64, 2>> {
-    pub fn as_f64(&self) -> &Reg<f64> {
+impl Reg<f64> {
+    pub fn as_simd(&self) -> &Reg<Simd<f64, 2>> {
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl<S> Reg<Simd<S, 2>> {
+    pub fn into_<D>(self) -> Reg<Simd<D, 2>> {
         unsafe { std::mem::transmute(self) }
     }
 }

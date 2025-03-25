@@ -10,41 +10,40 @@ use hla::*;
 // Seeing this ahead might be nice
 // with a parameter and then use slice and generalize it
 // Not everything has to have perfect types
-pub fn carry_add(s: [&Reg<u64>; 2], add: &Reg<u64>) -> AtomicInstruction {
-    vec![adds(s[0], s[0], add), cinc(s[1], s[1], "hs")]
-        .into_iter()
-        .flatten()
-        .collect()
+pub fn carry_add(asm: &mut Assembler, s: [Reg<u64>; 2], add: Reg<u64>) -> [Reg<u64>; 2] {
+    asm.append_instruction(vec![
+        adds_inst(&s[0], &s[0], &add),
+        cinc_inst(&s[1], &s[1], "hs".to_string()),
+    ]);
+    s
 }
 
 fn interleave_test() {
     // doesn't fully do the indirect result register
-    let mut asm = Allocator::new();
+    let mut alloc = Allocator::new();
     let mut mapping = RegisterMapping::new();
     let mut phys_registers = RegisterBank::new();
 
-    // Map how the element are mapped to physical registers
-    // This needs in to be in part of the code that can talk about physical registers
-    // Could structure this differently such that it gives a fresh reg
-    let b = input(&mut asm, &mut mapping, &mut phys_registers, 0);
+    // First round
+    let mut asm = Assembler::new();
+    let b = input(&mut alloc, &mut mapping, &mut phys_registers, 0);
     let a_regs = array::from_fn(|ai| (1 + ai as u64));
-    let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
+    let a = a_regs.map(|pr| input(&mut alloc, &mut mapping, &mut phys_registers, pr));
 
-    let s: [Reg<u64>; 5] = array::from_fn(|_| asm.fresh());
+    let s = smult(&mut alloc, &mut asm, a, b);
+    println!("{:?}", alloc);
 
-    let sinst = smult(&mut asm, &s, a, b);
-    println!("{:?}", asm);
+    let first = asm.instructions;
 
-    let old = sinst;
-
-    let b = input(&mut asm, &mut mapping, &mut phys_registers, 5);
+    // Second round
+    let mut asm = Assembler::new();
+    let b = input(&mut alloc, &mut mapping, &mut phys_registers, 5);
     let a_regs = array::from_fn(|ai| (6 + ai as u64));
-    let a = a_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
-    let p: [Reg<u64>; 5] = array::from_fn(|_| asm.fresh());
-    let p_inst = smult(&mut asm, &p, a, b);
-    let new = p_inst;
+    let a = a_regs.map(|pr| input(&mut alloc, &mut mapping, &mut phys_registers, pr));
+    let p = smult(&mut alloc, &mut asm, a, b);
+    let second = asm.instructions;
 
-    let mix = interleave(old, new);
+    let mix = interleave(first, second);
 
     // Is there something we can do to tie off the outputs.
     // and to make sure it happens before drop_pass
@@ -64,24 +63,27 @@ fn interleave_test() {
 }
 
 fn simd_test() {
-    let mut asm = Allocator::new();
+    let mut alloc = Allocator::new();
+    let mut asm = Assembler::new();
     let mut mapping = RegisterMapping::new();
     let mut phys_registers = RegisterBank::new();
 
-    let t_regs = array::from_fn(|ai| (ai as u64));
-    let t = t_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
     let v_regs = array::from_fn(|ai| (ai as u64));
-    let v = v_regs.map(|pr| input(&mut asm, &mut mapping, &mut phys_registers, pr));
-    let s = input(&mut asm, &mut mapping, &mut phys_registers, t.len() as u64);
-    let ssimd = smult_noinit_simd(&mut asm, &t, s, v);
+    let v = v_regs.map(|pr| input(&mut alloc, &mut mapping, &mut phys_registers, pr));
+    let s = input(
+        &mut alloc,
+        &mut mapping,
+        &mut phys_registers,
+        v.len() as u64,
+    );
+    let t = smult_noinit_simd(&mut alloc, &mut asm, s, v);
     println!("\nssimd");
+    let ssimd = asm.instructions;
     let inst: Vec<_> = ssimd.into_iter().flatten().collect();
     print_instructions(&inst);
 
     let mut seen = Seen::new();
-    t.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
+    seen.output_interface(&t);
     let releases = liveness_analysis(&mut seen, &inst);
     let out = hardware_register_allocation(&mut mapping, &mut phys_registers, inst, releases);
 
@@ -96,11 +98,13 @@ fn simd_test() {
 //     unsafe { asm!(include_str!("../asm/asm_test.s")) };
 // }
 
-fn gen_mulu128(c: &[Reg<u64>; 2], a: &Reg<u64>, b: &Reg<u64>) -> Vec<Instruction> {
-    vec![mul(&c[0], a, b), umulh(&c[1], a, b)]
-        .into_iter()
-        .flatten()
-        .collect()
+fn gen_mulu128(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: &Reg<u64>,
+    b: &Reg<u64>,
+) -> [Reg<u64>; 2] {
+    [mul(alloc, asm, a, b), umulh(alloc, asm, a, b)]
 }
 
 #[inline(never)]
@@ -128,19 +132,21 @@ fn inline_call_mulu128(a: u64, b: u64) -> u128 {
 }
 
 fn build_mulu128() {
-    let mut asm = Allocator::new();
+    let mut alloc = Allocator::new();
+    let mut asm = Assembler::new();
     let mut mapping = RegisterMapping::new();
     let mut register_bank = RegisterBank::new();
-    let a = input(&mut asm, &mut mapping, &mut register_bank, 0);
-    let b = input(&mut asm, &mut mapping, &mut register_bank, 1);
-    let ret = array::from_fn(|_| asm.fresh());
+    let a = input(&mut alloc, &mut mapping, &mut register_bank, 0);
+    let b = input(&mut alloc, &mut mapping, &mut register_bank, 1);
 
-    let inst = gen_mulu128(&ret, &a, &b);
+    let ret = gen_mulu128(&mut alloc, &mut asm, &a, &b);
 
     let mut seen_registers = Seen::new();
     ret.iter().for_each(|r| {
         seen_registers.output_interface(r);
     });
+    let inst: Vec<_> = asm.instructions.into_iter().flatten().collect();
+
     let releases = liveness_analysis(&mut seen_registers, &inst);
     let physical_inst =
         hardware_register_allocation(&mut mapping, &mut register_bank, inst, releases);
@@ -188,30 +194,26 @@ fn main() {
 // How do other allocating algorithms pass things along like Vec?
 // In this algorithm the inputs are not used after
 pub fn smult(
-    asm: &mut Allocator,
-    s: &[Reg<u64>; 5],
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
     a: [Reg<u64>; 4],
     b: Reg<u64>,
-) -> Vec<AtomicInstruction> {
-    // tmp being reused instead of a fresh variable each time.
-    // should not make much of a difference
-    let tmp = asm.fresh();
-    vec![
-        mul(&s[0], &a[0], &b),
-        umulh(&s[1], &a[0], &b),
-        //
-        mul(&tmp, &a[1], &b),
-        umulh(&s[2], &a[1], &b),
-        carry_add([&s[1], &s[2]], &tmp),
-        //
-        mul(&tmp, &a[2], &b),
-        umulh(&s[3], &a[2], &b),
-        carry_add([&s[2], &s[3]], &tmp),
-        //
-        mul(&tmp, &a[3], &b),
-        umulh(&s[4], &a[3], &b),
-        carry_add([&s[3], &s[4]], &tmp),
-    ]
+) -> [Reg<u64>; 5] {
+    let s0 = mul(alloc, asm, &a[0], &b);
+    let s1 = umulh(alloc, asm, &a[0], &b);
+    //
+    let tmp = mul(alloc, asm, &a[1], &b);
+    let s2 = umulh(alloc, asm, &a[1], &b);
+    let [s1, s2] = carry_add(asm, [s1, s2], tmp);
+    //
+    let tmp = mul(alloc, asm, &a[2], &b);
+    let s3 = umulh(alloc, asm, &a[2], &b);
+    let [s2, s3] = carry_add(asm, [s2, s3], tmp);
+    //
+    let tmp = mul(alloc, asm, &a[3], &b);
+    let s4 = umulh(alloc, asm, &a[3], &b);
+    let [s3, s4] = carry_add(asm, [s3, s4], tmp);
+    [s0, s1, s2, s3, s4]
 }
 
 #[inline(never)]
@@ -234,22 +236,18 @@ const C1: f64 = 0.;
 
 // Whole vector is in registers, but that might not be great. Better to have it on the stack and load it from there
 pub fn smult_noinit_simd(
-    asm: &mut Allocator,
-    t: &[Reg<Simd<u64, 2>>; 6],
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
     s: Reg<Simd<u64, 2>>,
     v: [Reg<u64>; 5],
-) -> Vec<AtomicInstruction> {
+) -> Reg<Simd<f64, 2>> {
     // first do it as is written
-    let tmp = asm.fresh();
-    let splat_c1 = asm.fresh();
-    let cc1 = asm.fresh();
-    let fv0: Reg<Simd<u64, 2>> = asm.fresh();
-    vec![
-        ucvtf2d(&s, &s),
-        mov(&tmp, C1.to_bits()),
-        ucvtf(fv0.as_f64(), &v[0]),
-        dup2d(&splat_c1, &tmp),
-        mov16b(&cc1, &splat_c1),
-        fmla2d(&cc1, &s, &fv0, 0),
-    ]
+    let s = ucvtf2d(alloc, asm, &s);
+
+    let tmp = mov(alloc, asm, C1.to_bits());
+    let v0 = ucvtf(alloc, asm, &v[0]);
+    let splat_c1 = dup2d(alloc, asm, &tmp);
+    let cc1 = mov16b(alloc, asm, &splat_c1);
+    let t0 = fmla2d(alloc, asm, cc1.into_(), &s, &v0.as_simd(), 0);
+    t0
 }
