@@ -62,6 +62,43 @@ fn interleave_test() {
     print_instructions(&out);
 }
 
+fn build_smul() {
+    // doesn't fully do the indirect result register
+    let mut alloc = Allocator::new();
+    let mut mapping = RegisterMapping::new();
+    let mut phys_registers = RegisterBank::new();
+
+    // First round
+    let mut asm = Assembler::new();
+    let b = input(&mut alloc, &mut mapping, &mut phys_registers, 0);
+    let a_regs = array::from_fn(|ai| (1 + ai as u64));
+    let a = a_regs.map(|pr| input(&mut alloc, &mut mapping, &mut phys_registers, pr));
+
+    let s = smult(&mut alloc, &mut asm, a, b);
+    println!("{:?}", alloc);
+
+    let first: Vec<_> = asm.instructions.into_iter().flatten().collect();
+
+    // Is there something we can do to tie off the outputs.
+    // and to make sure it happens before drop_pass
+    let mut seen = Seen::new();
+    s.iter().for_each(|r| {
+        seen.output_interface(r);
+    });
+
+    let releases = liveness_analysis(&mut seen, &first);
+
+    let out = hardware_register_allocation(&mut mapping, &mut phys_registers, first, releases);
+    let mut file = std::fs::File::create("./asm/global_asm_smul.s").expect("Unable to create file");
+    let txt = backend_global("smul".to_string(), out);
+    s.iter().for_each(|r| {
+        println!("{}", mapping.output_register(r));
+    });
+    use std::io::Write;
+    file.write_all(txt.as_bytes())
+        .expect("Unable to write data to file");
+}
+
 fn simd_test() {
     let mut alloc = Allocator::new();
     let mut asm = Assembler::new();
@@ -93,6 +130,7 @@ fn simd_test() {
 
 // global_asm!(include_str!("../asm/mulu128.s"));
 
+global_asm!(include_str!("../asm/global_asm_smul.s"));
 // Doesn't work
 // fn inline_asm() {
 //     unsafe { asm!(include_str!("../asm/asm_test.s")) };
@@ -174,21 +212,36 @@ pub extern "C" fn struct_return(a: u64, c: u64, d: u64, b: u64) -> U128L {
 }
 
 fn main() {
-    let r = struct_return(
-        std::hint::black_box(3),
-        std::hint::black_box(3),
-        std::hint::black_box(3),
-        std::hint::black_box(6),
-    );
-    println!("r: {r:?}");
-    let r = call_mulu128(5, 6);
-    println!("r: {r:?}");
-    let r = inline_call_mulu128(5, 6);
-    println!("r: {r:?}");
-    build_mulu128();
-    interleave_test();
-    // Currently no simd test due to non-complete operation
+    // let r = struct_return(
+    //     std::hint::black_box(3),
+    //     std::hint::black_box(3),
+    //     std::hint::black_box(3),
+    //     std::hint::black_box(6),
+    // );
+    // // println!("r: {r:?}");
+    // // let r = call_mulu128(5, 6);
+    // // println!("r: {r:?}");
+    // // let r = inline_call_mulu128(5, 6);
+    // // println!("r: {r:?}");
+    // build_mulu128();
+    // interleave_test();
     // simd_test();
+    build_smul();
+    let r = call_smul([1, 2, 3, 4], 5);
+    println!("r: {r:?}");
+}
+
+#[inline(never)]
+fn call_smul(a: [u64; 4], b: u64) -> [u64; 5] {
+    let mut out = [0; 5];
+    unsafe {
+        asm!(
+            "bl _smul",
+            in("x0") b, in("x1") a[0], in("x2") a[1], in("x3") a[2], in("x4") a[3],
+            lateout("x5") out[0], lateout("x1") out[1], lateout("x2") out[2], lateout("x3") out[3], lateout("x0") out[4]
+        )
+    };
+    out
 }
 
 // How do other allocating algorithms pass things along like Vec?
@@ -199,21 +252,21 @@ pub fn smult(
     a: [Reg<u64>; 4],
     b: Reg<u64>,
 ) -> [Reg<u64>; 5] {
-    let s0 = mul(alloc, asm, &a[0], &b);
-    let s1 = umulh(alloc, asm, &a[0], &b);
+    let t0 = mul(alloc, asm, &a[0], &b);
+    let t1 = umulh(alloc, asm, &a[0], &b);
     //
     let tmp = mul(alloc, asm, &a[1], &b);
-    let s2 = umulh(alloc, asm, &a[1], &b);
-    let [s1, s2] = carry_add(asm, [s1, s2], tmp);
+    let t2 = umulh(alloc, asm, &a[1], &b);
+    let [t1, t2] = carry_add(asm, [t1, t2], tmp);
     //
     let tmp = mul(alloc, asm, &a[2], &b);
-    let s3 = umulh(alloc, asm, &a[2], &b);
-    let [s2, s3] = carry_add(asm, [s2, s3], tmp);
+    let t3 = umulh(alloc, asm, &a[2], &b);
+    let [t2, t3] = carry_add(asm, [t2, t3], tmp);
     //
     let tmp = mul(alloc, asm, &a[3], &b);
-    let s4 = umulh(alloc, asm, &a[3], &b);
-    let [s3, s4] = carry_add(asm, [s3, s4], tmp);
-    [s0, s1, s2, s3, s4]
+    let t4 = umulh(alloc, asm, &a[3], &b);
+    let [t3, t4] = carry_add(asm, [t3, t4], tmp);
+    [t0, t1, t2, t3, t4]
 }
 
 #[inline(never)]
@@ -250,4 +303,18 @@ pub fn smult_noinit_simd(
     let cc1 = mov16b(alloc, asm, &splat_c1);
     let t0 = fmla2d(alloc, asm, cc1.into_(), &s, &v0.as_simd(), 0);
     t0
+}
+
+#[cfg(test)]
+mod tests {
+    use montgomery_reduction::arith;
+    use quickcheck_macros::quickcheck;
+
+    use crate::call_smul;
+
+    #[quickcheck]
+    fn smul(a0: u64, a1: u64, a2: u64, a3: u64, b: u64) -> bool {
+        let a = [a0, a1, a2, a3];
+        arith::smul(b, a) == call_smul(a, b)
+    }
 }

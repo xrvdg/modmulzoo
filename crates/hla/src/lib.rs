@@ -655,3 +655,16 @@ pub fn print_instructions<R: std::fmt::Display + Copy>(instrs: &[InstructionF<R>
         .iter()
         .for_each(|inst| println!("{}", inst.format_instruction()));
 }
+
+pub fn backend_global(label: String, instructions: Vec<InstructionF<HardwareRegister>>) -> String {
+    let mut asm_code = String::new();
+    asm_code.push_str(".text\n");
+    asm_code.push_str(&format!("_{}:\n", label));
+    for instruction in instructions {
+        asm_code.push_str("  ");
+        asm_code.push_str(&instruction.format_instruction());
+        asm_code.push_str("\n");
+    }
+    asm_code.push_str("ret\n");
+    asm_code
+}
