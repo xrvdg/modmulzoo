@@ -490,6 +490,13 @@ impl RegisterMapping {
         )
     }
 
+    pub fn allocated(&self) -> usize {
+        self.0
+            .iter()
+            .filter(|&reg_state| matches!(reg_state, RegisterState::Assigned(_)))
+            .count()
+    }
+
     // Get the physical register for a source register
     fn get_register(
         &self,
