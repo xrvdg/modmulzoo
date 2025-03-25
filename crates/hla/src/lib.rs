@@ -94,110 +94,103 @@ impl From<InstructionF<FreshRegister>> for LivenessCommand {
     }
 }
 
-// Define a macro for generating assembler instruction methods
-// Don't write directly to the assembler as we would like to use these to construct grouped instructions
+pub struct Assembler {}
+
+impl Assembler {
+    fn fresh<T>(&mut self) -> Reg<T> {
+        todo!()
+    }
+    fn append_instruction(&mut self, inst: AtomicInstruction) {
+        todo!()
+    }
+}
+
+use paste::paste;
 macro_rules! embed_asm {
-    // For opcodeructions with 3 register parameters
-    ($name:ident, 3) => {
-        pub fn $name(dst: &Reg<u64>, a: &Reg<u64>, b: &Reg<u64>) -> crate::AtomicInstruction {
-            vec![crate::Instruction {
-                opcode: stringify!($name).to_string(),
-                dest: dst.to_typed_register(),
-                src: vec![a.to_typed_register(), b.to_typed_register()],
-                modifiers: Mod::None,
-            }]
-        }
-    };
+    ($name:ident, $opcode:literal, ($($arg:ident : $arg_ty:ty),*) -> $ret_ty:ty) => {
+        paste! {
+            pub fn $name(asm: &mut Assembler, $($arg: &Reg<$arg_ty>),*) -> Reg<$ret_ty> {
+                let ret = asm.fresh();
+                asm.append_instruction(vec![ [<$name _inst>](&ret, $($arg),*) ]);
+                ret
+            }
 
-    ($name:ident, $opcode:literal, 3) => {
-        pub fn $name(
-            dst: &Reg<Simd<u64, 2>>,
-            src_a: &Reg<Simd<u64, 2>>,
-            src_b: &Reg<Simd<u64, 2>>,
-            i: u8,
-        ) -> crate::AtomicInstruction {
-            vec![crate::Instruction {
-                opcode: $opcode.to_string(),
-                dest: dst.to_typed_register(),
-                src: vec![src_a.to_typed_register(), src_b.to_typed_register()],
-                modifiers: Mod::Idx(i as u64),
-            }]
-        }
-    };
-
-    ($name:ident, $opcode:literal, 2) => {
-        pub fn $name(dst: &Reg<Simd<u64, 2>>, src: &Reg<Simd<u64, 2>>) -> crate::AtomicInstruction {
-            vec![crate::Instruction {
-                opcode: $opcode.to_string(),
-                dest: dst.to_typed_register(),
-                src: vec![src.to_typed_register()],
-                modifiers: Mod::None,
-            }]
-        }
-    };
-
-    ($name:ident, $opcode:literal, 2, m) => {
-        pub fn $name(dst: &Reg<Simd<u64, 2>>, src: &Reg<u64>) -> crate::AtomicInstruction {
-            vec![crate::Instruction {
-                opcode: $opcode.to_string(),
-                dest: dst.to_typed_register(),
-                src: vec![src.to_typed_register()],
-                modifiers: Mod::None,
-            }]
-        }
-    };
-
-    ($name:ident, 2, m) => {
-        pub fn $name<T: Reg64Bit + RegisterSource>(
-            dst: &Reg<f64>,
-            src: &Reg<T>,
-        ) -> crate::AtomicInstruction {
-            vec![crate::Instruction {
-                opcode: stringify!($name).to_string(),
-                dest: dst.to_typed_register(),
-                src: vec![src.to_typed_register()],
-                modifiers: Mod::None,
-            }]
-        }
-    };
-
-    ($name:ident, 1) => {
-        pub fn $name(dst: &Reg<u64>, val: u64) -> crate::AtomicInstruction {
-            vec![crate::Instruction {
-                opcode: stringify!($name).to_string(),
-                dest: dst.to_typed_register(),
-                src: vec![],
-                modifiers: Mod::Imm(val),
-            }]
-        }
-    };
-
-    // For opcodeructions with 1 register and 1 string parameter (cinc)
-    ($name:ident, cond) => {
-        pub fn $name(dst: &Reg<u64>, src: &Reg<u64>, condition: &str) -> crate::AtomicInstruction {
-            vec![crate::Instruction {
-                opcode: stringify!($name).to_string(),
-                dest: dst.to_typed_register(),
-                src: vec![src.to_typed_register()],
-                modifiers: Mod::Cond(condition.to_string()),
-            }]
+            pub fn [<$name _inst>](dest: &Reg<$ret_ty>, $($arg: &Reg<$arg_ty>),*) -> Instruction {
+                InstructionF {
+                    opcode: $opcode.to_string(),
+                    dest: dest.to_typed_register(),
+                    src: vec![$($arg.to_typed_register()),*],
+                    modifiers: Mod::None,
+                }
+            }
         }
     };
 }
 
-embed_asm!(mov, 1);
-embed_asm!(mul, 3);
-embed_asm!(umulh, 3);
-embed_asm!(adds, 3);
-embed_asm!(adcs, 3);
-embed_asm!(cinc, cond);
-// mov now doesn't support immediates. Not sure if mov16 actually ever can
-embed_asm!(mov16b, "mov.16b", 2);
-embed_asm!(ucvtf2d, "ucvtf.2d", 2);
-embed_asm!(dup2d, "dup.2d", 2, m);
-// Could use another but this works too
-embed_asm!(ucvtf, 2, m);
-embed_asm!(fmla2d, "fmla.2d", 3);
+// To quickly write these kind of macros just write the general structure
+// with embed_asm and then inline all the macros and modify accordingly
+
+pub fn mov(asm: &mut Assembler, imm: u64) -> Reg<u64> {
+    let ret = asm.fresh();
+    asm.append_instruction(vec![mov_inst(&ret, imm)]);
+    ret
+}
+
+pub fn mov_inst(dest: &Reg<u64>, imm: u64) -> Instruction {
+    InstructionF {
+        opcode: "mov".to_string(),
+        dest: dest.to_typed_register(),
+        src: vec![],
+        modifiers: Mod::Imm(imm),
+    }
+}
+
+pub fn cinc(asm: &mut Assembler, a: &Reg<u64>, cond: String) -> Reg<u64> {
+    let ret = asm.fresh();
+    asm.append_instruction(vec![cinc_inst(&ret, a, cond)]);
+    ret
+}
+
+pub fn cinc_inst(dest: &Reg<u64>, a: &Reg<u64>, cond: String) -> Instruction {
+    InstructionF {
+        opcode: "cinc".to_string(),
+        dest: dest.to_typed_register(),
+        src: vec![a.to_typed_register()],
+        modifiers: Mod::Cond(cond),
+    }
+}
+
+pub fn fmla2d(
+    asm: &mut Assembler,
+    add: Reg<Simd<u64, 2>>,
+    a: &Reg<Simd<u64, 2>>,
+    b: &Reg<Simd<u64, 2>>,
+) -> Reg<Simd<u64, 2>> {
+    asm.append_instruction(vec![fmla2d_inst(&add, a, b)]);
+    add
+}
+
+pub fn fmla2d_inst(
+    dest_add: &Reg<Simd<u64, 2>>,
+    a: &Reg<Simd<u64, 2>>,
+    b: &Reg<Simd<u64, 2>>,
+) -> Instruction {
+    InstructionF {
+        opcode: "fmla.2d".to_string(),
+        dest: dest_add.to_typed_register(),
+        src: vec![a.to_typed_register(), b.to_typed_register()],
+        modifiers: Mod::None,
+    }
+}
+
+embed_asm!(mul, "mul", (a: u64, b: u64) -> u64);
+embed_asm!(umulh, "umulh", (a: u64, b: u64) -> u64);
+embed_asm!(adds, "adds", (a: u64, b: u64) -> u64);
+// Doesn't support immediates
+embed_asm!(mov16b, "mov.16b", (a: Simd<u64,2>) -> Simd<u64,2>);
+embed_asm!(ucvtf2d, "uvctf.2d", (a: Simd<u64,2>) -> Simd<f64,2>);
+embed_asm!(dup2d, "dup.2d", (a: u64) -> Simd<u64,2>);
+embed_asm!(ucvtf, "uvctf", (a: u64) -> f64);
 
 pub struct Reg<T> {
     reg: FreshRegister,
@@ -363,7 +356,7 @@ impl RegisterSource for f64 {
     }
 }
 
-impl RegisterSource for Simd<u64, 2> {
+impl<T> RegisterSource for Simd<T, 2> {
     fn get_register_pool(pools: &mut RegisterBank) -> &mut RegisterPool {
         &mut pools.v
     }

@@ -1,7 +1,7 @@
 .global _main
 .align 2
 
-// Data section
+; Data section
 .data
 hello_str:
     .ascii "Hello, World!\n"
