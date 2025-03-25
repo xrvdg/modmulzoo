@@ -10,7 +10,7 @@ use hla::*;
 // Seeing this ahead might be nice
 // with a parameter and then use slice and generalize it
 // Not everything has to have perfect types
-pub fn carry_add(asm: &mut Assembler, s: [Reg<u64>; 2], add: Reg<u64>) -> [Reg<u64>; 2] {
+pub fn carry_add(asm: &mut Assembler, s: [Reg<u64>; 2], add: &Reg<u64>) -> [Reg<u64>; 2] {
     asm.append_instruction(vec![
         adds_inst(&s[0], &s[0], &add),
         cinc_inst(&s[1], &s[1], "hs".to_string()),
@@ -210,15 +210,16 @@ pub fn smult(
     a: [Reg<u64>; 4],
     b: Reg<u64>,
 ) -> [Reg<u64>; 5] {
-    let [t0, t01] = mul_u128(alloc, asm, &a[0], &b);
-    let [t10, t11] = mul_u128(alloc, asm, &a[1], &b);
-    let [t1, t11] = carry_add(asm, [t10, t11], t01);
-    let [t20, t21] = mul_u128(alloc, asm, &a[2], &b);
-    let [t2, t21] = carry_add(asm, [t20, t21], t11);
-    let [t30, t31] = mul_u128(alloc, asm, &a[3], &b);
-    let [t3, t4] = carry_add(asm, [t30, t31], t21);
+    // Allocates unnecessary fresh registers
+    let mut t: [Reg<u64>; 5] = array::from_fn(|_| alloc.fresh());
+    // Ouside of the loop because there is no carry add for the left most dword
+    [t[0], t[1]] = mul_u128(alloc, asm, &a[0], &b);
+    for i in 1..a.len() {
+        let lohi = mul_u128(alloc, asm, &a[i], &b);
+        [t[i], t[i + 1]] = carry_add(asm, lohi, &t[i]);
+    }
 
-    [t0, t1, t2, t3, t4]
+    t
 }
 
 pub fn mul_u128(
