@@ -443,10 +443,7 @@ impl RegisterBank {
     }
 }
 
-pub fn interleave(
-    lhs: Vec<AtomicInstruction>,
-    rhs: Vec<AtomicInstruction>,
-) -> Vec<InstructionF<FreshRegister>> {
+pub fn interleave(lhs: Vec<AtomicInstruction>, rhs: Vec<AtomicInstruction>) -> Vec<Instruction> {
     lhs.into_iter()
         .zip(rhs)
         .flat_map(|(a, b)| [a, b])
@@ -571,7 +568,6 @@ impl RegisterMapping {
     }
 }
 
-// TODO optimise
 // The invariant is that the hashset will only contain the sources and therefore always free to deallocate
 // because if not it means that it's either been used earlier so it would not show up in release.
 // The other way it shows up if the source
@@ -590,13 +586,16 @@ pub fn liveness_analysis(
             .map(|tr| *tr.as_fresh())
             .collect();
         // The difference could be mutable
-        let release: HashSet<_> = registers.difference(&seen_registers.0).cloned().collect();
+        let release: HashSet<_> = registers.difference(&seen_registers.0).copied().collect();
         if release.contains(instruction.dest.as_fresh()) {
             // Better way to give feedback? Now the user doesn't know where it comes from
             // We view an unused instruction as a problem
             panic!("{instruction:?} does not use the destination")
         }; // The union could be mutable
-        seen_registers.0 = seen_registers.0.union(&registers).cloned().collect();
+
+        release.iter().for_each(|reg| {
+            seen_registers.0.insert(*reg);
+        });
         commands.push_front(release);
     }
     commands

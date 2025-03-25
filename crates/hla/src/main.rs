@@ -181,7 +181,8 @@ fn main() {
     println!("r: {r:?}");
     build_mulu128();
     interleave_test();
-    simd_test();
+    // Currently no simd test due to non-complete operation
+    // simd_test();
 }
 
 // How do other allocating algorithms pass things along like Vec?
@@ -234,7 +235,7 @@ const C1: f64 = 0.;
 // Whole vector is in registers, but that might not be great. Better to have it on the stack and load it from there
 pub fn smult_noinit_simd(
     asm: &mut Allocator,
-    _t: &[Reg<Simd<u64, 2>>; 6],
+    t: &[Reg<Simd<u64, 2>>; 6],
     s: Reg<Simd<u64, 2>>,
     v: [Reg<u64>; 5],
 ) -> Vec<AtomicInstruction> {
