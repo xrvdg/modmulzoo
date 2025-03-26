@@ -1,7 +1,11 @@
 #![feature(iter_intersperse)]
-use std::array;
+use std::{alloc::alloc, array, mem};
 
 use hla::*;
+use montgomery_reduction::{
+    interleaved::U64_I2,
+    yuval::{U64_I1, U64_I3, U64_MU0, U64_P},
+};
 
 // adds can be confusng as it has a similar shape to s
 pub fn carry_add(asm: &mut Assembler, s: [Reg<u64>; 2], add: &Reg<u64>) -> [Reg<u64>; 2] {
@@ -10,6 +14,15 @@ pub fn carry_add(asm: &mut Assembler, s: [Reg<u64>; 2], add: &Reg<u64>) -> [Reg<
         cinc_inst(&s[1], &s[1], "hs".to_string()),
     ]);
     s
+}
+
+pub fn carry_cmn(asm: &mut Assembler, s: [Reg<u64>; 2], add: &Reg<u64>) -> Reg<u64> {
+    asm.append_instruction(vec![
+        cmn_inst(&s[0], add),
+        cinc_inst(&s[1], &s[1], "hs".to_string()),
+    ]);
+    let [_, out] = s;
+    out
 }
 
 fn interleave_test() {
@@ -128,6 +141,55 @@ fn build_schoolmethod() {
     let mut file =
         std::fs::File::create("./asm/global_asm_schoolmethod.s").expect("Unable to create file");
     let txt = backend_global("schoolmethod".to_string(), out);
+    let outputs: String = s
+        .iter()
+        .enumerate()
+        .map(|(i, r)| format!("lateout(\"{}\") out[{}]", mapping.output_register(r), i))
+        .intersperse(", ".to_string())
+        .collect();
+
+    println!("{}", outputs);
+
+    assert_eq!(mapping.allocated(), s.len());
+
+    use std::io::Write;
+    file.write_all(txt.as_bytes())
+        .expect("Unable to write data to file");
+}
+
+fn build_single_step() {
+    let mut alloc = Allocator::new();
+    let mut mapping = RegisterMapping::new();
+    let mut phys_registers = RegisterBank::new();
+
+    let mut asm = Assembler::new();
+    let a = array::from_fn(|i| input(&mut alloc, &mut mapping, &mut phys_registers, i as u64));
+    let b = array::from_fn(|i| {
+        input(
+            &mut alloc,
+            &mut mapping,
+            &mut phys_registers,
+            (a.len() + i) as u64,
+        )
+    });
+
+    let s = single_step(&mut alloc, &mut asm, a, b);
+
+    let first: Vec<_> = asm.instructions.into_iter().flatten().collect();
+
+    // Is there something we can do to tie off the outputs.
+    // and to make sure it happens before drop_pass
+    let mut seen = Seen::new();
+    s.iter().for_each(|r| {
+        seen.output_interface(r);
+    });
+
+    let releases = liveness_analysis(&mut seen, &first);
+
+    let out = hardware_register_allocation(&mut mapping, &mut phys_registers, first, releases);
+    let mut file =
+        std::fs::File::create("./asm/global_asm_single_step.s").expect("Unable to create file");
+    let txt = backend_global("single_step".to_string(), out);
     let outputs: String = s
         .iter()
         .enumerate()
@@ -297,9 +359,10 @@ fn main() {
     // build_mulu128();
     // interleave_test();
     // simd_test();
-    build_smul();
-    build_schoolmethod();
-    build_smul_add();
+    // build_smul();
+    // build_schoolmethod();
+    // build_smul_add();
+    build_single_step();
 }
 
 // How do other allocating algorithms pass things along like Vec?
@@ -346,6 +409,30 @@ pub fn smult_add(
     t
 }
 
+pub fn smult_add_truncate(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    mut t: [Reg<u64>; 5],
+    a: [Reg<u64>; 4],
+    b: Reg<u64>,
+) -> [Reg<u64>; 4] {
+    // Allocates unnecessary fresh registers
+
+    // first multiplication of a carry chain doesn't have a carry to add,
+    // but it does have a value already from a previous round
+    let tmp = mul_u128(alloc, asm, &a[0], &b);
+    let mut carry = carry_cmn(asm, tmp, &t[0]);
+    for i in 1..a.len() {
+        let tmp = mul_u128(alloc, asm, &a[i], &b);
+        let tmp = carry_add(asm, tmp, &carry);
+        [t[i], carry] = carry_add(asm, tmp, &t[i]);
+    }
+    t[a.len()] = add(alloc, asm, &t[a.len()], &carry);
+
+    let [_, out @ ..] = t;
+    out
+}
+
 pub fn school_method(
     alloc: &mut Allocator,
     asm: &mut Assembler,
@@ -380,6 +467,7 @@ pub fn school_method(
 
     t
 }
+
 pub fn load_const(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<u64> {
     let reg = alloc.fresh();
 
@@ -387,6 +475,34 @@ pub fn load_const(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<u
         asm.append_instruction(vec![movk_inst(&reg, (val >> (i * 16)) as u16, i * 16)])
     }
     reg
+}
+
+pub fn single_step(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: [Reg<u64>; 4],
+    b: [Reg<u64>; 4],
+) -> [Reg<u64>; 4] {
+    let t = school_method(alloc, asm, a, b);
+    // let [t0, t1, t2, s @ ..] = t;
+    let [t0, t1, t2, s @ ..] = t;
+
+    let i3 = U64_I3.map(|val| load_const(alloc, asm, val));
+    let r1 = smult_add(alloc, asm, s, i3, t0);
+
+    let i2 = U64_I2.map(|val| load_const(alloc, asm, val));
+    let r2 = smult_add(alloc, asm, r1, i2, t1);
+
+    let i1 = U64_I1.map(|val| load_const(alloc, asm, val));
+    let r3 = smult_add(alloc, asm, r2, i1, t2);
+
+    let mu0 = load_const(alloc, asm, U64_MU0);
+    let m = mul(alloc, asm, &mu0, &r3[0]);
+
+    let p = U64_P.map(|val| load_const(alloc, asm, val));
+    let r4 = smult_add_truncate(alloc, asm, r3, p, m);
+
+    r4
 }
 
 pub fn mul_u128(

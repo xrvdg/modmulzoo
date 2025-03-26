@@ -23,7 +23,7 @@ pub type Instruction = InstructionF<FreshRegister>;
 #[derive(Debug)]
 pub struct InstructionF<R> {
     opcode: String,
-    dest: TypedSizedRegister<R>,
+    dest: Option<TypedSizedRegister<R>>,
     src: Vec<TypedSizedRegister<R>>,
     modifiers: Mod,
 }
@@ -61,11 +61,8 @@ impl std::fmt::Display for Addressing {
 impl<R: std::fmt::Display + Copy> InstructionF<R> {
     // TODO this might be better as Display and/or using Formatter
     fn format_instruction(&self) -> String {
-        let mut phys_regs = vec![self.dest];
-        phys_regs.append(&mut self.src.clone());
-
-        let regs: String = phys_regs
-            .iter()
+        let regs: String = self
+            .extract_registers()
             .map(|x| x.to_string())
             .intersperse(", ".to_string())
             .collect();
@@ -81,12 +78,8 @@ impl<R: std::fmt::Display + Copy> InstructionF<R> {
         format!("{inst} {regs}{extra}")
     }
 
-    /// Returns all the registers mentioned in the instructions.
-    /// You can't assume the order in which they are returned.
-    fn extract_registers(&self) -> Vec<TypedSizedRegister<R>> {
-        let mut out = self.src.clone();
-        out.push(self.dest);
-        out
+    fn extract_registers(&self) -> impl Iterator<Item = TypedSizedRegister<R>> {
+        self.dest.into_iter().chain(self.src.clone())
     }
 }
 
@@ -124,7 +117,7 @@ macro_rules! embed_asm {
             pub fn [<$name _inst>](dest: &Reg<$ret_ty>, $($arg: &Reg<$arg_ty>),*) -> Instruction {
                 InstructionF {
                     opcode: $opcode.to_string(),
-                    dest: dest.to_typed_register(),
+                    dest: Some(dest.to_typed_register()),
                     src: vec![$($arg.to_typed_register()),*],
                     modifiers: Mod::None,
                 }
@@ -145,11 +138,25 @@ pub fn mov(alloc: &mut Allocator, asm: &mut Assembler, imm: u64) -> Reg<u64> {
 pub fn mov_inst(dest: &Reg<u64>, imm: u64) -> Instruction {
     InstructionF {
         opcode: "mov".to_string(),
-        dest: dest.to_typed_register(),
+        dest: Some(dest.to_typed_register()),
         src: vec![],
         modifiers: Mod::Imm(imm),
     }
 }
+
+pub fn cmn(asm: &mut Assembler, a: &Reg<u64>, b: &Reg<u64>) {
+    asm.append_instruction(vec![cmn_inst(a, b)]);
+}
+
+pub fn cmn_inst(a: &Reg<u64>, b: &Reg<u64>) -> Instruction {
+    InstructionF {
+        opcode: "cmn".to_string(),
+        dest: None,
+        src: vec![a.to_typed_register(), b.to_typed_register()],
+        modifiers: Mod::None,
+    }
+}
+
 pub fn movk(alloc: &mut Allocator, asm: &mut Assembler, imm: u16, shift: u8) -> Reg<u64> {
     let ret = alloc.fresh();
     asm.append_instruction(vec![movk_inst(&ret, imm, shift)]);
@@ -159,7 +166,7 @@ pub fn movk(alloc: &mut Allocator, asm: &mut Assembler, imm: u16, shift: u8) -> 
 pub fn movk_inst(dest: &Reg<u64>, imm: u16, shift: u8) -> Instruction {
     InstructionF {
         opcode: "movk".to_string(),
-        dest: dest.to_typed_register(),
+        dest: Some(dest.to_typed_register()),
         src: vec![],
         modifiers: Mod::ImmLSL(imm, shift),
     }
@@ -174,7 +181,7 @@ pub fn cinc(alloc: &mut Allocator, asm: &mut Assembler, a: &Reg<u64>, cond: Stri
 pub fn cinc_inst(dest: &Reg<u64>, a: &Reg<u64>, cond: String) -> Instruction {
     InstructionF {
         opcode: "cinc".to_string(),
-        dest: dest.to_typed_register(),
+        dest: Some(dest.to_typed_register()),
         src: vec![a.to_typed_register()],
         modifiers: Mod::Cond(cond),
     }
@@ -201,7 +208,7 @@ pub fn fmla2d_inst(
 ) -> Instruction {
     InstructionF {
         opcode: "fmla.2d".to_string(),
-        dest: dest_add.to_typed_register(),
+        dest: Some(dest_add.to_typed_register()),
         src: vec![a.to_typed_register(), b.to_typed_register()],
         modifiers: Mod::Idx(idx),
     }
@@ -618,11 +625,15 @@ pub fn liveness_analysis(
             .collect();
         // The difference could be mutable
         let release: HashSet<_> = registers.difference(&seen_registers.0).copied().collect();
-        if release.contains(instruction.dest.as_fresh()) {
-            // Better way to give feedback? Now the user doesn't know where it comes from
-            // We view an unused instruction as a problem
-            panic!("{instruction:?} does not use the destination")
-        }; // The union could be mutable
+
+        if let Some(dest) = instruction.dest {
+            if release.contains(dest.as_fresh()) {
+                // Better way to give feedback? Now the user doesn't know where it comes from
+                // We view an unused instruction as a problem
+                print_instructions(&instructions);
+                panic!("{instruction:?} does not use the destination")
+            }; // The union could be mutable
+        }
 
         release.iter().for_each(|reg| {
             seen_registers.0.insert(*reg);
@@ -662,7 +673,9 @@ pub fn hardware_register_allocation(
         release.into_iter().for_each(|fresh| {
             mapping.free_register(register_bank, fresh);
         });
-        let dest = mapping.get_or_allocate_register(register_bank, instruction.dest);
+        let dest = instruction
+            .dest
+            .map(|d| mapping.get_or_allocate_register(register_bank, d));
         InstructionF {
             opcode: instruction.opcode,
             dest,
