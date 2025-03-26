@@ -1,5 +1,6 @@
 /// All these method operate on b64
 
+#[inline]
 pub fn school_method(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
     let mut ab = [0_u64; 8];
     for i in 0..a.len() {

@@ -409,6 +409,9 @@ pub fn smult_add(
     t
 }
 
+// There is an add truncate to satisfy the assembler
+// using smult_add would result in an instruction that gives a
+// source that isn't used
 pub fn smult_add_truncate(
     alloc: &mut Allocator,
     asm: &mut Assembler,
