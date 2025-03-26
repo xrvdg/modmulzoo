@@ -1,18 +1,12 @@
-use std::{
-    arch::{asm, global_asm},
-    array,
-};
+#![feature(iter_intersperse)]
+use std::array;
 
 use hla::*;
 
-// In this case we know that carry_add only needs to propagate 2
-// but in other situations that is not the case.
-// Seeing this ahead might be nice
-// with a parameter and then use slice and generalize it
-// Not everything has to have perfect types
+// adds can be confusng as it has a similar shape to s
 pub fn carry_add(asm: &mut Assembler, s: [Reg<u64>; 2], add: &Reg<u64>) -> [Reg<u64>; 2] {
     asm.append_instruction(vec![
-        adds_inst(&s[0], &s[0], &add),
+        adds_inst(&s[0], &s[0], add),
         cinc_inst(&s[1], &s[1], "hs".to_string()),
     ]);
     s
@@ -93,6 +87,55 @@ fn build_smul() {
     s.iter().for_each(|r| {
         println!("{}", mapping.output_register(r));
     });
+
+    assert_eq!(mapping.allocated(), s.len());
+
+    use std::io::Write;
+    file.write_all(txt.as_bytes())
+        .expect("Unable to write data to file");
+}
+
+fn build_schoolmethod() {
+    let mut alloc = Allocator::new();
+    let mut mapping = RegisterMapping::new();
+    let mut phys_registers = RegisterBank::new();
+
+    let mut asm = Assembler::new();
+    let a = array::from_fn(|i| input(&mut alloc, &mut mapping, &mut phys_registers, i as u64));
+    let b = array::from_fn(|i| {
+        input(
+            &mut alloc,
+            &mut mapping,
+            &mut phys_registers,
+            (a.len() + i) as u64,
+        )
+    });
+
+    let s = school_method(&mut alloc, &mut asm, a, b);
+
+    let first: Vec<_> = asm.instructions.into_iter().flatten().collect();
+
+    // Is there something we can do to tie off the outputs.
+    // and to make sure it happens before drop_pass
+    let mut seen = Seen::new();
+    s.iter().for_each(|r| {
+        seen.output_interface(r);
+    });
+
+    let releases = liveness_analysis(&mut seen, &first);
+
+    let out = hardware_register_allocation(&mut mapping, &mut phys_registers, first, releases);
+    let mut file =
+        std::fs::File::create("./asm/global_asm_schoolmethod.s").expect("Unable to create file");
+    let txt = backend_global("schoolmethod".to_string(), out);
+    let outputs: String = s
+        .iter()
+        .enumerate()
+        .map(|(i, r)| format!("lateout(\"{}\") out[{}]", mapping.output_register(r), i))
+        .intersperse(", ".to_string())
+        .collect();
+
+    println!("{}", outputs);
 
     assert_eq!(mapping.allocated(), s.len());
 
@@ -200,6 +243,7 @@ fn main() {
     // interleave_test();
     // simd_test();
     build_smul();
+    build_schoolmethod();
 }
 
 // How do other allocating algorithms pass things along like Vec?
@@ -218,6 +262,67 @@ pub fn smult(
         let lohi = mul_u128(alloc, asm, &a[i], &b);
         [t[i], t[i + 1]] = carry_add(asm, lohi, &t[i]);
     }
+
+    t
+}
+
+pub fn school_method(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: [Reg<u64>; 4],
+    b: [Reg<u64>; 4],
+) -> [Reg<u64>; 8] {
+    let mut t: [Reg<u64>; 8] = array::from_fn(|_| alloc.fresh());
+    let mut carry;
+    [t[0], carry] = mul_u128(alloc, asm, &a[0], &b[0]);
+    let r1 = mul_u128(alloc, asm, &a[1], &b[0]);
+    [t[1], carry] = carry_add(asm, r1, &carry);
+    let r2 = mul_u128(alloc, asm, &a[2], &b[0]);
+    [t[2], carry] = carry_add(asm, r2, &carry);
+    let r3 = mul_u128(alloc, asm, &a[3], &b[0]);
+    [t[3], carry] = carry_add(asm, r3, &carry);
+    t[4] = carry;
+
+    let mut carry;
+    let r1 = mul_u128(alloc, asm, &a[0], &b[1]);
+    [t[1], carry] = carry_add(asm, r1, &t[1]);
+    let r2 = mul_u128(alloc, asm, &a[1], &b[1]);
+    let r2 = carry_add(asm, r2, &carry);
+    [t[2], carry] = carry_add(asm, r2, &t[2]);
+    let r3 = mul_u128(alloc, asm, &a[2], &b[1]);
+    let r3 = carry_add(asm, r3, &carry);
+    [t[3], carry] = carry_add(asm, r3, &t[3]);
+    let r4 = mul_u128(alloc, asm, &a[3], &b[1]);
+    let r4 = carry_add(asm, r4, &carry);
+    [t[4], carry] = carry_add(asm, r4, &t[4]);
+    t[5] = carry;
+
+    let mut carry;
+    let r2 = mul_u128(alloc, asm, &a[0], &b[2]);
+    [t[2], carry] = carry_add(asm, r2, &t[2]);
+    let r3 = mul_u128(alloc, asm, &a[1], &b[2]);
+    let r3 = carry_add(asm, r3, &carry);
+    [t[3], carry] = carry_add(asm, r3, &t[3]);
+    let r4 = mul_u128(alloc, asm, &a[2], &b[2]);
+    let r4 = carry_add(asm, r4, &carry);
+    [t[4], carry] = carry_add(asm, r4, &t[4]);
+    let r5 = mul_u128(alloc, asm, &a[3], &b[2]);
+    let r5 = carry_add(asm, r5, &carry);
+    [t[5], carry] = carry_add(asm, r5, &t[5]);
+    t[6] = carry;
+
+    let r3 = mul_u128(alloc, asm, &a[0], &b[3]);
+    [t[3], carry] = carry_add(asm, r3, &t[3]);
+    let r4 = mul_u128(alloc, asm, &a[1], &b[3]);
+    let r4 = carry_add(asm, r4, &carry);
+    [t[4], carry] = carry_add(asm, r4, &t[4]);
+    let r5 = mul_u128(alloc, asm, &a[2], &b[3]);
+    let r5 = carry_add(asm, r5, &carry);
+    [t[5], carry] = carry_add(asm, r5, &t[5]);
+    let r6 = mul_u128(alloc, asm, &a[3], &b[3]);
+    let r6 = carry_add(asm, r6, &carry);
+    [t[6], carry] = carry_add(asm, r6, &t[6]);
+    t[7] = carry;
 
     t
 }
