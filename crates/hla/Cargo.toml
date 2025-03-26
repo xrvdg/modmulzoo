@@ -10,3 +10,4 @@ montgomery_reduction = { path = "../experiments" }
 [dev-dependencies]
 quickcheck = "1.0.3"
 quickcheck_macros = "1.0.0"
+mod256-generator = { path = "../mod256-generator" }

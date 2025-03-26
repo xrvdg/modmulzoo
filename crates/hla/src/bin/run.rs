@@ -103,35 +103,34 @@ fn call_smul_add(t: [u64; 5], a: [u64; 4], b: u64) -> [u64; 5] {
 
 #[cfg(test)]
 mod tests {
+    use mod256_generator::U256b64;
     use montgomery_reduction::{arith, yuval};
     use quickcheck_macros::quickcheck;
 
     use crate::{call_schoolmethod, call_single_step, call_smul, call_smul_add};
 
     #[quickcheck]
-    fn smul(a0: u64, a1: u64, a2: u64, a3: u64, b: u64) -> bool {
-        let a = [a0, a1, a2, a3];
+    fn smul(a: U256b64, b: u64) -> bool {
+        let a = a.0;
         arith::smul(b, a) == call_smul(a, b)
     }
 
     #[quickcheck]
-    fn school_method(a0: u64, a1: u64, a2: u64, a3: u64) -> bool {
-        let a = [a0, a1, a2, a3];
-        let b = [a3, a1, a2, a0];
+    fn school_method(a: U256b64, b: U256b64) -> bool {
+        let a = a.0;
+        let b = b.0;
         arith::school_method(b, a) == call_schoolmethod(a, b)
     }
 
     #[quickcheck]
-    fn smul_add(a0: u64, a1: u64, a2: u64, a3: u64, b: u64) -> bool {
-        let a = [a0, a1, a2, a3];
-        let t = [b, a0, a2, a1, a3];
+    fn smul_add(a: U256b64, mut t: U256b64, tp: u64, b: u64) -> bool {
+        let a = a.0;
+        let t = [tp, t.0[0], t.0[1], t.0[2], t.0[3]];
         arith::addv(arith::smul(b, a), t) == call_smul_add(t, a, b)
     }
 
     #[quickcheck]
-    fn single_step(a0: u64, a1: u64, a2: u64, a3: u64) -> bool {
-        let a = [a0, a1, a2, a3];
-        let b = [a3, a1, a2, a0];
-        yuval::parallel(b, a) == call_single_step(a, b)
+    fn single_step(a: U256b64, b: U256b64) -> bool {
+        yuval::parallel(b.0, a.0) == call_single_step(a.0, b.0)
     }
 }
