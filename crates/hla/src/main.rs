@@ -380,6 +380,14 @@ pub fn school_method(
 
     t
 }
+pub fn load_const(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<u64> {
+    let reg = alloc.fresh();
+
+    for i in 0..4 {
+        asm.append_instruction(vec![movk_inst(&reg, (val >> (i * 16)) as u16, i * 16)])
+    }
+    reg
+}
 
 pub fn mul_u128(
     alloc: &mut Allocator,

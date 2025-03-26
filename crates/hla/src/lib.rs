@@ -33,6 +33,7 @@ pub struct InstructionF<R> {
 enum Mod {
     None,
     Imm(u64),
+    ImmLSL(u16, u8),
     Idx(u8),
     Cond(String),
 }
@@ -74,6 +75,7 @@ impl<R: std::fmt::Display + Copy> InstructionF<R> {
             Mod::Imm(imm) => format!(", #{imm}"),
             Mod::Cond(cond) => format!(", {cond}"),
             Mod::Idx(idx) => format!("[{idx}]"),
+            Mod::ImmLSL(imm, shift) => format!(", #{imm}, lsl {shift}"),
         };
         let inst = &self.opcode;
         format!("{inst} {regs}{extra}")
@@ -146,6 +148,20 @@ pub fn mov_inst(dest: &Reg<u64>, imm: u64) -> Instruction {
         dest: dest.to_typed_register(),
         src: vec![],
         modifiers: Mod::Imm(imm),
+    }
+}
+pub fn movk(alloc: &mut Allocator, asm: &mut Assembler, imm: u16, shift: u8) -> Reg<u64> {
+    let ret = alloc.fresh();
+    asm.append_instruction(vec![movk_inst(&ret, imm, shift)]);
+    ret
+}
+
+pub fn movk_inst(dest: &Reg<u64>, imm: u16, shift: u8) -> Instruction {
+    InstructionF {
+        opcode: "movk".to_string(),
+        dest: dest.to_typed_register(),
+        src: vec![],
+        modifiers: Mod::ImmLSL(imm, shift),
     }
 }
 
