@@ -274,55 +274,29 @@ pub fn school_method(
 ) -> [Reg<u64>; 8] {
     let mut t: [Reg<u64>; 8] = array::from_fn(|_| alloc.fresh());
     let mut carry;
+    // The first carry chain is separated out as t doesn't have any values to add
+    // first multiplication of a carry chain doesn't not have a carry to add
     [t[0], carry] = mul_u128(alloc, asm, &a[0], &b[0]);
-    let r1 = mul_u128(alloc, asm, &a[1], &b[0]);
-    [t[1], carry] = carry_add(asm, r1, &carry);
-    let r2 = mul_u128(alloc, asm, &a[2], &b[0]);
-    [t[2], carry] = carry_add(asm, r2, &carry);
-    let r3 = mul_u128(alloc, asm, &a[3], &b[0]);
-    [t[3], carry] = carry_add(asm, r3, &carry);
-    t[4] = carry;
+    for i in 1..a.len() {
+        let tmp = mul_u128(alloc, asm, &a[i], &b[0]);
+        [t[i], carry] = carry_add(asm, tmp, &carry);
+    }
+    t[a.len()] = carry;
 
-    let mut carry;
-    let r1 = mul_u128(alloc, asm, &a[0], &b[1]);
-    [t[1], carry] = carry_add(asm, r1, &t[1]);
-    let r2 = mul_u128(alloc, asm, &a[1], &b[1]);
-    let r2 = carry_add(asm, r2, &carry);
-    [t[2], carry] = carry_add(asm, r2, &t[2]);
-    let r3 = mul_u128(alloc, asm, &a[2], &b[1]);
-    let r3 = carry_add(asm, r3, &carry);
-    [t[3], carry] = carry_add(asm, r3, &t[3]);
-    let r4 = mul_u128(alloc, asm, &a[3], &b[1]);
-    let r4 = carry_add(asm, r4, &carry);
-    [t[4], carry] = carry_add(asm, r4, &t[4]);
-    t[5] = carry;
-
-    let mut carry;
-    let r2 = mul_u128(alloc, asm, &a[0], &b[2]);
-    [t[2], carry] = carry_add(asm, r2, &t[2]);
-    let r3 = mul_u128(alloc, asm, &a[1], &b[2]);
-    let r3 = carry_add(asm, r3, &carry);
-    [t[3], carry] = carry_add(asm, r3, &t[3]);
-    let r4 = mul_u128(alloc, asm, &a[2], &b[2]);
-    let r4 = carry_add(asm, r4, &carry);
-    [t[4], carry] = carry_add(asm, r4, &t[4]);
-    let r5 = mul_u128(alloc, asm, &a[3], &b[2]);
-    let r5 = carry_add(asm, r5, &carry);
-    [t[5], carry] = carry_add(asm, r5, &t[5]);
-    t[6] = carry;
-
-    let r3 = mul_u128(alloc, asm, &a[0], &b[3]);
-    [t[3], carry] = carry_add(asm, r3, &t[3]);
-    let r4 = mul_u128(alloc, asm, &a[1], &b[3]);
-    let r4 = carry_add(asm, r4, &carry);
-    [t[4], carry] = carry_add(asm, r4, &t[4]);
-    let r5 = mul_u128(alloc, asm, &a[2], &b[3]);
-    let r5 = carry_add(asm, r5, &carry);
-    [t[5], carry] = carry_add(asm, r5, &t[5]);
-    let r6 = mul_u128(alloc, asm, &a[3], &b[3]);
-    let r6 = carry_add(asm, r6, &carry);
-    [t[6], carry] = carry_add(asm, r6, &t[6]);
-    t[7] = carry;
+    // 2nd and later carry chain
+    for j in 1..b.len() {
+        let mut carry;
+        // first multiplication of a carry chain doesn't have a carry to add,
+        // but it does have a value already from a previous round
+        let tmp = mul_u128(alloc, asm, &a[0], &b[j]);
+        [t[j], carry] = carry_add(asm, tmp, &t[j]);
+        for i in 1..a.len() {
+            let tmp = mul_u128(alloc, asm, &a[i], &b[j]);
+            let tmp = carry_add(asm, tmp, &carry);
+            [t[i + j], carry] = carry_add(asm, tmp, &t[i + j]);
+        }
+        t[j + a.len()] = carry;
+    }
 
     t
 }
