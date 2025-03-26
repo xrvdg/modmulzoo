@@ -55,6 +55,30 @@ pub fn adds(t: &mut [u64], mut carry: u64) {
     }
 }
 
+/// Adds two u64 arrays together, treating them as multi-precision integers
+///
+/// # Arguments
+///
+/// * `a` - First multi-precision integer
+/// * `b` - Second multi-precision integer
+///
+/// # Returns
+///
+/// The sum of the two multi-precision integers with carry propagation
+pub fn addv<const N: usize>(mut a: [u64; N], b: [u64; N]) -> [u64; N] {
+    let mut carry = 0u64;
+
+    for i in 0..N {
+        let (sum1, overflow1) = a[i].overflowing_add(b[i]);
+        let (sum2, overflow2) = sum1.overflowing_add(carry);
+
+        a[i] = sum2;
+        carry = (overflow1 as u64) + (overflow2 as u64);
+    }
+
+    a
+}
+
 #[inline]
 pub fn subtraction_step<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
     let mut borrow: i64 = 0;

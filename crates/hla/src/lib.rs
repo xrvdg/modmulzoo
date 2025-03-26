@@ -194,6 +194,7 @@ pub fn fmla2d_inst(
 embed_asm!(mul, "mul", (a: u64, b: u64) -> u64);
 embed_asm!(umulh, "umulh", (a: u64, b: u64) -> u64);
 embed_asm!(adds, "adds", (a: u64, b: u64) -> u64);
+embed_asm!(add, "add", (a: u64, b: u64) -> u64);
 // Doesn't support immediates
 embed_asm!(mov16b, "mov.16b", (a: Simd<u64,2>) -> Simd<u64,2>);
 embed_asm!(ucvtf2d, "uvctf.2d", (a: Simd<u64,2>) -> Simd<f64,2>);

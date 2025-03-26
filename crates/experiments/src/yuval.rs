@@ -156,30 +156,6 @@ pub fn mul_logjumps_unr_2(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     [r2 as u64, (r2 >> 64) as u64, r3 as u64, (r3 >> 64) as u64]
 }
 
-/// Adds two u64 arrays together, treating them as multi-precision integers
-///
-/// # Arguments
-///
-/// * `a` - First multi-precision integer
-/// * `b` - Second multi-precision integer
-///
-/// # Returns
-///
-/// The sum of the two multi-precision integers with carry propagation
-fn addv<const N: usize>(mut a: [u64; N], b: [u64; N]) -> [u64; N] {
-    let mut carry = 0u64;
-
-    for i in 0..N {
-        let (sum1, overflow1) = a[i].overflowing_add(b[i]);
-        let (sum2, overflow2) = sum1.overflowing_add(carry);
-
-        a[i] = sum2;
-        carry = (overflow1 as u64) + (overflow2 as u64);
-    }
-
-    a
-}
-
 pub fn parallel(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     let t = school_method(a, b);
 
@@ -187,10 +163,10 @@ pub fn parallel(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     let r2 = arith::smul(t[1], U64_I2);
     let r3 = arith::smul(t[2], U64_I1);
 
-    let s = addv(addv(subarray!(t, 3, 5), r1), addv(r2, r3));
+    let s = arith::addv(arith::addv(subarray!(t, 3, 5), r1), arith::addv(r2, r3));
     let m = U64_MU0.wrapping_mul(s[0]);
     let mp = arith::smul(m, U64_P);
-    subarray!(addv(s, mp), 1, 4)
+    subarray!(arith::addv(s, mp), 1, 4)
 }
 
 #[cfg(test)]

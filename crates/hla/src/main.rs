@@ -144,6 +144,61 @@ fn build_schoolmethod() {
         .expect("Unable to write data to file");
 }
 
+fn build_smul_add() {
+    let mut alloc = Allocator::new();
+    let mut mapping = RegisterMapping::new();
+    let mut phys_registers = RegisterBank::new();
+
+    let mut asm = Assembler::new();
+    let add = array::from_fn(|i| input(&mut alloc, &mut mapping, &mut phys_registers, i as u64));
+    let a = array::from_fn(|i| {
+        input(
+            &mut alloc,
+            &mut mapping,
+            &mut phys_registers,
+            (add.len() + i) as u64,
+        )
+    });
+    let b = input(
+        &mut alloc,
+        &mut mapping,
+        &mut phys_registers,
+        (add.len() + a.len()) as u64,
+    );
+
+    let s = smult_add(&mut alloc, &mut asm, add, a, b);
+
+    let first: Vec<_> = asm.instructions.into_iter().flatten().collect();
+
+    // Is there something we can do to tie off the outputs.
+    // and to make sure it happens before drop_pass
+    let mut seen = Seen::new();
+    s.iter().for_each(|r| {
+        seen.output_interface(r);
+    });
+
+    let releases = liveness_analysis(&mut seen, &first);
+
+    let out = hardware_register_allocation(&mut mapping, &mut phys_registers, first, releases);
+    let mut file =
+        std::fs::File::create("./asm/global_asm_smul_add.s").expect("Unable to create file");
+    let txt = backend_global("smul_add".to_string(), out);
+    let outputs: String = s
+        .iter()
+        .enumerate()
+        .map(|(i, r)| format!("lateout(\"{}\") out[{}]", mapping.output_register(r), i))
+        .intersperse(", ".to_string())
+        .collect();
+
+    println!("{}", outputs);
+
+    assert_eq!(mapping.allocated(), s.len());
+
+    use std::io::Write;
+    file.write_all(txt.as_bytes())
+        .expect("Unable to write data to file");
+}
+
 fn simd_test() {
     let mut alloc = Allocator::new();
     let mut asm = Assembler::new();
@@ -244,6 +299,7 @@ fn main() {
     // simd_test();
     build_smul();
     build_schoolmethod();
+    build_smul_add();
 }
 
 // How do other allocating algorithms pass things along like Vec?
@@ -262,6 +318,30 @@ pub fn smult(
         let lohi = mul_u128(alloc, asm, &a[i], &b);
         [t[i], t[i + 1]] = carry_add(asm, lohi, &t[i]);
     }
+
+    t
+}
+
+pub fn smult_add(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    mut t: [Reg<u64>; 5],
+    a: [Reg<u64>; 4],
+    b: Reg<u64>,
+) -> [Reg<u64>; 5] {
+    // Allocates unnecessary fresh registers
+
+    let mut carry;
+    // first multiplication of a carry chain doesn't have a carry to add,
+    // but it does have a value already from a previous round
+    let tmp = mul_u128(alloc, asm, &a[0], &b);
+    [t[0], carry] = carry_add(asm, tmp, &t[0]);
+    for i in 1..a.len() {
+        let tmp = mul_u128(alloc, asm, &a[i], &b);
+        let tmp = carry_add(asm, tmp, &carry);
+        [t[i], carry] = carry_add(asm, tmp, &t[i]);
+    }
+    t[a.len()] = add(alloc, asm, &t[a.len()], &carry);
 
     t
 }

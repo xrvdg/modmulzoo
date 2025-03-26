@@ -4,6 +4,7 @@ global_asm!(include_str!("../../asm/mulu128.s"));
 
 global_asm!(include_str!("../../asm/global_asm_smul.s"));
 global_asm!(include_str!("../../asm/global_asm_schoolmethod.s"));
+global_asm!(include_str!("../../asm/global_asm_smul_add.s"));
 
 fn main() {
     let r = call_mulu128(5, 6);
@@ -68,22 +69,46 @@ fn call_schoolmethod(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
     out
 }
 
+#[inline(never)]
+fn call_smul_add(t: [u64; 5], a: [u64; 4], b: u64) -> [u64; 5] {
+    let mut out = [0; 5];
+    unsafe {
+        asm!(
+            "bl _smul_add",
+            in("x0") t[0], in("x1") t[1], in("x2") t[2], in("x3") t[3], in("x4") t[4],
+            in("x5") a[0], in("x6") a[1], in("x7") a[2], in("x8") a[3],
+            in("x9") b,
+            lateout("x10") out[0], lateout("x0") out[1], lateout("x1") out[2], lateout("x2") out[3], lateout("x3") out[4]
+
+        )
+    };
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use montgomery_reduction::arith;
     use quickcheck_macros::quickcheck;
 
-    use crate::{call_schoolmethod, call_smul};
+    use crate::{call_schoolmethod, call_smul, call_smul_add};
 
     #[quickcheck]
     fn smul(a0: u64, a1: u64, a2: u64, a3: u64, b: u64) -> bool {
         let a = [a0, a1, a2, a3];
         arith::smul(b, a) == call_smul(a, b)
     }
+
     #[quickcheck]
-    fn school_method(a0: u64, a1: u64, a2: u64, a3: u64, b: u64) -> bool {
+    fn school_method(a0: u64, a1: u64, a2: u64, a3: u64) -> bool {
         let a = [a0, a1, a2, a3];
         let b = [a3, a1, a2, a0];
         arith::school_method(b, a) == call_schoolmethod(a, b)
+    }
+
+    #[quickcheck]
+    fn smul_add(a0: u64, a1: u64, a2: u64, a3: u64, b: u64) -> bool {
+        let a = [a0, a1, a2, a3];
+        let t = [b, a0, a2, a1, a3];
+        arith::addv(arith::smul(b, a), t) == call_smul_add(t, a, b)
     }
 }
