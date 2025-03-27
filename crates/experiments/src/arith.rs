@@ -81,13 +81,15 @@ pub fn addv<const N: usize>(mut a: [u64; N], b: [u64; N]) -> [u64; N] {
 }
 
 #[inline]
+/// returns a if a < b else return a - b
+/// single step of modulo operation
 pub fn subtraction_step<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
-    let mut borrow: i64 = 0;
+    let mut borrow: i128 = 0;
     let mut c = [0; N];
     for i in 0..N {
         let tmp = a[i] as i128 - b[i] as i128 + borrow as i128;
         c[i] = tmp as u64;
-        borrow = (tmp >> 64) as i64
+        borrow = tmp >> 64
     }
 
     if borrow != 0 {
