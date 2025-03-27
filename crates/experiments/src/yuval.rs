@@ -1,4 +1,4 @@
-use crate::arith::{self, school_method, subtraction_step};
+use crate::arith::{self, modulus_subtraction_step, school_method};
 use block_multiplier::subarray;
 
 pub const U64_P: [u64; 4] = [
@@ -6,6 +6,13 @@ pub const U64_P: [u64; 4] = [
     0x2833e84879b97091,
     0xb85045b68181585d,
     0x30644e72e131a029,
+];
+
+pub const U64_2P: [u64; 4] = [
+    0x87c3eb27e0000002,
+    0x5067d090f372e122,
+    0x70a08b6d0302b0ba,
+    0x60c89ce5c2634053,
 ];
 
 pub const U64_I1: [u64; 4] = [
@@ -172,7 +179,7 @@ pub fn parallel(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
 /// Bring reduce the input such that it is smaller than 256 - 2p
 #[inline]
 fn reduce(a: [u64; 4]) -> [u64; 4] {
-    let red = subtraction_step(subtraction_step(a, U64_P), U64_P);
+    let red = arith::sub(a, U64_2P);
     let msb = (a[3] >> 63) & 1; // Check the most significant bit of the most significant limb
     if msb == 1 {
         red
