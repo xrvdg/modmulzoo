@@ -241,4 +241,29 @@ _single_step:
   adds x1, x1, x3
   cinc x2, x2, hs
   add x0, x0, x2
+  movk x2, #2, lsl 0
+  movk x2, #57344, lsl 16
+  movk x2, #60199, lsl 32
+  movk x2, #34755, lsl 48
+  movk x3, #57634, lsl 0
+  movk x3, #62322, lsl 16
+  movk x3, #53392, lsl 32
+  movk x3, #20583, lsl 48
+  movk x5, #45242, lsl 0
+  movk x5, #770, lsl 16
+  movk x5, #35693, lsl 32
+  movk x5, #28832, lsl 48
+  movk x6, #16467, lsl 0
+  movk x6, #49763, lsl 16
+  movk x6, #40165, lsl 32
+  movk x6, #24776, lsl 48
+  subs x2, x8, x2
+  sbcs x3, x4, x3
+  sbcs x5, x1, x5
+  sbcs x6, x0, x6
+  tst x0, #9223372036854775808
+  csel x2, x2, x8, mi
+  csel x3, x3, x4, mi
+  csel x1, x5, x1, mi
+  csel x0, x6, x0, mi
 ret

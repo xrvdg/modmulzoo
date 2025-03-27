@@ -156,8 +156,24 @@ pub fn mov_inst(dest: &Reg<u64>, imm: u64) -> Instruction {
     }
 }
 
-pub fn cmn(asm: &mut Assembler, a: &Reg<u64>, b: &Reg<u64>) {
-    asm.append_instruction(vec![cmn_inst(a, b)]);
+// operations that use or set a flag should never be used as an atomic.
+// interleaving can potentially result in invalid code. Therefore these are only available as inst
+pub fn tst_inst(a: &Reg<u64>, imm: u64) -> Instruction {
+    InstructionF {
+        opcode: "tst".to_string(),
+        dest: None,
+        src: vec![a.to_typed_register()],
+        modifiers: Mod::Imm(imm),
+    }
+}
+
+pub fn csel_inst(dest: &Reg<u64>, a: &Reg<u64>, b: &Reg<u64>, cond: String) -> Instruction {
+    InstructionF {
+        opcode: "csel".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![a.to_typed_register(), b.to_typed_register()],
+        modifiers: Mod::Cond(cond),
+    }
 }
 
 pub fn cmn_inst(a: &Reg<u64>, b: &Reg<u64>) -> Instruction {
@@ -168,6 +184,17 @@ pub fn cmn_inst(a: &Reg<u64>, b: &Reg<u64>) -> Instruction {
         modifiers: Mod::None,
     }
 }
+
+pub fn cinc_inst(dest: &Reg<u64>, a: &Reg<u64>, cond: String) -> Instruction {
+    InstructionF {
+        opcode: "cinc".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![a.to_typed_register()],
+        modifiers: Mod::Cond(cond),
+    }
+}
+
+// END flag operations
 
 pub fn movk(alloc: &mut Allocator, asm: &mut Assembler, imm: u16, shift: u8) -> Reg<u64> {
     let ret = alloc.fresh();
@@ -181,21 +208,6 @@ pub fn movk_inst(dest: &Reg<u64>, imm: u16, shift: u8) -> Instruction {
         dest: Some(dest.to_typed_register()),
         src: vec![],
         modifiers: Mod::ImmLSL(imm, shift),
-    }
-}
-
-pub fn cinc(alloc: &mut Allocator, asm: &mut Assembler, a: &Reg<u64>, cond: String) -> Reg<u64> {
-    let ret = alloc.fresh();
-    asm.append_instruction(vec![cinc_inst(&ret, a, cond)]);
-    ret
-}
-
-pub fn cinc_inst(dest: &Reg<u64>, a: &Reg<u64>, cond: String) -> Instruction {
-    InstructionF {
-        opcode: "cinc".to_string(),
-        dest: Some(dest.to_typed_register()),
-        src: vec![a.to_typed_register()],
-        modifiers: Mod::Cond(cond),
     }
 }
 
@@ -228,10 +240,13 @@ pub fn fmla2d_inst(
 
 embed_asm!(mul, "mul", (a: u64, b: u64) -> u64);
 embed_asm!(umulh, "umulh", (a: u64, b: u64) -> u64);
-embed_asm!(adds, "adds", (a: u64, b: u64) -> u64);
+
 embed_asm!(add, "add", (a: u64, b: u64) -> u64);
+// TODO: These operations set flags and should only make their inst available
+embed_asm!(adds, "adds", (a: u64, b: u64) -> u64);
 embed_asm!(subs, "subs", (a: u64, b: u64) -> u64);
 embed_asm!(sbcs, "sbcs", (a: u64, b: u64) -> u64);
+
 // Doesn't support immediates
 embed_asm!(mov16b, "mov.16b", (a: Simd<u64,2>) -> Simd<u64,2>);
 embed_asm!(ucvtf2d, "uvctf.2d", (a: Simd<u64,2>) -> Simd<f64,2>);

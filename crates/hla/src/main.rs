@@ -494,15 +494,19 @@ pub fn subv(
     out
 }
 
-pub fn cselv<T>(a: [Reg<T>; 4], b: [Reg<T>; 4]) -> [Reg<T>; 4] {
-    todo!()
-}
-
 // Reduce within 256-2p
 pub fn reduce(alloc: &mut Allocator, asm: &mut Assembler, a: [Reg<u64>; 4]) -> [Reg<u64>; 4] {
     let p2 = U64_2P.map(|val| load_const(alloc, asm, val));
     let red = subv(alloc, asm, &a, &p2);
-    cselv(a, red)
+    let out = array::from_fn(|_| alloc.fresh());
+    asm.append_instruction(vec![
+        tst_inst(&a[3], 1 << 63),
+        csel_inst(&out[0], &red[0], &a[0], "mi".to_string()),
+        csel_inst(&out[1], &red[1], &a[1], "mi".to_string()),
+        csel_inst(&out[2], &red[2], &a[2], "mi".to_string()),
+        csel_inst(&out[3], &red[3], &a[3], "mi".to_string()),
+    ]);
+    out
 }
 
 pub fn single_step(
@@ -530,7 +534,7 @@ pub fn single_step(
     let p = U64_P.map(|val| load_const(alloc, asm, val));
     let r4 = smult_add_truncate(alloc, asm, r3, p, m);
 
-    r4
+    reduce(alloc, asm, r4)
 }
 
 pub fn mul_u128(
