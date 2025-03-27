@@ -1,11 +1,8 @@
 #![feature(iter_intersperse)]
-use std::{alloc::alloc, array, mem};
+use std::array;
 
 use hla::*;
-use montgomery_reduction::{
-    interleaved::U64_I2,
-    yuval::{U64_I1, U64_I3, U64_MU0, U64_P},
-};
+use montgomery_reduction::yuval::{U64_2P, U64_I1, U64_I2, U64_I3, U64_MU0, U64_P};
 
 // adds can be confusng as it has a similar shape to s
 pub fn carry_add(asm: &mut Assembler, s: [Reg<u64>; 2], add: &Reg<u64>) -> [Reg<u64>; 2] {
@@ -478,6 +475,34 @@ pub fn load_const(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<u
         asm.append_instruction(vec![movk_inst(&reg, (val >> (i * 16)) as u16, i * 16)])
     }
     reg
+}
+
+pub fn subv(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: &[Reg<u64>; 4],
+    b: &[Reg<u64>; 4],
+) -> [Reg<u64>; 4] {
+    let out = array::from_fn(|_| alloc.fresh());
+    // Due to carry chain this needs to be an atomic block.
+    asm.append_instruction(vec![
+        subs_inst(&out[0], &a[0], &b[0]),
+        sbcs_inst(&out[1], &a[1], &b[1]),
+        sbcs_inst(&out[2], &a[2], &b[2]),
+        sbcs_inst(&out[3], &a[3], &b[3]),
+    ]);
+    out
+}
+
+pub fn cselv<T>(a: [Reg<T>; 4], b: [Reg<T>; 4]) -> [Reg<T>; 4] {
+    todo!()
+}
+
+// Reduce within 256-2p
+pub fn reduce(alloc: &mut Allocator, asm: &mut Assembler, a: [Reg<u64>; 4]) -> [Reg<u64>; 4] {
+    let p2 = U64_2P.map(|val| load_const(alloc, asm, val));
+    let red = subv(alloc, asm, &a, &p2);
+    cselv(a, red)
 }
 
 pub fn single_step(

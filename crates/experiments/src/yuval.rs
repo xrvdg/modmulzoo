@@ -179,6 +179,7 @@ pub fn parallel(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
 /// Bring reduce the input such that it is smaller than 256 - 2p
 #[inline]
 fn reduce(a: [u64; 4]) -> [u64; 4] {
+    // This subtraction gets pushed into the if-statement
     let red = arith::sub(a, U64_2P);
     let msb = (a[3] >> 63) & 1; // Check the most significant bit of the most significant limb
     if msb == 1 {
