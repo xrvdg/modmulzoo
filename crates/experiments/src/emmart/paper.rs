@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use block_multiplier::constants::MASK52;
+use block_multiplier::{constants::MASK52, rtz::RTZ};
 
 /// Functions that are in the paper or related to it, but currently not directly used.
 use super::{make_initial, C1, C2, C3};
@@ -24,7 +24,7 @@ fn dpf_full_product(a: f64, b: f64) -> (f64, f64) {
 }
 
 // Working variant
-fn dpf_full_product_u64(a: f64, b: f64) -> (u64, u64) {
+fn dpf_full_product_u64(_rtz: &RTZ, a: f64, b: f64) -> (u64, u64) {
     let p_hi = a.mul_add(b, C1);
     let p_lo = a.mul_add(b, C2 - p_hi);
 
@@ -39,7 +39,7 @@ fn dpf_full_product_u64(a: f64, b: f64) -> (u64, u64) {
 
 // Masking is likely to be more expensive and can not be combined with the
 // subtraction optimization.
-fn int_full_product(a: f64, b: f64) -> (u64, u64) {
+fn int_full_product(_rtz: &RTZ, a: f64, b: f64) -> (u64, u64) {
     let p_hi = a.mul_add(b, C1);
     let p_lo = a.mul_add(b, C2 - p_hi);
 
@@ -47,8 +47,8 @@ fn int_full_product(a: f64, b: f64) -> (u64, u64) {
 }
 
 #[inline(always)]
-pub fn carrying_mul_add_fu104(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
-    let (mut lo, mut hi) = dpf_full_product_u64(a as f64, b as f64);
+pub fn carrying_mul_add_fu104(rtz: &RTZ, a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
+    let (mut lo, mut hi) = dpf_full_product_u64(rtz, a as f64, b as f64);
     lo += add + carry;
     hi += lo >> 52;
     (lo & MASK52, hi)
@@ -84,7 +84,7 @@ pub fn sampled_product(a: [f64; 5], b: [f64; 5]) -> [u64; 10] {
 }
 
 /// Masking variant of sampled_product_masked
-pub fn sampled_product_masked(a: [f64; 5], b: [f64; 5]) -> [u64; 10] {
+pub fn sampled_product_masked(_rtz: &RTZ, a: [f64; 5], b: [f64; 5]) -> [u64; 10] {
     const N: usize = 5;
     let mut col_sums: [u64; 2 * N] = [0; 2 * N];
 
@@ -166,31 +166,31 @@ mod tests {
     #[quickcheck]
     /// Compare widening mul to int_full_product
     fn multiplication_mask(a: u64, b: u64) -> bool {
-        set_round_to_zero();
+        let rtz = RTZ::set().unwrap();
         let a = a & MASK52;
         let b = b & MASK52;
-        let (lo, hi) = int_full_product(a as f64, b as f64);
+        let (lo, hi) = int_full_product(&rtz, a as f64, b as f64);
         (lo | hi << 52, hi >> 12) == a.widening_mul(b)
     }
 
     #[quickcheck]
     /// Compare widening mul to dpf_full_product_u64
     fn multiplication_dpf(a: u64, b: u64) -> bool {
-        set_round_to_zero();
+        let rtz = RTZ::set().unwrap();
         let a = a & MASK52;
         let b = b & MASK52;
-        let (lo, hi) = dpf_full_product_u64(a as f64, b as f64);
+        let (lo, hi) = dpf_full_product_u64(&rtz, a as f64, b as f64);
         let (lo, hi) = (lo as u64, hi as u64);
         (lo | hi << 52, hi >> 12) == a.widening_mul(b)
     }
 
     #[quickcheck]
     fn long_multiplication(a: U256b64, b: U256b64) -> bool {
-        set_round_to_zero();
+        let rtz = RTZ::set().unwrap();
         let res = school_method(a.0, b.0);
         let U256b52(a52) = a.into();
         let U256b52(b52) = b.into();
-        let fres = sampled_product_masked(a52.map(|ai| ai as f64), b52.map(|bi| bi as f64));
+        let fres = sampled_product_masked(&rtz, a52.map(|ai| ai as f64), b52.map(|bi| bi as f64));
 
         let cres = convert_limb_sizes(&res, 256, 64, 52);
         cres == fres
@@ -198,8 +198,8 @@ mod tests {
 
     #[quickcheck]
     fn long_multiplication_sampled(a: U256b52, b: U256b52) -> bool {
-        set_round_to_zero();
+        let rtz = RTZ::set().unwrap();
         sampled_product(a.0.map(|x| x as f64), b.0.map(|x| x as f64))
-            == sampled_product_masked(a.0.map(|x| x as f64), b.0.map(|x| x as f64))
+            == sampled_product_masked(&rtz, a.0.map(|x| x as f64), b.0.map(|x| x as f64))
     }
 }

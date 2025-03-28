@@ -1,4 +1,4 @@
-use block_multiplier::constants::P;
+use block_multiplier::{constants::P, rtz::RTZ};
 /// Explore the differences between the single step unsigned and floating point algorithm
 /// and how many excessive Ps they contain.
 use montgomery_reduction::{arith, domb, yuval};
@@ -40,13 +40,15 @@ fn main() {
 
     println!("Generating and testing {} random cases...", num_test_cases);
 
+    let rtz = RTZ::set().unwrap();
+
     // Generate and test random inputs
     for _ in 0..num_test_cases {
         let input = generate_random_input();
         let input2 = generate_random_input();
 
         // Calculate results using both methods
-        let result_domb = domb::parallel_sub_r256(input, input2);
+        let result_domb = domb::parallel_sub_r256(&rtz, input, input2);
         let result_yuval = yuval::parallel(input, input2);
 
         // Calculate modular values
