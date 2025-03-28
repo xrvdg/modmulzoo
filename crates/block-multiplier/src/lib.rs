@@ -1,12 +1,14 @@
 #![feature(portable_simd)]
 
+pub mod constants;
+pub mod rtz;
+
 use crate::constants::*;
+use rtz::RTZ;
 use seq_macro::seq;
 use std::arch::aarch64::vcvtq_f64_u64;
 use std::ops::BitAnd;
 use std::simd::{Simd, StdFloat, num::SimdFloat};
-
-pub mod constants;
 
 /// Macro to extract a subarray from an array.
 ///
@@ -44,7 +46,9 @@ macro_rules! subarray {
     };
 }
 
+#[inline]
 pub fn block_multiplier(
+    _rtz: &RTZ, // Proof that the mode has been set to RTZ
     s0_a: [u64; 4],
     s0_b: [u64; 4],
     v0_a: [u64; 4],
@@ -53,7 +57,6 @@ pub fn block_multiplier(
     v1_b: [u64; 4],
 ) -> ([u64; 4], [u64; 4], [u64; 4]) {
     // -- [VECTOR] ---------------------------------------------------------------------------------
-    let fpcr = set_round_to_zero();
     let v0_a = u256_to_u260_shl2_simd(transpose_u256_to_simd([v0_a, v1_a]));
     let v0_b = u256_to_u260_shl2_simd(transpose_u256_to_simd([v0_b, v1_b]));
 
@@ -220,7 +223,7 @@ pub fn block_multiplier(
     let resolve = resolve_simd_add_truncate(s, mp);
     let u256_result = u260_to_u256_simd(resolve);
     let v = transpose_simd_to_u256(u256_result);
-    set_fpcr(fpcr);
+
     // ---------------------------------------------------------------------------------------------
     // -- [SCALAR] ---------------------------------------------------------------------------------
     let mut s0_t = [0_u64; 8];
@@ -384,51 +387,6 @@ pub fn resolve_simd_add_truncate(s: [Simd<u64, 2>; 6], mp: [Simd<u64, 2>; 6]) ->
     out
 }
 
-#[cfg(target_arch = "aarch64")]
-#[inline(never)]
-/// Set the floating point control register (FPCR) to a specified value
-///
-/// This function allows direct control of the ARM64 FPCR register, which controls
-/// floating point behavior including rounding modes, exception handling, and other
-/// floating point settings.
-///
-/// inline(never) to prevent the compiler from reordering this operation
-pub fn set_fpcr(fpcr: u64) {
-    // Defense-in-depth but can't be relied on
-    // From the documentation:
-    // Programs cannot rely on black_box for correctness, beyond it behaving as the identity function. As such, it must not be relied upon to control critical program behavior.
-    std::hint::black_box(fpcr);
-    unsafe {
-        core::arch::asm!(
-        "msr fpcr, {fpcr}",
-        fpcr = in(reg) fpcr
-        )
-    }
-}
-
-#[cfg(target_arch = "aarch64")]
-#[inline(never)]
-/// Set the floating point rounding mode to round to zero
-///
-/// inline(never) to prevent to compiler from reordering
-pub fn set_round_to_zero() -> u64 {
-    let fpcr: u64;
-    unsafe {
-        // Set RMode (bits 22-23) to 0b11 for round toward zero
-        core::arch::asm!(
-        "mrs {fpcr}, fpcr",             // Read current FPCR
-        "orr {tmp}, {fpcr}, #0b11<<22", // Set RMode bits to 11 using bit shift notation
-        "msr fpcr, {tmp}",             // Write back to FPCR
-        tmp = out(reg) _,
-        fpcr = out(reg) fpcr,
-        );
-    }
-
-    // Defense-in-depth but can't be relied on
-    // From the documentation:
-    // Programs cannot rely on black_box for correctness, beyond it behaving as the identity function. As such, it must not be relied upon to control critical program behavior.
-    std::hint::black_box(fpcr)
-}
 // -------------------------------------------------------------------------------------------------
 
 #[inline(always)]
@@ -439,7 +397,7 @@ pub fn carrying_mul_add(a: u64, b: u64, add: u64, carry: u64) -> (u64, u64) {
 
 #[cfg(test)]
 mod tests {
-    use crate::{block_multiplier, constants};
+    use crate::{block_multiplier, constants, rtz::RTZ};
     use primitive_types::U256;
     use rand::{Rng, SeedableRng, rngs};
 
@@ -471,6 +429,8 @@ mod tests {
         let mut v1_a_bytes = [0u8; 32];
         let mut v1_b_bytes = [0u8; 32];
 
+        let rtz = RTZ::set().unwrap();
+
         for _ in 0..100000 {
             rng.fill(&mut s0_a_bytes);
             rng.fill(&mut s0_b_bytes);
@@ -492,6 +452,7 @@ mod tests {
             let v1_b_mont = mod_mul(v1_b, r);
 
             let (s0, v0, v1) = block_multiplier(
+                &rtz,
                 s0_a_mont.0,
                 s0_b_mont.0,
                 v0_a_mont.0,
