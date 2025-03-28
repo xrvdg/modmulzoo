@@ -1,7 +1,9 @@
 #![feature(portable_simd)]
+use std::array;
 use std::simd::Simd;
 
 use block_multiplier::constants::{NP0, P, U52_NP0, U52_P};
+use block_multiplier::rtz::RTZ;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use montgomery_reduction::arith::school_method;
 use montgomery_reduction::emmart;
@@ -24,32 +26,10 @@ fn bench_acar(c: &mut Criterion) {
     println!("Using random seed: {}", seed);
     let mut rng = StdRng::seed_from_u64(seed);
 
-    // Generate random test case
-    let a = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let b = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-
-    let c = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let d = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
+    let a = array::from_fn(|_| rng.random::<u64>());
+    let b = array::from_fn(|_| rng.random::<u64>());
+    let c = array::from_fn(|_| rng.random::<u64>());
+    let d = array::from_fn(|_| rng.random::<u64>());
 
     println!("Random test values:");
     println!("a = {:?}", a);
@@ -109,113 +89,46 @@ fn bench_emmart(c: &mut Criterion) {
     let mut rng = StdRng::seed_from_u64(seed);
 
     // SET ROUND TO ZERO BENCHES
-    emmart::set_round_to_zero();
-    let a = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let b = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let c = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let d = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let e = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let f = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let g = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let h = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let i = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let j = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-
-    let k = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let l = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
+    let rtz = block_multiplier::rtz::RTZ::set().unwrap();
+    let a = array::from_fn(|_| rng.random::<u64>());
+    let b = array::from_fn(|_| rng.random::<u64>());
+    let c = array::from_fn(|_| rng.random::<u64>());
+    let d = array::from_fn(|_| rng.random::<u64>());
+    let e = array::from_fn(|_| rng.random::<u64>());
+    let f = array::from_fn(|_| rng.random::<u64>());
+    let g = array::from_fn(|_| rng.random::<u64>());
+    let h = array::from_fn(|_| rng.random::<u64>());
+    let i = array::from_fn(|_| rng.random::<u64>());
+    let j = array::from_fn(|_| rng.random::<u64>());
+    let k = array::from_fn(|_| rng.random::<u64>());
+    let l = array::from_fn(|_| rng.random::<u64>());
 
     let a_float = a.map(|x| x as f64);
     let b_float = b.map(|x| x as f64);
 
     group.bench_function("mul_sampled_product_masked_random", |bencher| {
-        bencher
-            .iter(|| emmart::paper::sampled_product_masked(black_box(a_float), black_box(b_float)))
+        bencher.iter(|| {
+            emmart::paper::sampled_product_masked(&rtz, black_box(a_float), black_box(b_float))
+        })
     });
     group.bench_function("mul_sampled_product_random", |bencher| {
         bencher.iter(|| emmart::paper::sampled_product(black_box(a_float), black_box(b_float)))
     });
 
     group.bench_function("cios_opt_random", |bencher| {
-        bencher.iter(|| emmart::cios_opt(black_box(a), black_box(b), U52_P, U52_NP0))
+        bencher.iter(|| emmart::cios_opt(&rtz, black_box(a), black_box(b), U52_P, U52_NP0))
     });
 
     group.bench_function("fios_opt_random", |bencher| {
-        bencher.iter(|| emmart::fios_opt(black_box(a), black_box(b), U52_P, U52_NP0))
+        bencher.iter(|| emmart::fios_opt(&rtz, black_box(a), black_box(b), U52_P, U52_NP0))
     });
     group.bench_function("fios_opt_sub_random", |bencher| {
-        bencher.iter(|| emmart::fios_opt_sub(black_box(a), black_box(b), U52_P, U52_NP0))
+        bencher.iter(|| emmart::fios_opt_sub(&rtz, black_box(a), black_box(b), U52_P, U52_NP0))
     });
     group.bench_function("fios_opt_sub_sat_random", |bencher| {
         bencher.iter(|| {
             emmart::fios_opt_sub_sat(
+                &rtz,
                 black_box(a),
                 black_box(b),
                 black_box(c),
@@ -227,17 +140,18 @@ fn bench_emmart(c: &mut Criterion) {
     });
     group.bench_function("fios_opt_sub_simd_random", |bencher| {
         bencher.iter(|| {
-            emmart::fios_opt_sub_simd(black_box(a), black_box(b), black_box(c), black_box(d))
+            emmart::fios_opt_sub_simd(&rtz, black_box(a), black_box(b), black_box(c), black_box(d))
         })
     });
     group.bench_function("cios_opt_sub_simd_random", |bencher| {
         bencher.iter(|| {
-            emmart::cios_opt_sub_simd(black_box(a), black_box(b), black_box(c), black_box(d))
+            emmart::cios_opt_sub_simd(&rtz, black_box(a), black_box(b), black_box(c), black_box(d))
         })
     });
     group.bench_function("fios_opt_sub_simd_sat_random", |bencher| {
         bencher.iter(|| {
             emmart::fios_opt_sub_simd_sat(
+                &rtz,
                 black_box(a),
                 black_box(b),
                 black_box(c),
@@ -254,6 +168,7 @@ fn bench_emmart(c: &mut Criterion) {
     group.bench_function("fios_opt_sub_simd_sat_seq_random", |bencher| {
         bencher.iter(|| {
             emmart::fios_opt_sub_simd_sat_seq(
+                &rtz,
                 black_box(a),
                 black_box(b),
                 black_box(c),
@@ -274,6 +189,7 @@ fn bench_emmart(c: &mut Criterion) {
     group.bench_function("fios_opt_sub_simd_seq_random", |bencher| {
         bencher.iter(|| {
             emmart::fios_opt_sub_simd_seq(
+                &rtz,
                 black_box(a),
                 black_box(b),
                 black_box(c),
@@ -288,7 +204,7 @@ fn bench_emmart(c: &mut Criterion) {
         })
     });
     group.bench_function("cios_opt_sub_random", |bencher| {
-        bencher.iter(|| emmart::cios_opt_sub(black_box(a), black_box(b)))
+        bencher.iter(|| emmart::cios_opt_sub(&rtz, black_box(a), black_box(b)))
     });
 
     let resolve = [Simd::splat(rng.random()); 6];
@@ -299,89 +215,42 @@ fn bench_emmart(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_fpcr(c: &mut Criterion) {
-    let mut group = c.benchmark_group("fpcr");
-
-    // Benchmark set_round_to_zero
-    group.bench_function("set_round_to_zero", |bencher| {
-        bencher.iter(|| emmart::set_round_to_zero())
-    });
-
-    // Benchmark setting and then resetting FPCR
-    group.bench_function("set_and_reset_fpcr", |bencher| {
-        bencher.iter(|| {
-            let original_fpcr = black_box(emmart::set_round_to_zero());
-            emmart::set_fpcr(original_fpcr);
-        })
-    });
-
-    group.finish();
-}
-
 fn bench_domb(c: &mut Criterion) {
     let mut group = c.benchmark_group("Domb");
 
-    // Generate and print a random seed
     let seed: u64 = rand::random();
     println!("Using random seed for parallel benchmarks: {}", seed);
     let mut rng = StdRng::seed_from_u64(seed);
 
-    // Generate random test cases for yuval (u64 arrays of length 4)
-    let yuval_a = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let yuval_b = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
+    let yuval_a = array::from_fn(|_| rng.random::<u64>());
+    let yuval_b = array::from_fn(|_| rng.random::<u64>());
 
-    // Generate random test cases for domb (u64 arrays of length 5)
-    let domb_a = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let domb_b = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
+    let domb_a = array::from_fn(|_| rng.random::<u64>());
+    let domb_b = array::from_fn(|_| rng.random::<u64>());
 
     // Benchmark yuval parallel implementation
     group.bench_function("parallel", |bencher| {
         bencher.iter(|| yuval::parallel(black_box(yuval_a), black_box(yuval_b)))
     });
 
-    emmart::set_round_to_zero();
+    let rtz = RTZ::set().unwrap();
     // Benchmark domb parallel implementation
     group.bench_function("parallel_f64", |bencher| {
-        bencher.iter(|| domb::parallel_ref(black_box(domb_a), black_box(domb_b)))
+        bencher.iter(|| domb::parallel_ref(&rtz, black_box(domb_a), black_box(domb_b)))
     });
 
     group.bench_function("parallel_f64_sub", |bencher| {
-        bencher.iter(|| domb::parallel_sub_stub(black_box(domb_a), black_box(domb_b)))
-    });
-
-    group.bench_function("parallel_f64_sub_fpcr", |bencher| {
-        bencher.iter(|| domb::parallel_sub_fpcr(black_box(domb_a), black_box(domb_b)))
+        bencher.iter(|| domb::parallel_sub_stub(&rtz, black_box(domb_a), black_box(domb_b)))
     });
 
     group.bench_function("parallel_f64_r256", |bencher| {
-        bencher.iter(|| domb::parallel_sub_r256(black_box(yuval_a), black_box(yuval_b)))
+        bencher.iter(|| domb::parallel_sub_r256(&rtz, black_box(yuval_a), black_box(yuval_b)))
     });
 
     group.bench_function("parallel_f64_simd_r256", |bencher| {
         bencher.iter(|| {
             domb::parallel_sub_simd_r256(
+                &rtz,
                 black_box([yuval_a, yuval_b]),
                 black_box([yuval_a, yuval_b]),
             )
@@ -390,7 +259,11 @@ fn bench_domb(c: &mut Criterion) {
 
     group.bench_function("parallel_f64_sub_simd", |bencher| {
         bencher.iter(|| {
-            domb::parallel_simd_sub(black_box([domb_a, domb_b]), black_box([domb_b, domb_a]))
+            domb::parallel_simd_sub(
+                &rtz,
+                black_box([domb_a, domb_b]),
+                black_box([domb_b, domb_a]),
+            )
         })
     });
 
@@ -404,36 +277,13 @@ fn bench_interleaved(c: &mut Criterion) {
     println!("Using random seed for parallel benchmarks: {}", seed);
     let mut rng = StdRng::seed_from_u64(seed);
 
-    let yuval_a = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let yuval_b = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
+    let yuval_a = array::from_fn(|_| rng.random::<u64>());
+    let yuval_b = array::from_fn(|_| rng.random::<u64>());
 
-    // Generate random test cases for domb (u64 arrays of length 5)
-    let domb_a = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
-    let domb_b = [
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-        rng.random::<u64>(),
-    ];
+    let domb_a = array::from_fn(|_| rng.random::<u64>());
+    let domb_b = array::from_fn(|_| rng.random::<u64>());
 
-    emmart::set_round_to_zero();
+    // let rtz = RTZ::set().unwrap();
 
     group.bench_function("interleaved", |bencher| {
         bencher.iter(|| {
@@ -467,6 +317,6 @@ criterion_group!(
         // Warm up is warm because it literally warms up the pi
         .warm_up_time(std::time::Duration::new(1,0))
         .measurement_time(std::time::Duration::new(10,0));
-    targets = bench_acar, bench_emmart, bench_domb, bench_fpcr, bench_interleaved
+    targets = bench_acar, bench_emmart, bench_domb, bench_interleaved
 );
 criterion_main!(benches);

@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -47,16 +47,32 @@ fn bench_block_multiplier(c: &mut Criterion) {
         rng.random::<u64>(),
     ];
 
+    let rtz = block_multiplier::rtz::RTZ::set().unwrap();
+
     group.bench_function("block_multiplier", |bencher| {
         bencher.iter(|| {
             block_multiplier::block_multiplier(
+                &rtz,
                 black_box(s0_a),
                 black_box(s0_b),
                 black_box(v0_a),
                 black_box(v0_b),
                 black_box(v1_a),
-                black_box(v1_b)
+                black_box(v1_b),
             )
+        })
+    });
+
+    group.finish();
+}
+
+fn bench_rtz(c: &mut Criterion) {
+    let mut group = c.benchmark_group("rtz");
+    group.bench_function("rtz", |bencher| {
+        bencher.iter(|| {
+            let rtz = block_multiplier::rtz::RTZ::set();
+            black_box(rtz.is_some());
+            drop(rtz);
         })
     });
 
@@ -70,6 +86,6 @@ criterion_group!(
         // Warm up is warm because it literally warms up the pi
         .warm_up_time(std::time::Duration::new(1,0))
         .measurement_time(std::time::Duration::new(10,0));
-    targets = bench_block_multiplier
+    targets = bench_block_multiplier, bench_rtz
 );
 criterion_main!(benches);

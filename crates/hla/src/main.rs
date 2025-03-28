@@ -89,7 +89,7 @@ fn simd_test() {
     print_instructions(&out);
 }
 
-global_asm!(include_str!("../asm/mulu128.s"));
+// global_asm!(include_str!("../asm/mulu128.s"));
 
 // Doesn't work
 // fn inline_asm() {
