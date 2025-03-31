@@ -40,7 +40,9 @@ impl From<U256b52> for U256b64 {
 
 impl Arbitrary for U256b52 {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        U256b52(array::from_fn(|_| u64::arbitrary(g) & MASK52))
+        let mut inner = array::from_fn(|_| u64::arbitrary(g) & MASK52);
+        inner[4] = inner[4] & MASK48;
+        U256b52(inner)
     }
 
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
