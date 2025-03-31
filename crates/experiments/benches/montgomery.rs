@@ -76,7 +76,7 @@ fn bench_acar(c: &mut Criterion) {
     });
 
     group.bench_function("mul_school_method", |bencher| {
-        bencher.iter(|| school_method(black_box(a), black_box(b)))
+        bencher.iter(|| black_box(school_method(black_box(a), black_box(b))))
     });
 }
 
@@ -112,18 +112,47 @@ fn bench_emmart(c: &mut Criterion) {
         })
     });
     group.bench_function("mul_sampled_product_random", |bencher| {
-        bencher.iter(|| emmart::paper::sampled_product(black_box(a_float), black_box(b_float)))
+        bencher.iter(|| {
+            black_box(emmart::paper::sampled_product(
+                black_box(a_float),
+                black_box(b_float),
+            ))
+        })
     });
 
     group.bench_function("cios_opt_random", |bencher| {
-        bencher.iter(|| emmart::cios_opt(&rtz, black_box(a), black_box(b), U52_P, U52_NP0))
+        bencher.iter(|| {
+            black_box(emmart::cios_opt(
+                &rtz,
+                black_box(a),
+                black_box(b),
+                U52_P,
+                U52_NP0,
+            ))
+        })
     });
 
     group.bench_function("fios_opt_random", |bencher| {
-        bencher.iter(|| emmart::fios_opt(&rtz, black_box(a), black_box(b), U52_P, U52_NP0))
+        bencher.iter(|| {
+            black_box(emmart::fios_opt(
+                &rtz,
+                black_box(a),
+                black_box(b),
+                U52_P,
+                U52_NP0,
+            ))
+        })
     });
     group.bench_function("fios_opt_sub_random", |bencher| {
-        bencher.iter(|| emmart::fios_opt_sub(&rtz, black_box(a), black_box(b), U52_P, U52_NP0))
+        bencher.iter(|| {
+            black_box(emmart::fios_opt_sub(
+                &rtz,
+                black_box(a),
+                black_box(b),
+                U52_P,
+                U52_NP0,
+            ))
+        })
     });
     group.bench_function("fios_opt_sub_sat_random", |bencher| {
         bencher.iter(|| {
@@ -204,12 +233,12 @@ fn bench_emmart(c: &mut Criterion) {
         })
     });
     group.bench_function("cios_opt_sub_random", |bencher| {
-        bencher.iter(|| emmart::cios_opt_sub(&rtz, black_box(a), black_box(b)))
+        bencher.iter(|| black_box(emmart::cios_opt_sub(&rtz, black_box(a), black_box(b))))
     });
 
     let resolve = [Simd::splat(rng.random()); 6];
     group.bench_function("resolve_simd", |bencher| {
-        bencher.iter(|| emmart::resolve_simd(resolve))
+        bencher.iter(|| black_box(emmart::resolve_simd(resolve)))
     });
 
     group.finish();
@@ -231,25 +260,48 @@ fn bench_domb(c: &mut Criterion) {
     // Benchmark yuval parallel implementation
     // Benchmark yuval parallel implementation
     group.bench_function("parallel", |bencher| {
-        bencher.iter(|| yuval::parallel(black_box(yuval_a), black_box(yuval_b)))
+        bencher.iter(|| black_box(yuval::parallel(black_box(yuval_a), black_box(yuval_b))))
     });
 
     group.bench_function("parallel_reduce", |bencher| {
-        bencher.iter(|| yuval::parallel_reduce(black_box(yuval_a), black_box(yuval_b)))
+        bencher.iter(|| {
+            black_box(yuval::parallel_reduce(
+                black_box(yuval_a),
+                black_box(yuval_b),
+            ))
+        })
     });
 
     let rtz = RTZ::set().unwrap();
     // Benchmark domb parallel implementation
     group.bench_function("parallel_f64", |bencher| {
-        bencher.iter(|| domb::parallel_ref(&rtz, black_box(domb_a), black_box(domb_b)))
+        bencher.iter(|| {
+            black_box(domb::parallel_ref(
+                &rtz,
+                black_box(domb_a),
+                black_box(domb_b),
+            ))
+        })
     });
 
     group.bench_function("parallel_f64_sub", |bencher| {
-        bencher.iter(|| domb::parallel_sub_stub(&rtz, black_box(domb_a), black_box(domb_b)))
+        bencher.iter(|| {
+            black_box(domb::parallel_sub_stub(
+                &rtz,
+                black_box(domb_a),
+                black_box(domb_b),
+            ))
+        })
     });
 
     group.bench_function("parallel_f64_r256", |bencher| {
-        bencher.iter(|| domb::parallel_sub_r256(&rtz, black_box(yuval_a), black_box(yuval_b)))
+        bencher.iter(|| {
+            black_box(domb::parallel_sub_r256(
+                &rtz,
+                black_box(yuval_a),
+                black_box(yuval_b),
+            ))
+        })
     });
 
     group.bench_function("parallel_f64_simd_r256", |bencher| {

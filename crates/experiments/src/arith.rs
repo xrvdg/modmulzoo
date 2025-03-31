@@ -1,6 +1,6 @@
 /// All these method operate on b64
 
-#[inline]
+#[inline(always)]
 pub fn school_method(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
     let mut ab = [0_u64; 8];
     for i in 0..a.len() {
@@ -11,6 +11,11 @@ pub fn school_method(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
         ab[i + b.len()] = carry;
     }
     ab
+}
+
+#[inline(never)]
+pub fn school_method_stub(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
+    school_method(a, b)
 }
 
 pub fn smul(s: u64, v: [u64; 4]) -> [u64; 5] {
