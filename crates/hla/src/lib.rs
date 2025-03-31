@@ -90,8 +90,8 @@ impl<R: std::fmt::Display + Copy> InstructionF<R> {
         format!("{inst} {regs}{extra}")
     }
 
-    fn extract_registers(&self) -> impl Iterator<Item = TypedSizedRegister<R>> {
-        self.dest.into_iter().chain(self.src.clone())
+    fn extract_registers(&self) -> impl Iterator<Item = &TypedSizedRegister<R>> {
+        self.dest.iter().chain(&self.src)
     }
 }
 
@@ -284,7 +284,7 @@ impl From<u64> for FreshRegister {
 
 /// Vector sizes to erase the difference between address float64 or u64
 /// TODO different name for addressing
-#[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, PartialOrd, Ord, Hash, PartialEq, Clone, Copy)]
 pub enum Addressing {
     // Unsigned
     X,
@@ -294,7 +294,7 @@ pub enum Addressing {
 }
 
 /// TODO new name under this construction
-#[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
 pub struct TypedSizedRegister<R> {
     reg: R,
     addressing: Addressing,
@@ -372,7 +372,7 @@ impl std::fmt::Debug for Reg<u64> {
 // Add another struct to prevent things from being created
 // Make a struct around here such that it can't be copied
 // THe phys_register file is the one that creates them
-#[derive(PartialEq, Debug, Ord, PartialOrd, Eq, Clone, Copy)]
+#[derive(PartialEq, Debug, Hash, Ord, PartialOrd, Eq, Clone, Copy)]
 pub struct HardwareRegister(u64);
 
 impl std::fmt::Display for HardwareRegister {
@@ -615,12 +615,15 @@ impl RegisterMapping {
 
     // Integrate with seen?
     // This output only should output
-    pub fn output_register<T: RegisterSource>(&self, reg: &Reg<T>) -> String {
+    pub fn output_register<T: RegisterSource>(
+        &self,
+        reg: &Reg<T>,
+    ) -> Option<TypedSizedRegister<HardwareRegister>> {
         // Todo this could go from Reg to index instead of to_type_registers
         match self.index(reg.reg) {
-            RegisterState::Unassigned => panic!("requested output register for some"),
-            RegisterState::Assigned(hw_reg) => format!("{}", hw_reg),
-            RegisterState::Dropped => "Dropped".to_string(),
+            RegisterState::Unassigned => None,
+            RegisterState::Assigned(hw_reg) => Some(*hw_reg),
+            RegisterState::Dropped => None,
         }
     }
 }
@@ -676,7 +679,7 @@ pub fn hardware_register_allocation(
     mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
     instructions: Vec<Instruction>,
-    // Change this into a Seen?
+    // Change this into a Seen, and then rename Seen?
     releases: VecDeque<HashSet<FreshRegister>>,
 ) -> Vec<InstructionF<HardwareRegister>> {
     assert_eq!(
@@ -733,4 +736,49 @@ pub fn backend_global(label: String, instructions: Vec<InstructionF<HardwareRegi
     }
     asm_code.push_str("ret\n");
     asm_code
+}
+
+/// Outputs all the arguments to the asm! macros
+/// TODO provide labels for inputs
+pub fn backend_rust(
+    mapping: RegisterMapping,
+    input_registers: &[TypedSizedRegister<HardwareRegister>],
+    output_registers: &[TypedSizedRegister<HardwareRegister>],
+    instructions: &Vec<InstructionF<HardwareRegister>>,
+) -> String {
+    assert_eq!(mapping.allocated(), output_registers.len());
+
+    let inputs: String = input_registers
+        .iter()
+        .map(|r| format!("in(\"{}\") _", r))
+        .intersperse(", ".to_string())
+        .collect();
+
+    let outputs: String = output_registers
+        .iter()
+        .enumerate()
+        .map(|(i, r)| format!("lateout(\"{}\") out[{}]", r, i))
+        .intersperse(", ".to_string())
+        .collect();
+
+    let mut clobber_registers: BTreeSet<&TypedSizedRegister<HardwareRegister>> = BTreeSet::new();
+    // Check if mixing up D and V registers give any problems.
+    for instruction in instructions {
+        for reg in instruction.extract_registers() {
+            clobber_registers.insert(reg);
+        }
+    }
+
+    let output_registers = BTreeSet::from_iter(output_registers.iter());
+
+    let clobbers = clobber_registers
+        .difference(&output_registers)
+        .map(|r| format!("lateout(\"{}\") _", r))
+        .intersperse(", ".to_string())
+        .collect();
+
+    [inputs, outputs, clobbers]
+        .into_iter()
+        .intersperse(",\n".to_string())
+        .collect()
 }

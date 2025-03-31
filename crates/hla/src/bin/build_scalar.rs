@@ -95,7 +95,7 @@ fn build_smul() {
     let mut file = std::fs::File::create("./asm/global_asm_smul.s").expect("Unable to create file");
     let txt = backend_global("smul".to_string(), out);
     s.iter().for_each(|r| {
-        println!("{}", mapping.output_register(r));
+        println!("{}", mapping.output_register(r).unwrap());
     });
 
     assert_eq!(mapping.allocated(), s.len());
@@ -141,7 +141,13 @@ fn build_schoolmethod() {
     let outputs: String = s
         .iter()
         .enumerate()
-        .map(|(i, r)| format!("lateout(\"{}\") out[{}]", mapping.output_register(r), i))
+        .map(|(i, r)| {
+            format!(
+                "lateout(\"{}\") out[{}]",
+                mapping.output_register(r).unwrap(),
+                i
+            )
+        })
         .intersperse(", ".to_string())
         .collect();
 
@@ -170,6 +176,12 @@ fn build_single_step() {
         )
     });
 
+    let input_hw_registers: Vec<_> = a
+        .iter()
+        .chain(&b)
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
+
     let s = single_step(&mut alloc, &mut asm, a, b);
 
     let first: Vec<_> = asm.instructions.into_iter().flatten().collect();
@@ -184,21 +196,21 @@ fn build_single_step() {
     let releases = liveness_analysis(&mut seen, &first);
 
     let out = hardware_register_allocation(&mut mapping, &mut phys_registers, first, releases);
+
+    let output_hw_registers: Vec<_> = s
+        .iter()
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
+
+    let outputs = backend_rust(mapping, &input_hw_registers, &output_hw_registers, &out);
+
     let mut file =
         std::fs::File::create("./asm/global_asm_single_step.s").expect("Unable to create file");
     let txt = backend_global("single_step".to_string(), out);
 
     // Write this info in the assembly file
-    let outputs: String = s
-        .iter()
-        .enumerate()
-        .map(|(i, r)| format!("lateout(\"{}\") out[{}]", mapping.output_register(r), i))
-        .intersperse(", ".to_string())
-        .collect();
 
     println!("{}", outputs);
-
-    assert_eq!(mapping.allocated(), s.len());
 
     use std::io::Write;
     file.write_all(txt.as_bytes())
@@ -247,7 +259,13 @@ fn build_smul_add() {
     let outputs: String = s
         .iter()
         .enumerate()
-        .map(|(i, r)| format!("lateout(\"{}\") out[{}]", mapping.output_register(r), i))
+        .map(|(i, r)| {
+            format!(
+                "lateout(\"{}\") out[{}]",
+                mapping.output_register(r).unwrap(),
+                i
+            )
+        })
         .intersperse(", ".to_string())
         .collect();
 
@@ -327,7 +345,7 @@ fn build_mulu128() {
         hardware_register_allocation(&mut mapping, &mut register_bank, inst, releases);
     print_instructions(&physical_inst);
     ret.iter()
-        .for_each(|r| println!("{}", mapping.output_register(r)));
+        .for_each(|r| println!("{}", mapping.output_register(r).unwrap()));
 }
 #[derive(Debug)]
 #[repr(C)]
