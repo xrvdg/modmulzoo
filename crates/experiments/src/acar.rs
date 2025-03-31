@@ -230,7 +230,7 @@ pub fn fios(a: U256, b: U256, n: U256, np0: u64) -> [u64; 6] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arith::{modulus, subtraction_step};
+    use crate::arith::{modulus, modulus_subtraction_step};
     use block_multiplier::{
         constants::{NP0, P, R2},
         subarray,
@@ -250,7 +250,7 @@ mod tests {
 
         let d = modulus(a, P);
 
-        d == subtraction_step(a_round, P)
+        d == modulus_subtraction_step(a_round, P)
     }
 
     // All remaining tests check equivalence with cios

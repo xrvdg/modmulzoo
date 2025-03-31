@@ -780,8 +780,10 @@ mod tests {
             && modulus_u52(b.0, U52_P) == subtraction_step_u52(subarray!(a_round[1], 0, 5), U52_P)
             && modulus_u52(c.0, U52_P) == subtraction_step_u52(subarray!(a_round[2], 0, 5), U52_P)
             && modulus_u52(d.0, U52_P) == subtraction_step_u52(subarray!(a_round[3], 0, 5), U52_P)
-            && arith::modulus(e.0, P) == arith::subtraction_step(subarray!(snd_round, 0, 4), P)
-            && arith::modulus(f.0, P) == arith::subtraction_step(subarray!(trd_round, 0, 4), P)
+            && arith::modulus(e.0, P)
+                == arith::modulus_subtraction_step(subarray!(snd_round, 0, 4), P)
+            && arith::modulus(f.0, P)
+                == arith::modulus_subtraction_step(subarray!(trd_round, 0, 4), P)
     }
 
     #[quickcheck]

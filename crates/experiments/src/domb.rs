@@ -280,7 +280,7 @@ fn u260_to_u256_simd(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
         ((l3 >> 36) | (l4 << 16)),
     ]
 }
-
+#[inline(never)]
 pub fn parallel_sub_r256(rtz: &RTZ, a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     let a = u256_to_u260_shl2(a);
     let b = u256_to_u260_shl2(b);

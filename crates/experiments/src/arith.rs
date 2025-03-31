@@ -1,5 +1,6 @@
 /// All these method operate on b64
 
+#[inline]
 pub fn school_method(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
     let mut ab = [0_u64; 8];
     for i in 0..a.len() {
@@ -55,14 +56,52 @@ pub fn adds(t: &mut [u64], mut carry: u64) {
     }
 }
 
-#[inline]
-pub fn subtraction_step<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
-    let mut borrow: i64 = 0;
+/// Adds two u64 arrays together, treating them as multi-precision integers
+///
+/// # Arguments
+///
+/// * `a` - First multi-precision integer
+/// * `b` - Second multi-precision integer
+///
+/// # Returns
+///
+/// The sum of the two multi-precision integers with carry propagation
+pub fn addv<const N: usize>(mut a: [u64; N], b: [u64; N]) -> [u64; N] {
+    let mut carry = 0u64;
+
+    for i in 0..N {
+        let (sum1, overflow1) = a[i].overflowing_add(b[i]);
+        let (sum2, overflow2) = sum1.overflowing_add(carry);
+
+        a[i] = sum2;
+        carry = (overflow1 as u64) + (overflow2 as u64);
+    }
+
+    a
+}
+
+#[inline(never)]
+pub fn sub<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
+    let mut borrow: i128 = 0;
     let mut c = [0; N];
     for i in 0..N {
         let tmp = a[i] as i128 - b[i] as i128 + borrow as i128;
         c[i] = tmp as u64;
-        borrow = (tmp >> 64) as i64
+        borrow = tmp >> 64
+    }
+    c
+}
+
+#[inline]
+/// returns a if a < b else return a - b
+/// single step of modulo operation
+pub fn modulus_subtraction_step<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
+    let mut borrow: i128 = 0;
+    let mut c = [0; N];
+    for i in 0..N {
+        let tmp = a[i] as i128 - b[i] as i128 + borrow as i128;
+        c[i] = tmp as u64;
+        borrow = tmp >> 64
     }
 
     if borrow != 0 {
@@ -77,7 +116,7 @@ pub fn modulus<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
     let mut d = a;
     let mut prev = d;
     loop {
-        d = subtraction_step(d, b);
+        d = modulus_subtraction_step(d, b);
         if d == prev {
             break;
         }

@@ -20,10 +20,22 @@ impl TypedSizedRegister<FreshRegister> {
 pub type AtomicInstruction = Vec<InstructionF<FreshRegister>>;
 pub type Instruction = InstructionF<FreshRegister>;
 
+// This instruction models both aliases and regular instructions
+// The option on destination can be removed, but that would require
+// implementing the aliases such CMP, CMN ourselves.
+// This would require introducing
+// Destination{
+// XZR
+// TR(TypeSizedRegister<R>)
+// }
+// for dest.
+// and then write the aliases as instruction as the current design.
+// It requires more changes if we want the user to be able to use XZR.
+// The best way to do that would likely be a trait and a zero sized type for XZR
 #[derive(Debug)]
 pub struct InstructionF<R> {
     opcode: String,
-    dest: TypedSizedRegister<R>,
+    dest: Option<TypedSizedRegister<R>>,
     src: Vec<TypedSizedRegister<R>>,
     modifiers: Mod,
 }
@@ -33,7 +45,8 @@ pub struct InstructionF<R> {
 enum Mod {
     None,
     Imm(u64),
-    Idx(u64),
+    ImmLSL(u16, u8),
+    Idx(u8),
     Cond(String),
 }
 
@@ -60,11 +73,8 @@ impl std::fmt::Display for Addressing {
 impl<R: std::fmt::Display + Copy> InstructionF<R> {
     // TODO this might be better as Display and/or using Formatter
     fn format_instruction(&self) -> String {
-        let mut phys_regs = vec![self.dest];
-        phys_regs.append(&mut self.src.clone());
-
-        let regs: String = phys_regs
-            .iter()
+        let regs: String = self
+            .extract_registers()
             .map(|x| x.to_string())
             .intersperse(", ".to_string())
             .collect();
@@ -74,17 +84,14 @@ impl<R: std::fmt::Display + Copy> InstructionF<R> {
             Mod::Imm(imm) => format!(", #{imm}"),
             Mod::Cond(cond) => format!(", {cond}"),
             Mod::Idx(idx) => format!("[{idx}]"),
+            Mod::ImmLSL(imm, shift) => format!(", #{imm}, lsl {shift}"),
         };
         let inst = &self.opcode;
         format!("{inst} {regs}{extra}")
     }
 
-    /// Returns all the registers mentioned in the instructions.
-    /// You can't assume the order in which they are returned.
-    fn extract_registers(&self) -> Vec<TypedSizedRegister<R>> {
-        let mut out = self.src.clone();
-        out.push(self.dest);
-        out
+    fn extract_registers(&self) -> impl Iterator<Item = &TypedSizedRegister<R>> {
+        self.dest.iter().chain(&self.src)
     }
 }
 
@@ -94,110 +101,157 @@ impl From<InstructionF<FreshRegister>> for LivenessCommand {
     }
 }
 
-// Define a macro for generating assembler instruction methods
-// Don't write directly to the assembler as we would like to use these to construct grouped instructions
+pub struct Assembler {
+    pub instructions: Vec<AtomicInstruction>,
+}
+
+impl Assembler {
+    pub fn new() -> Self {
+        Self {
+            instructions: Vec::new(),
+        }
+    }
+    pub fn append_instruction(&mut self, inst: AtomicInstruction) {
+        self.instructions.push(inst)
+    }
+}
+
+use paste::paste;
 macro_rules! embed_asm {
-    // For opcodeructions with 3 register parameters
-    ($name:ident, 3) => {
-        pub fn $name(dst: &Reg<u64>, a: &Reg<u64>, b: &Reg<u64>) -> crate::AtomicInstruction {
-            vec![crate::Instruction {
-                opcode: stringify!($name).to_string(),
-                dest: dst.to_typed_register(),
-                src: vec![a.to_typed_register(), b.to_typed_register()],
-                modifiers: Mod::None,
-            }]
-        }
-    };
+    ($name:ident, $opcode:literal, ($($arg:ident : $arg_ty:ty),*) -> $ret_ty:ty) => {
+        paste! {
+            pub fn $name(alloc: &mut Allocator, asm: &mut Assembler, $($arg: &Reg<$arg_ty>),*) -> Reg<$ret_ty> {
+                let ret = alloc.fresh();
+                asm.append_instruction(vec![ [<$name _inst>](&ret, $($arg),*) ]);
+                ret
+            }
 
-    ($name:ident, $opcode:literal, 3) => {
-        pub fn $name(
-            dst: &Reg<Simd<u64, 2>>,
-            src_a: &Reg<Simd<u64, 2>>,
-            src_b: &Reg<Simd<u64, 2>>,
-            i: u8,
-        ) -> crate::AtomicInstruction {
-            vec![crate::Instruction {
-                opcode: $opcode.to_string(),
-                dest: dst.to_typed_register(),
-                src: vec![src_a.to_typed_register(), src_b.to_typed_register()],
-                modifiers: Mod::Idx(i as u64),
-            }]
-        }
-    };
-
-    ($name:ident, $opcode:literal, 2) => {
-        pub fn $name(dst: &Reg<Simd<u64, 2>>, src: &Reg<Simd<u64, 2>>) -> crate::AtomicInstruction {
-            vec![crate::Instruction {
-                opcode: $opcode.to_string(),
-                dest: dst.to_typed_register(),
-                src: vec![src.to_typed_register()],
-                modifiers: Mod::None,
-            }]
-        }
-    };
-
-    ($name:ident, $opcode:literal, 2, m) => {
-        pub fn $name(dst: &Reg<Simd<u64, 2>>, src: &Reg<u64>) -> crate::AtomicInstruction {
-            vec![crate::Instruction {
-                opcode: $opcode.to_string(),
-                dest: dst.to_typed_register(),
-                src: vec![src.to_typed_register()],
-                modifiers: Mod::None,
-            }]
-        }
-    };
-
-    ($name:ident, 2, m) => {
-        pub fn $name<T: Reg64Bit + RegisterSource>(
-            dst: &Reg<f64>,
-            src: &Reg<T>,
-        ) -> crate::AtomicInstruction {
-            vec![crate::Instruction {
-                opcode: stringify!($name).to_string(),
-                dest: dst.to_typed_register(),
-                src: vec![src.to_typed_register()],
-                modifiers: Mod::None,
-            }]
-        }
-    };
-
-    ($name:ident, 1) => {
-        pub fn $name(dst: &Reg<u64>, val: u64) -> crate::AtomicInstruction {
-            vec![crate::Instruction {
-                opcode: stringify!($name).to_string(),
-                dest: dst.to_typed_register(),
-                src: vec![],
-                modifiers: Mod::Imm(val),
-            }]
-        }
-    };
-
-    // For opcodeructions with 1 register and 1 string parameter (cinc)
-    ($name:ident, cond) => {
-        pub fn $name(dst: &Reg<u64>, src: &Reg<u64>, condition: &str) -> crate::AtomicInstruction {
-            vec![crate::Instruction {
-                opcode: stringify!($name).to_string(),
-                dest: dst.to_typed_register(),
-                src: vec![src.to_typed_register()],
-                modifiers: Mod::Cond(condition.to_string()),
-            }]
+            pub fn [<$name _inst>](dest: &Reg<$ret_ty>, $($arg: &Reg<$arg_ty>),*) -> Instruction {
+                InstructionF {
+                    opcode: $opcode.to_string(),
+                    dest: Some(dest.to_typed_register()),
+                    src: vec![$($arg.to_typed_register()),*],
+                    modifiers: Mod::None,
+                }
+            }
         }
     };
 }
 
-embed_asm!(mov, 1);
-embed_asm!(mul, 3);
-embed_asm!(umulh, 3);
-embed_asm!(adds, 3);
-embed_asm!(adcs, 3);
-embed_asm!(cinc, cond);
-// mov now doesn't support immediates. Not sure if mov16 actually ever can
-embed_asm!(mov16b, "mov.16b", 2);
-embed_asm!(ucvtf2d, "ucvtf.2d", 2);
-embed_asm!(dup2d, "dup.2d", 2, m);
-// Could use another but this works too
-embed_asm!(ucvtf, 2, m);
-embed_asm!(fmla2d, "fmla.2d", 3);
+// To quickly write these kind of macros just write the general structure
+// with embed_asm and then inline all the macros and modify accordingly
+
+pub fn mov(alloc: &mut Allocator, asm: &mut Assembler, imm: u64) -> Reg<u64> {
+    let ret = alloc.fresh();
+    asm.append_instruction(vec![mov_inst(&ret, imm)]);
+    ret
+}
+
+pub fn mov_inst(dest: &Reg<u64>, imm: u64) -> Instruction {
+    InstructionF {
+        opcode: "mov".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![],
+        modifiers: Mod::Imm(imm),
+    }
+}
+
+// operations that use or set a flag should never be used as an atomic.
+// interleaving can potentially result in invalid code. Therefore these are only available as inst
+pub fn tst_inst(a: &Reg<u64>, imm: u64) -> Instruction {
+    InstructionF {
+        opcode: "tst".to_string(),
+        dest: None,
+        src: vec![a.to_typed_register()],
+        modifiers: Mod::Imm(imm),
+    }
+}
+
+pub fn csel_inst(dest: &Reg<u64>, a: &Reg<u64>, b: &Reg<u64>, cond: String) -> Instruction {
+    InstructionF {
+        opcode: "csel".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![a.to_typed_register(), b.to_typed_register()],
+        modifiers: Mod::Cond(cond),
+    }
+}
+
+pub fn cmn_inst(a: &Reg<u64>, b: &Reg<u64>) -> Instruction {
+    InstructionF {
+        opcode: "cmn".to_string(),
+        dest: None,
+        src: vec![a.to_typed_register(), b.to_typed_register()],
+        modifiers: Mod::None,
+    }
+}
+
+pub fn cinc_inst(dest: &Reg<u64>, a: &Reg<u64>, cond: String) -> Instruction {
+    InstructionF {
+        opcode: "cinc".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![a.to_typed_register()],
+        modifiers: Mod::Cond(cond),
+    }
+}
+
+// END flag operations
+
+pub fn movk(alloc: &mut Allocator, asm: &mut Assembler, imm: u16, shift: u8) -> Reg<u64> {
+    let ret = alloc.fresh();
+    asm.append_instruction(vec![movk_inst(&ret, imm, shift)]);
+    ret
+}
+
+pub fn movk_inst(dest: &Reg<u64>, imm: u16, shift: u8) -> Instruction {
+    InstructionF {
+        opcode: "movk".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![],
+        modifiers: Mod::ImmLSL(imm, shift),
+    }
+}
+
+// Create a new type for b that takes into account the index
+pub fn fmla2d(
+    _alloc: &mut Allocator, // Done to have the same pattern as the rest
+    asm: &mut Assembler,
+    add: Reg<Simd<f64, 2>>,
+    a: &Reg<Simd<f64, 2>>,
+    b: &Reg<Simd<f64, 2>>,
+    idx: u8,
+) -> Reg<Simd<f64, 2>> {
+    asm.append_instruction(vec![fmla2d_inst(&add, a, b, idx)]);
+    add
+}
+
+pub fn fmla2d_inst(
+    dest_add: &Reg<Simd<f64, 2>>,
+    a: &Reg<Simd<f64, 2>>,
+    b: &Reg<Simd<f64, 2>>,
+    idx: u8,
+) -> Instruction {
+    InstructionF {
+        opcode: "fmla.2d".to_string(),
+        dest: Some(dest_add.to_typed_register()),
+        src: vec![a.to_typed_register(), b.to_typed_register()],
+        modifiers: Mod::Idx(idx),
+    }
+}
+
+embed_asm!(mul, "mul", (a: u64, b: u64) -> u64);
+embed_asm!(umulh, "umulh", (a: u64, b: u64) -> u64);
+
+embed_asm!(add, "add", (a: u64, b: u64) -> u64);
+// TODO: These operations set flags and should only make their inst available
+embed_asm!(adds, "adds", (a: u64, b: u64) -> u64);
+embed_asm!(subs, "subs", (a: u64, b: u64) -> u64);
+embed_asm!(sbcs, "sbcs", (a: u64, b: u64) -> u64);
+
+// Doesn't support immediates
+embed_asm!(mov16b, "mov.16b", (a: Simd<u64,2>) -> Simd<u64,2>);
+embed_asm!(ucvtf2d, "uvctf.2d", (a: Simd<u64,2>) -> Simd<f64,2>);
+embed_asm!(dup2d, "dup.2d", (a: u64) -> Simd<u64,2>);
+embed_asm!(ucvtf, "uvctf", (a: u64) -> f64);
 
 pub struct Reg<T> {
     reg: FreshRegister,
@@ -230,7 +284,7 @@ impl From<u64> for FreshRegister {
 
 /// Vector sizes to erase the difference between address float64 or u64
 /// TODO different name for addressing
-#[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, PartialOrd, Ord, Hash, PartialEq, Clone, Copy)]
 pub enum Addressing {
     // Unsigned
     X,
@@ -240,7 +294,7 @@ pub enum Addressing {
 }
 
 /// TODO new name under this construction
-#[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
 pub struct TypedSizedRegister<R> {
     reg: R,
     addressing: Addressing,
@@ -271,8 +325,14 @@ impl<T> Reg<T> {
     }
 }
 
-impl Reg<Simd<u64, 2>> {
-    pub fn as_f64(&self) -> &Reg<f64> {
+impl Reg<f64> {
+    pub fn as_simd(&self) -> &Reg<Simd<f64, 2>> {
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl<S> Reg<Simd<S, 2>> {
+    pub fn into_<D>(self) -> Reg<Simd<D, 2>> {
         unsafe { std::mem::transmute(self) }
     }
 }
@@ -312,7 +372,7 @@ impl std::fmt::Debug for Reg<u64> {
 // Add another struct to prevent things from being created
 // Make a struct around here such that it can't be copied
 // THe phys_register file is the one that creates them
-#[derive(PartialEq, Debug, Ord, PartialOrd, Eq, Clone, Copy)]
+#[derive(PartialEq, Debug, Hash, Ord, PartialOrd, Eq, Clone, Copy)]
 pub struct HardwareRegister(u64);
 
 impl std::fmt::Display for HardwareRegister {
@@ -363,7 +423,7 @@ impl RegisterSource for f64 {
     }
 }
 
-impl RegisterSource for Simd<u64, 2> {
+impl<T> RegisterSource for Simd<T, 2> {
     fn get_register_pool(pools: &mut RegisterBank) -> &mut RegisterPool {
         &mut pools.v
     }
@@ -443,10 +503,7 @@ impl RegisterBank {
     }
 }
 
-pub fn interleave(
-    lhs: Vec<AtomicInstruction>,
-    rhs: Vec<AtomicInstruction>,
-) -> Vec<InstructionF<FreshRegister>> {
+pub fn interleave(lhs: Vec<AtomicInstruction>, rhs: Vec<AtomicInstruction>) -> Vec<Instruction> {
     lhs.into_iter()
         .zip(rhs)
         .flat_map(|(a, b)| [a, b])
@@ -481,9 +538,16 @@ impl RegisterMapping {
         // get_or_allocate_register needs to deal with the resizing
         Self(
             std::iter::repeat_with(|| RegisterState::Unassigned)
-                .take(30)
+                .take(200)
                 .collect::<Vec<_>>(),
         )
+    }
+
+    pub fn allocated(&self) -> usize {
+        self.0
+            .iter()
+            .filter(|&reg_state| matches!(reg_state, RegisterState::Assigned(_)))
+            .count()
     }
 
     // Get the physical register for a source register
@@ -551,12 +615,15 @@ impl RegisterMapping {
 
     // Integrate with seen?
     // This output only should output
-    pub fn output_register<T: RegisterSource>(&self, reg: &Reg<T>) -> String {
+    pub fn output_register<T: RegisterSource>(
+        &self,
+        reg: &Reg<T>,
+    ) -> Option<TypedSizedRegister<HardwareRegister>> {
         // Todo this could go from Reg to index instead of to_type_registers
         match self.index(reg.reg) {
-            RegisterState::Unassigned => panic!("requested output register for some"),
-            RegisterState::Assigned(hw_reg) => format!("{}", hw_reg),
-            RegisterState::Dropped => "Dropped".to_string(),
+            RegisterState::Unassigned => None,
+            RegisterState::Assigned(hw_reg) => Some(*hw_reg),
+            RegisterState::Dropped => None,
         }
     }
 }
@@ -571,7 +638,6 @@ impl RegisterMapping {
     }
 }
 
-// TODO optimise
 // The invariant is that the hashset will only contain the sources and therefore always free to deallocate
 // because if not it means that it's either been used earlier so it would not show up in release.
 // The other way it shows up if the source
@@ -586,17 +652,23 @@ pub fn liveness_analysis(
         // otherwise we need a special structure that checks for both
         let registers: HashSet<_> = instruction
             .extract_registers()
-            .into_iter()
             .map(|tr| *tr.as_fresh())
             .collect();
         // The difference could be mutable
-        let release: HashSet<_> = registers.difference(&seen_registers.0).cloned().collect();
-        if release.contains(instruction.dest.as_fresh()) {
-            // Better way to give feedback? Now the user doesn't know where it comes from
-            // We view an unused instruction as a problem
-            panic!("{instruction:?} does not use the destination")
-        }; // The union could be mutable
-        seen_registers.0 = seen_registers.0.union(&registers).cloned().collect();
+        let release: HashSet<_> = registers.difference(&seen_registers.0).copied().collect();
+
+        if let Some(dest) = instruction.dest {
+            if release.contains(dest.as_fresh()) {
+                // Better way to give feedback? Now the user doesn't know where it comes from
+                // We view an unused instruction as a problem
+                print_instructions(&instructions);
+                panic!("{instruction:?} does not use the destination")
+            }; // The union could be mutable
+        }
+
+        release.iter().for_each(|reg| {
+            seen_registers.0.insert(*reg);
+        });
         commands.push_front(release);
     }
     commands
@@ -606,7 +678,7 @@ pub fn hardware_register_allocation(
     mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
     instructions: Vec<Instruction>,
-    // Change this into a Seen?
+    // Change this into a Seen, and then rename Seen?
     releases: VecDeque<HashSet<FreshRegister>>,
 ) -> Vec<InstructionF<HardwareRegister>> {
     assert_eq!(
@@ -632,7 +704,9 @@ pub fn hardware_register_allocation(
         release.into_iter().for_each(|fresh| {
             mapping.free_register(register_bank, fresh);
         });
-        let dest = mapping.get_or_allocate_register(register_bank, instruction.dest);
+        let dest = instruction
+            .dest
+            .map(|d| mapping.get_or_allocate_register(register_bank, d));
         InstructionF {
             opcode: instruction.opcode,
             dest,
@@ -648,4 +722,61 @@ pub fn print_instructions<R: std::fmt::Display + Copy>(instrs: &[InstructionF<R>
     instrs
         .iter()
         .for_each(|inst| println!("{}", inst.format_instruction()));
+}
+
+pub fn backend_global(label: String, instructions: Vec<InstructionF<HardwareRegister>>) -> String {
+    let mut asm_code = String::new();
+    asm_code.push_str(".text\n");
+    asm_code.push_str(&format!("_{}:\n", label));
+    asm_code.extend(
+        instructions
+            .into_iter()
+            .map(|instruction| format!("  {}\n", instruction.format_instruction())),
+    );
+    asm_code.push_str("ret\n");
+    asm_code
+}
+
+/// Outputs all the arguments to the asm! macros
+/// TODO provide labels for inputs
+
+pub fn backend_rust(
+    mapping: RegisterMapping,
+    input_registers: &[TypedSizedRegister<HardwareRegister>],
+    output_registers: &[TypedSizedRegister<HardwareRegister>],
+    instructions: &Vec<InstructionF<HardwareRegister>>,
+) -> String {
+    assert_eq!(mapping.allocated(), output_registers.len());
+
+    let inputs = input_registers
+        .iter()
+        .map(|r| format!("in(\"{}\") _", r))
+        .intersperse(", ".to_string());
+
+    let outputs = output_registers
+        .iter()
+        .enumerate()
+        .map(|(i, r)| format!("lateout(\"{}\") out[{}]", r, i))
+        .intersperse(", ".to_string());
+
+    let mut clobber_registers: BTreeSet<&TypedSizedRegister<HardwareRegister>> = BTreeSet::new();
+    instructions.iter().for_each(|instruction| {
+        clobber_registers.extend(instruction.extract_registers());
+    });
+
+    let output_registers = BTreeSet::from_iter(output_registers.iter());
+
+    let clobbers = clobber_registers
+        .difference(&output_registers)
+        .map(|r| format!("lateout(\"{}\") _", r))
+        .intersperse(", ".to_string());
+
+    let newline = std::iter::once("\n".to_string());
+
+    inputs
+        .chain(newline.clone())
+        .chain(outputs)
+        .chain(newline.clone())
+        .chain(clobbers)
+        .collect()
 }

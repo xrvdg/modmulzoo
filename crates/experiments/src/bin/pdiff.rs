@@ -124,7 +124,7 @@ fn modulus_count<const N: usize>(a: [u64; N], b: [u64; N]) -> ([u64; N], u64) {
     let mut prev = d;
     let mut count = 0;
     loop {
-        d = arith::subtraction_step(d, b);
+        d = arith::modulus_subtraction_step(d, b);
         if d == prev {
             break;
         }
