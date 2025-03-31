@@ -229,8 +229,13 @@ fn bench_domb(c: &mut Criterion) {
     let domb_b = array::from_fn(|_| rng.random::<u64>());
 
     // Benchmark yuval parallel implementation
+    // Benchmark yuval parallel implementation
     group.bench_function("parallel", |bencher| {
         bencher.iter(|| yuval::parallel(black_box(yuval_a), black_box(yuval_b)))
+    });
+
+    group.bench_function("parallel_reduce", |bencher| {
+        bencher.iter(|| yuval::parallel_reduce(black_box(yuval_a), black_box(yuval_b)))
     });
 
     let rtz = RTZ::set().unwrap();

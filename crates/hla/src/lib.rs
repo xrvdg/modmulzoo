@@ -5,6 +5,8 @@ use std::{
     mem::{self},
 };
 
+pub mod montgomery;
+
 // See if these can be reduced. Took all of these as it was a u64 before
 
 impl TypedSizedRegister<FreshRegister> {

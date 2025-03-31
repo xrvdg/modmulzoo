@@ -80,7 +80,7 @@ pub fn addv<const N: usize>(mut a: [u64; N], b: [u64; N]) -> [u64; N] {
     a
 }
 
-#[inline(never)]
+#[inline(always)]
 pub fn sub<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
     let mut borrow: i128 = 0;
     let mut c = [0; N];

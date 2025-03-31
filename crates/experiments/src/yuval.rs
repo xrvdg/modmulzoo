@@ -163,6 +163,7 @@ pub fn mul_logjumps_unr_2(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     [r2 as u64, (r2 >> 64) as u64, r3 as u64, (r3 >> 64) as u64]
 }
 
+#[inline(always)]
 pub fn parallel(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     let t = school_method(a, b);
 
@@ -173,11 +174,15 @@ pub fn parallel(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     let s = arith::addv(arith::addv(subarray!(t, 3, 5), r1), arith::addv(r2, r3));
     let m = U64_MU0.wrapping_mul(s[0]);
     let mp = arith::smul(m, U64_P);
-    reduce(subarray!(arith::addv(s, mp), 1, 4))
+    subarray!(arith::addv(s, mp), 1, 4)
+}
+
+pub fn parallel_reduce(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
+    reduce(parallel(a, b))
 }
 
 /// Bring reduce the input such that it is smaller than 256 - 2p
-#[inline]
+#[inline(always)]
 fn reduce(a: [u64; 4]) -> [u64; 4] {
     // This subtraction gets pushed into the if-statement
     let red = arith::sub(a, U64_2P);
@@ -198,7 +203,7 @@ pub fn reduce_stub(a: [u64; 4]) -> [u64; 4] {
 mod tests {
     use crate::{
         arith::modulus,
-        yuval::{mul_logjumps_unr_2, parallel},
+        yuval::{mul_logjumps_unr_2, parallel_reduce},
     };
     use block_multiplier::constants::{P, R2};
     use mod256_generator::U256b64;
@@ -222,9 +227,9 @@ mod tests {
     fn parallel_roundtrip(a: U256b64) {
         let a = a.0;
         // Montgomery form
-        let a_tilde: [u64; 4] = parallel(a, R2);
+        let a_tilde: [u64; 4] = parallel_reduce(a, R2);
         // and back
-        let a_round: [u64; 4] = parallel(a_tilde, [1, 0, 0, 0]);
+        let a_round: [u64; 4] = parallel_reduce(a_tilde, [1, 0, 0, 0]);
 
         let d = modulus(a, P);
         let actual = modulus(a_round, P);
