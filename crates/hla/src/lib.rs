@@ -652,7 +652,6 @@ pub fn liveness_analysis(
         // otherwise we need a special structure that checks for both
         let registers: HashSet<_> = instruction
             .extract_registers()
-            .into_iter()
             .map(|tr| *tr.as_fresh())
             .collect();
         // The difference could be mutable
@@ -729,17 +728,18 @@ pub fn backend_global(label: String, instructions: Vec<InstructionF<HardwareRegi
     let mut asm_code = String::new();
     asm_code.push_str(".text\n");
     asm_code.push_str(&format!("_{}:\n", label));
-    for instruction in instructions {
-        asm_code.push_str("  ");
-        asm_code.push_str(&instruction.format_instruction());
-        asm_code.push_str("\n");
-    }
+    asm_code.extend(
+        instructions
+            .into_iter()
+            .map(|instruction| format!("  {}\n", instruction.format_instruction())),
+    );
     asm_code.push_str("ret\n");
     asm_code
 }
 
 /// Outputs all the arguments to the asm! macros
 /// TODO provide labels for inputs
+
 pub fn backend_rust(
     mapping: RegisterMapping,
     input_registers: &[TypedSizedRegister<HardwareRegister>],
@@ -748,37 +748,35 @@ pub fn backend_rust(
 ) -> String {
     assert_eq!(mapping.allocated(), output_registers.len());
 
-    let inputs: String = input_registers
+    let inputs = input_registers
         .iter()
         .map(|r| format!("in(\"{}\") _", r))
-        .intersperse(", ".to_string())
-        .collect();
+        .intersperse(", ".to_string());
 
-    let outputs: String = output_registers
+    let outputs = output_registers
         .iter()
         .enumerate()
         .map(|(i, r)| format!("lateout(\"{}\") out[{}]", r, i))
-        .intersperse(", ".to_string())
-        .collect();
+        .intersperse(", ".to_string());
 
     let mut clobber_registers: BTreeSet<&TypedSizedRegister<HardwareRegister>> = BTreeSet::new();
-    // Check if mixing up D and V registers give any problems.
-    for instruction in instructions {
-        for reg in instruction.extract_registers() {
-            clobber_registers.insert(reg);
-        }
-    }
+    instructions.iter().for_each(|instruction| {
+        clobber_registers.extend(instruction.extract_registers());
+    });
 
     let output_registers = BTreeSet::from_iter(output_registers.iter());
 
     let clobbers = clobber_registers
         .difference(&output_registers)
         .map(|r| format!("lateout(\"{}\") _", r))
-        .intersperse(", ".to_string())
-        .collect();
+        .intersperse(", ".to_string());
 
-    [inputs, outputs, clobbers]
-        .into_iter()
-        .intersperse(",\n".to_string())
+    let newline = std::iter::once("\n".to_string());
+
+    inputs
+        .chain(newline.clone())
+        .chain(outputs)
+        .chain(newline.clone())
+        .chain(clobbers)
         .collect()
 }
