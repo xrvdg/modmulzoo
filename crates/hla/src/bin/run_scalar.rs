@@ -57,7 +57,7 @@ fn call_smul(a: [u64; 4], b: u64) -> [u64; 5] {
 }
 
 #[inline(never)]
-fn call_schoolmethod(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
+pub fn call_schoolmethod(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
     let mut out = [0; 8];
     unsafe {
         asm!(
@@ -72,7 +72,7 @@ fn call_schoolmethod(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
 }
 
 #[inline(never)]
-fn call_single_step(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
+pub fn call_single_step(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     let mut out = [0; 4];
     unsafe {
         asm!(
