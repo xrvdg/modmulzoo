@@ -771,7 +771,7 @@ pub fn backend_rust(
         .map(|r| format!("lateout(\"{}\") _", r))
         .intersperse(", ".to_string());
 
-    let newline = std::iter::once("\n".to_string());
+    let newline = std::iter::once(",\n".to_string());
 
     inputs
         .chain(newline.clone())

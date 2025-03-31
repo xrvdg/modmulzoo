@@ -121,6 +121,12 @@ fn build_schoolmethod() {
         )
     });
 
+    let input_hw_registers: Vec<_> = a
+        .iter()
+        .chain(&b)
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
+
     let s = school_method(&mut alloc, &mut asm, a, b);
 
     let first: Vec<_> = asm.instructions.into_iter().flatten().collect();
@@ -135,25 +141,21 @@ fn build_schoolmethod() {
     let releases = liveness_analysis(&mut seen, &first);
 
     let out = hardware_register_allocation(&mut mapping, &mut phys_registers, first, releases);
+
+    let output_hw_registers: Vec<_> = s
+        .iter()
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
+
+    let outputs = backend_rust(mapping, &input_hw_registers, &output_hw_registers, &out);
+
     let mut file =
         std::fs::File::create("./asm/global_asm_schoolmethod.s").expect("Unable to create file");
     let txt = backend_global("schoolmethod".to_string(), out);
-    let outputs: String = s
-        .iter()
-        .enumerate()
-        .map(|(i, r)| {
-            format!(
-                "lateout(\"{}\") out[{}]",
-                mapping.output_register(r).unwrap(),
-                i
-            )
-        })
-        .intersperse(", ".to_string())
-        .collect();
+
+    // Write this info in the assembly file
 
     println!("{}", outputs);
-
-    assert_eq!(mapping.allocated(), s.len());
 
     use std::io::Write;
     file.write_all(txt.as_bytes())
@@ -377,7 +379,7 @@ fn main() {
     // interleave_test();
     // simd_test();
     // build_smul();
-    // build_schoolmethod();
+    build_schoolmethod();
     // build_smul_add();
     build_single_step();
 }
