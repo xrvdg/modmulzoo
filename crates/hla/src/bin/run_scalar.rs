@@ -50,7 +50,8 @@ fn call_smul(a: [u64; 4], b: u64) -> [u64; 5] {
         asm!(
             "bl _smul",
             in("x0") b, in("x1") a[0], in("x2") a[1], in("x3") a[2], in("x4") a[3],
-            lateout("x5") out[0], lateout("x6") out[1], lateout("x1") out[2], lateout("x2") out[3], lateout("x0") out[4]
+            lateout("x5") out[0], lateout("x6") out[1], lateout("x1") out[2], lateout("x2") out[3], lateout("x0") out[4],
+            lateout("lr") _
         )
     };
     out
@@ -65,7 +66,8 @@ pub fn call_schoolmethod(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
             in("x0") a[0], in("x1") a[1], in("x2") a[2], in("x3") a[3],
             in("x4") b[0], in("x5") b[1], in("x6") b[2], in("x7") b[3],
             lateout("x8") out[0], lateout("x12") out[1], lateout("x4") out[2], lateout("x5") out[3], lateout("x10") out[4], lateout("x0") out[5], lateout("x1") out[6], lateout("x3") out[7],
-            lateout("x2") _, lateout("x6") _, lateout("x7") _, lateout("x9") _, lateout("x11") _, lateout("x13") _, lateout("x14") _
+            lateout("x2") _, lateout("x6") _, lateout("x7") _, lateout("x9") _, lateout("x11") _, lateout("x13") _, lateout("x14") _,
+            lateout("lr") _
         )
     };
     out
@@ -85,6 +87,7 @@ pub fn call_single_step(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
             // single step clobbers the following registers
             lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _,
             lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _,
+            lateout("lr") _
         )
     };
     out
@@ -99,8 +102,8 @@ fn call_smul_add(t: [u64; 5], a: [u64; 4], b: u64) -> [u64; 5] {
             in("x0") t[0], in("x1") t[1], in("x2") t[2], in("x3") t[3], in("x4") t[4],
             in("x5") a[0], in("x6") a[1], in("x7") a[2], in("x8") a[3],
             in("x9") b,
-            lateout("x10") out[0], lateout("x0") out[1], lateout("x1") out[2], lateout("x2") out[3], lateout("x3") out[4]
-
+            lateout("x10") out[0], lateout("x0") out[1], lateout("x1") out[2], lateout("x2") out[3], lateout("x3") out[4],
+            lateout("lr") _
         )
     };
     out

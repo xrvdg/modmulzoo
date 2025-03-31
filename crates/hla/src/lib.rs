@@ -772,11 +772,16 @@ pub fn backend_rust(
         .intersperse(", ".to_string());
 
     let newline = std::iter::once(",\n".to_string());
+    // We jump to the assembly code with br so we need to safe the lr register
+    // This can change in the future
+    let lr = std::iter::once("lateout(\"lr\") _".to_string());
 
     inputs
         .chain(newline.clone())
         .chain(outputs)
         .chain(newline.clone())
         .chain(clobbers)
+        .chain(newline.clone())
+        .chain(lr)
         .collect()
 }
