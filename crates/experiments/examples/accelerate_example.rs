@@ -1,5 +1,4 @@
-#![cfg(target_os = "macos")]
-
+#[cfg(target_os = "macos")]
 #[link(name = "Accelerate", kind = "framework")]
 extern "C" {
     fn vDSP_vaddD(
@@ -23,6 +22,7 @@ extern "C" {
     );
 }
 
+#[cfg(target_os = "macos")]
 fn main() {
     // Create test vectors
     let vector1: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
@@ -59,3 +59,6 @@ fn main() {
     println!("Vector Addition Result: {:?}", result_add);
     println!("Vector Multiplication Result: {:?}", result_mul);
 }
+
+#[cfg(not(target_os = "macos"))]
+fn main() {}
