@@ -8,7 +8,7 @@ use seq_macro::seq;
 
 use crate::emmart::{self, make_initial};
 use block_multiplier::{
-    constants::{MASK52, U52_NP0, U52_P},
+    constants::{MASK52, U52_2P, U52_NP0, U52_P},
     rtz::RTZ,
 };
 
@@ -288,6 +288,36 @@ pub fn parallel_sub_r256(rtz: &RTZ, a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     res
 }
 
+#[inline(always)]
+// combine the resolving of the carry bits in the upper parts with the 2p subtraction for 52b.
+pub fn reduce(red: [u64; 6]) -> [u64; 5] {
+    // Only interested in the carries that haven't been moved to a higher limb yet.
+    let mut borrow = (red[0] >> 52) as i64;
+    let a = subarray!(red, 1, 5);
+    // Check whether the 256 bit is set.
+    // Even though it could potentially have been set if we had done the subtraction beforehand
+    // it can never reach a 256 - 2p nor would red reach >= 3*p
+    let b = if ((red[5] >> 47) & 1) == 1 {
+        U52_2P
+    } else {
+        [0; 5]
+    };
+
+    let mut c = [0; 5];
+    for i in 0..c.len() {
+        let tmp = a[i] as i64 - b[i] as i64 + borrow;
+        c[i] = (tmp as u64) & MASK52;
+        borrow = tmp >> 52
+    }
+
+    c
+}
+
+#[inline(never)]
+pub fn reduce_stub(red: [u64; 6]) -> [u64; 5] {
+    reduce(red)
+}
+
 // Performs a lot better on MacOS (22ns vs 28 ns) but loses 2-3 ns on the Raspberry Pi compared to parallel_ref
 #[inline(always)]
 pub fn parallel_sub(_rtz: &RTZ, a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
@@ -314,8 +344,8 @@ pub fn parallel_sub(_rtz: &RTZ, a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     let s = addv(r3, addv(addv(s, r0), addv(r1, r2)));
 
     let m = s[0].wrapping_mul(U52_NP0) & MASK52;
-    let resolved = emmart::resolve(addv(s, smult_noinit(m, U52_P)));
-    subarray!(resolved, 1, 5)
+    let resolved = reduce(addv(s, smult_noinit(m, U52_P)));
+    resolved
 }
 
 pub fn parallel_sub_simd_r256(_rtz: &RTZ, a: [[u64; 4]; 2], b: [[u64; 4]; 2]) -> [[u64; 4]; 2] {
