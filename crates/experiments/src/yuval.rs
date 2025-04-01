@@ -163,6 +163,7 @@ pub fn mul_logjumps_unr_2(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     [r2 as u64, (r2 >> 64) as u64, r3 as u64, (r3 >> 64) as u64]
 }
 
+#[inline(always)]
 pub fn parallel(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     let t = school_method(a, b);
 
@@ -176,12 +177,13 @@ pub fn parallel(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     subarray!(arith::addv(s, mp), 1, 4)
 }
 
+#[inline(always)]
 pub fn parallel_reduce(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     reduce(parallel(a, b))
 }
 
 /// Bring reduce the input such that it is smaller than 256 - 2p
-#[inline]
+#[inline(always)]
 fn reduce(a: [u64; 4]) -> [u64; 4] {
     // This subtraction gets pushed into the if-statement
     // Check the most significant bit of the most significant limb

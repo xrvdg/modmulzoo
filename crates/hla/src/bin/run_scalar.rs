@@ -139,6 +139,6 @@ mod tests {
 
     #[quickcheck]
     fn single_step(a: U256b64, b: U256b64) -> bool {
-        yuval::parallel(b.0, a.0) == call_single_step(a.0, b.0)
+        yuval::parallel_reduce(b.0, a.0) == call_single_step(a.0, b.0)
     }
 }

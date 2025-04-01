@@ -4,7 +4,9 @@ members = ["crates/*"]
 
 [profile.release]
 debug = 2
-lto = true
+lto = "fat"
+codegen-units = 1
 
 [profile.bench]
-lto = true
+lto = "fat"
+codegen-units = 1
