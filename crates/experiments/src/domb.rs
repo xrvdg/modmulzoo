@@ -230,7 +230,7 @@ pub fn parallel_sub_stub(rtz: &RTZ, a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
 }
 
 #[inline(always)]
-fn u256_to_u260_shl2(limbs: [u64; 4]) -> [u64; 5] {
+pub fn u256_to_u260_shl2(limbs: [u64; 4]) -> [u64; 5] {
     let [l0, l1, l2, l3] = limbs;
 
     [
