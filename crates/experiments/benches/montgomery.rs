@@ -275,6 +275,12 @@ fn bench_domb(c: &mut Criterion) {
         })
     });
 
+    // Add benchmark for reduce function
+    let red = array::from_fn(|_| rng.random::<u64>());
+    group.bench_function("reduce_b52", |bencher| {
+        bencher.iter(|| domb::reduce(black_box(red)))
+    });
+
     group.finish();
 }
 
