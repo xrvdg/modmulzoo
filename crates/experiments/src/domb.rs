@@ -346,10 +346,68 @@ pub fn parallel_sub(_rtz: &RTZ, a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     let s = addv(r3, addv(addv(s, r0), addv(r1, r2)));
 
     let m = s[0].wrapping_mul(U52_NP0) & MASK52;
-    let resolved = reduce_ct(addv(s, smult_noinit(m, U52_P)));
-    // let resolved = emmart::resolve(addv(s, smult_noinit(m, U52_P)));
-    // subarray!(resolved, 1, 5)
-    resolved
+    reduce_ct(addv(s, smult_noinit(m, U52_P)))
+}
+
+#[inline(always)]
+/// Results in the same code as parallel_sub
+pub fn parallel_sub_cond(_rtz: &RTZ, a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
+    let mut t: [u64; 10] = [0; 10];
+    for i in 0..5 {
+        t[i] = make_initial(i + 1 + 5 * heaviside(i as isize - 4), i);
+        let j = 10 - 1 - i;
+        t[j] = make_initial(i + 5 * (1 - heaviside(j as isize - 9)), i + 1 + 5 * 1);
+    }
+
+    let mut t = vmultadd_noinit(a, b, t);
+
+    t[1] += t[0] >> 52;
+    t[2] += t[1] >> 52;
+    t[3] += t[2] >> 52;
+    t[4] += t[3] >> 52;
+    // These multiplications can be interleaved, each step is independent
+    let r0 = smult_noinit(t[0] & MASK52, RHO_4);
+    let r1 = smult_noinit(t[1] & MASK52, RHO_3);
+    let r2 = smult_noinit(t[2] & MASK52, RHO_2);
+    let r3 = smult_noinit(t[3] & MASK52, RHO_1);
+
+    let s = subarray!(t, 4, 6);
+    let s = addv(r3, addv(addv(s, r0), addv(r1, r2)));
+
+    let m = s[0].wrapping_mul(U52_NP0) & MASK52;
+    let red = addv(s, smult_noinit(m, U52_P));
+    // Check whether the 256 bit is set.
+    // Even though it could potentially have been set if we had done the subtraction beforehand
+    // it can never reach a 256 - 2p nor would red reach >= 3*p
+    if std::intrinsics::likely(((red[5] >> 47) & 1) == 0) {
+        let mut t = red;
+        let mut carry = 0;
+        for i in 0..t.len() {
+            let tmp = t[i] + carry;
+            t[i] = tmp & MASK52;
+            carry = tmp >> 52;
+        }
+        subarray!(t, 1, 5)
+    } else {
+        // Only interested in the carries that haven't been moved to a higher limb yet.
+        let mut borrow = (red[0] >> 52) as i64;
+        let a = subarray!(red, 1, 5);
+        let b = U52_2P;
+
+        let mut c = [0; 5];
+        for i in 0..c.len() {
+            let tmp = a[i] as i64 - b[i] as i64 + borrow;
+            c[i] = (tmp as u64) & MASK52;
+            borrow = tmp >> 52
+        }
+
+        c
+    }
+}
+
+#[inline(never)]
+pub fn parallel_sub_cond_stub(rtz: &RTZ, a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
+    parallel_sub_cond(rtz, a, b)
 }
 
 pub fn parallel_sub_simd_r256(_rtz: &RTZ, a: [[u64; 4]; 2], b: [[u64; 4]; 2]) -> [[u64; 4]; 2] {
