@@ -295,10 +295,11 @@ pub fn parallel_sub_r256(rtz: &RTZ, a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
 }
 
 #[inline(always)]
-// combine the resolving of the carry bits in the upper parts with the 2p subtraction for 52b.
-// This reduction uses conditional moves and will always perform the reduction step
+/// Resolve the carry bits in the upper parts 12b and reduce the result to within < 3p
+///
+/// Note: constant time as it always performs the reduction
 pub fn reduce_ct(red: [u64; 6]) -> [u64; 5] {
-    // Only interested in the carries that haven't been moved to a higher limb yet.
+    // The lowest limb contains carries that still need to be applied.
     let mut borrow = (red[0] >> 52) as i64;
     let a = subarray!(red, 1, 5);
 
@@ -319,9 +320,9 @@ pub fn reduce_ct(red: [u64; 6]) -> [u64; 5] {
 }
 
 #[inline(always)]
-/// Resolve the carry bits in the upper parts 12b and reduce the result to within < 2p
+/// Resolve the carry bits in the upper parts 12b and reduce the result to within < 3p
 pub fn reduce_ct_simd(red: [Simd<u64, 2>; 6]) -> [Simd<u64, 2>; 5] {
-    // Only interested in the carries that haven't been moved to a higher limb yet.
+    // The lowest limb contains carries that still need to be applied.
     let mut borrow: Simd<i64, 2> = (red[0] >> 52).cast();
     let a = [red[1], red[2], red[3], red[4], red[5]];
 
@@ -379,69 +380,9 @@ pub fn parallel_sub(_rtz: &RTZ, a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     let s = addv(r3, addv(addv(s, r0), addv(r1, r2)));
 
     let m = s[0].wrapping_mul(U52_NP0) & MASK52;
+    // Note: using a condition reduction here results in the same assembly
+    // as the constant time one.
     reduce_ct(addv(s, smult_noinit(m, U52_P)))
-}
-
-#[inline(always)]
-/// Results in the same code as parallel_sub the
-pub fn parallel_sub_cond(_rtz: &RTZ, a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
-    let mut t: [u64; 10] = [0; 10];
-    for i in 0..5 {
-        t[i] = make_initial(i + 1 + 5 * heaviside(i as isize - 4), i);
-        let j = 10 - 1 - i;
-        t[j] = make_initial(i + 5 * (1 - heaviside(j as isize - 9)), i + 1 + 5 * 1);
-    }
-
-    let mut t = vmultadd_noinit(a, b, t);
-
-    t[1] += t[0] >> 52;
-    t[2] += t[1] >> 52;
-    t[3] += t[2] >> 52;
-    t[4] += t[3] >> 52;
-    // These multiplications can be interleaved, each step is independent
-    let r0 = smult_noinit(t[0] & MASK52, RHO_4);
-    let r1 = smult_noinit(t[1] & MASK52, RHO_3);
-    let r2 = smult_noinit(t[2] & MASK52, RHO_2);
-    let r3 = smult_noinit(t[3] & MASK52, RHO_1);
-
-    let s = subarray!(t, 4, 6);
-    let s = addv(r3, addv(addv(s, r0), addv(r1, r2)));
-
-    let m = s[0].wrapping_mul(U52_NP0) & MASK52;
-    let red = addv(s, smult_noinit(m, U52_P));
-    // Check whether the 256 bit is set.
-    // Even though it could potentially have been set if we had done the subtraction beforehand
-    // it can never reach a 256 - 2p nor would red reach >= 3*p
-    if std::intrinsics::likely(((red[5] >> 47) & 1) == 0) {
-        // inlined emmart::resolve
-        let mut t = red;
-        let mut carry = 0;
-        for i in 0..t.len() {
-            let tmp = t[i] + carry;
-            t[i] = tmp & MASK52;
-            carry = tmp >> 52;
-        }
-        subarray!(t, 1, 5)
-    } else {
-        // inlined reduce_ct
-        let mut borrow = (red[0] >> 52) as i64;
-        let a = subarray!(red, 1, 5);
-        let b = U52_2P;
-
-        let mut c = [0; 5];
-        for i in 0..c.len() {
-            let tmp = a[i] as i64 - b[i] as i64 + borrow;
-            c[i] = (tmp as u64) & MASK52;
-            borrow = tmp >> 52
-        }
-
-        c
-    }
-}
-
-#[inline(never)]
-pub fn parallel_sub_cond_stub(rtz: &RTZ, a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
-    parallel_sub_cond(rtz, a, b)
 }
 
 pub fn parallel_sub_simd_r256(_rtz: &RTZ, a: [[u64; 4]; 2], b: [[u64; 4]; 2]) -> [[u64; 4]; 2] {
@@ -477,9 +418,9 @@ pub fn parallel_sub_simd_r256(_rtz: &RTZ, a: [[u64; 4]; 2], b: [[u64; 4]; 2]) ->
     let m = (s[0] * Simd::splat(U52_NP0)).bitand(Simd::splat(MASK52));
     let mp = smult_noinit_simd(m, U52_P);
 
-    let resolve = reduce_ct_simd(addv_simd(s, mp));
+    let reduced = reduce_ct_simd(addv_simd(s, mp));
 
-    let u256_result = u260_to_u256_simd(resolve);
+    let u256_result = u260_to_u256_simd(reduced);
     let res = transpose_simd_to_u256(u256_result);
 
     res
