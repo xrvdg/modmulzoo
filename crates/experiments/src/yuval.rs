@@ -197,9 +197,7 @@ pub fn reduce_ct(a: [u64; 4]) -> [u64; 4] {
 }
 
 #[inline(always)]
-// Not constant time safe branching
 pub fn reduce(a: [u64; 4]) -> [u64; 4] {
-    // This subtraction gets pushed into the if-statement
     // Check the most significant bit of the most significant limb
     if std::intrinsics::likely((a[3] >> 63) & 1 == 0) {
         a
