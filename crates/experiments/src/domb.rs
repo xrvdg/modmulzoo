@@ -291,17 +291,18 @@ pub fn parallel_sub_r256(rtz: &RTZ, a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
 
 #[inline(always)]
 // combine the resolving of the carry bits in the upper parts with the 2p subtraction for 52b.
-pub fn reduce(red: [u64; 6]) -> [u64; 5] {
+// This reduction uses conditional moves and always executes the subtraction step
+pub fn reduce_ct(red: [u64; 6]) -> [u64; 5] {
     // Only interested in the carries that haven't been moved to a higher limb yet.
     let mut borrow = (red[0] >> 52) as i64;
     let a = subarray!(red, 1, 5);
     // Check whether the 256 bit is set.
     // Even though it could potentially have been set if we had done the subtraction beforehand
     // it can never reach a 256 - 2p nor would red reach >= 3*p
-    let b = if ((red[5] >> 47) & 1) == 1 {
-        U52_2P
-    } else {
+    let b = if std::intrinsics::likely(((red[5] >> 47) & 1) == 0) {
         [0; 5]
+    } else {
+        U52_2P
     };
 
     let mut c = [0; 5];
@@ -316,7 +317,7 @@ pub fn reduce(red: [u64; 6]) -> [u64; 5] {
 
 #[inline(never)]
 pub fn reduce_stub(red: [u64; 6]) -> [u64; 5] {
-    reduce(red)
+    reduce_ct(red)
 }
 
 // Performs a lot better on MacOS (22ns vs 28 ns) but loses 2-3 ns on the Raspberry Pi compared to parallel_ref
@@ -345,7 +346,9 @@ pub fn parallel_sub(_rtz: &RTZ, a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     let s = addv(r3, addv(addv(s, r0), addv(r1, r2)));
 
     let m = s[0].wrapping_mul(U52_NP0) & MASK52;
-    let resolved = reduce(addv(s, smult_noinit(m, U52_P)));
+    let resolved = reduce_ct(addv(s, smult_noinit(m, U52_P)));
+    // let resolved = emmart::resolve(addv(s, smult_noinit(m, U52_P)));
+    // subarray!(resolved, 1, 5)
     resolved
 }
 

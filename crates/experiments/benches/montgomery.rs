@@ -244,7 +244,7 @@ fn bench_domb(c: &mut Criterion) {
     });
 
     group.bench_function("parallel_f64_sub", |bencher| {
-        bencher.iter(|| domb::parallel_sub_stub(&rtz, black_box(domb_a), black_box(domb_b)))
+        bencher.iter(|| domb::parallel_sub(&rtz, black_box(domb_a), black_box(domb_b)))
     });
 
     group.bench_function("parallel_f64_r256", |bencher| {
@@ -278,7 +278,15 @@ fn bench_domb(c: &mut Criterion) {
     // Add benchmark for reduce function
     let red = array::from_fn(|_| rng.random::<u64>());
     group.bench_function("reduce_b52", |bencher| {
-        bencher.iter(|| domb::reduce(black_box(red)))
+        bencher.iter(|| domb::reduce_ct(black_box(red)))
+    });
+
+    group.bench_function("reduce_ct", |bencher| {
+        bencher.iter(|| yuval::reduce_ct(black_box(yuval_a)))
+    });
+
+    group.bench_function("reduce", |bencher| {
+        bencher.iter(|| yuval::reduce(black_box(yuval_a)))
     });
 
     group.finish();

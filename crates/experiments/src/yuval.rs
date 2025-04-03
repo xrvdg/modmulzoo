@@ -1,4 +1,4 @@
-use crate::arith::{self, modulus_subtraction_step, school_method};
+use crate::arith::{self, school_method};
 use block_multiplier::subarray;
 
 pub const U64_P: [u64; 4] = [
@@ -183,21 +183,39 @@ pub fn parallel_reduce(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
 }
 
 /// Bring reduce the input such that it is smaller than 256 - 2p
+/// Uses conditional moves for constant time
 #[inline(always)]
-fn reduce(a: [u64; 4]) -> [u64; 4] {
+pub fn reduce_ct(a: [u64; 4]) -> [u64; 4] {
     // This subtraction gets pushed into the if-statement
     // Check the most significant bit of the most significant limb
-    let sub = if (a[3] >> 63) & 1 == 1 {
-        U64_2P
-    } else {
+    let sub = if std::intrinsics::likely((a[3] >> 63) & 1 == 0) {
         [0; 4]
+    } else {
+        U64_2P
     };
     arith::sub(a, sub)
+}
+
+#[inline(always)]
+// Not constant time safe branching
+pub fn reduce(a: [u64; 4]) -> [u64; 4] {
+    // This subtraction gets pushed into the if-statement
+    // Check the most significant bit of the most significant limb
+    if std::intrinsics::likely((a[3] >> 63) & 1 == 0) {
+        a
+    } else {
+        arith::sub(a, U64_2P)
+    }
 }
 
 #[inline(never)]
 pub fn reduce_stub(a: [u64; 4]) -> [u64; 4] {
     reduce(a)
+}
+
+#[inline(never)]
+pub fn reduce_ct_stub(a: [u64; 4]) -> [u64; 4] {
+    reduce_ct(a)
 }
 
 #[cfg(test)]
