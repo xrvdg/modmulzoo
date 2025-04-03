@@ -83,8 +83,8 @@ fn resolve_simd_sat(t: [Simd<u64, 4>; 6]) -> [[u64; 6]; 4] {
     out
 }
 
-pub fn stub_resolve_2(tx: [[u64; 6]; 2]) -> [[u64; 6]; 2] {
-    resolve_2(tx)
+pub fn resolve_stub(tx: [u64; 6]) -> [u64; 6] {
+    resolve(tx)
 }
 
 #[inline(always)]

@@ -1,4 +1,4 @@
-use crate::arith::{self, modulus_subtraction_step, school_method};
+use crate::arith::{self, school_method};
 use block_multiplier::subarray;
 
 pub const U64_P: [u64; 4] = [
@@ -163,6 +163,7 @@ pub fn mul_logjumps_unr_2(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     [r2 as u64, (r2 >> 64) as u64, r3 as u64, (r3 >> 64) as u64]
 }
 
+#[inline(always)]
 pub fn parallel(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     let t = school_method(a, b);
 
@@ -173,25 +174,46 @@ pub fn parallel(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     let s = arith::addv(arith::addv(subarray!(t, 3, 5), r1), arith::addv(r2, r3));
     let m = U64_MU0.wrapping_mul(s[0]);
     let mp = arith::smul(m, U64_P);
-    reduce(subarray!(arith::addv(s, mp), 1, 4))
+    subarray!(arith::addv(s, mp), 1, 4)
+}
+
+#[inline(always)]
+pub fn parallel_reduce(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
+    reduce(parallel(a, b))
 }
 
 /// Bring reduce the input such that it is smaller than 256 - 2p
-#[inline]
-fn reduce(a: [u64; 4]) -> [u64; 4] {
+/// Uses conditional moves for constant time
+#[inline(always)]
+pub fn reduce_ct(a: [u64; 4]) -> [u64; 4] {
     // This subtraction gets pushed into the if-statement
-    let red = arith::sub(a, U64_2P);
-    let msb = (a[3] >> 63) & 1; // Check the most significant bit of the most significant limb
-    if msb == 1 {
-        red
+    // Check the most significant bit of the most significant limb
+    let sub = if std::intrinsics::likely((a[3] >> 63) & 1 == 0) {
+        [0; 4]
     } else {
+        U64_2P
+    };
+    arith::sub(a, sub)
+}
+
+#[inline(always)]
+pub fn reduce(a: [u64; 4]) -> [u64; 4] {
+    // Check the most significant bit of the most significant limb
+    if std::intrinsics::likely((a[3] >> 63) & 1 == 0) {
         a
+    } else {
+        arith::sub(a, U64_2P)
     }
 }
 
 #[inline(never)]
 pub fn reduce_stub(a: [u64; 4]) -> [u64; 4] {
     reduce(a)
+}
+
+#[inline(never)]
+pub fn reduce_ct_stub(a: [u64; 4]) -> [u64; 4] {
+    reduce_ct(a)
 }
 
 #[cfg(test)]

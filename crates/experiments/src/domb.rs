@@ -1,14 +1,19 @@
 use std::{
     arch::aarch64::vcvtq_f64_u64,
+    array,
     ops::BitAnd,
-    simd::{num::SimdFloat, Simd, StdFloat},
+    simd::{
+        cmp::SimdPartialEq,
+        num::{SimdFloat, SimdInt, SimdUint},
+        Simd, StdFloat,
+    },
 };
 
 use seq_macro::seq;
 
 use crate::emmart::{self, make_initial};
 use block_multiplier::{
-    constants::{MASK52, U52_NP0, U52_P},
+    constants::{MASK52, U52_2P, U52_NP0, U52_P},
     rtz::RTZ,
 };
 
@@ -230,7 +235,7 @@ pub fn parallel_sub_stub(rtz: &RTZ, a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
 }
 
 #[inline(always)]
-fn u256_to_u260_shl2(limbs: [u64; 4]) -> [u64; 5] {
+pub fn u256_to_u260_shl2(limbs: [u64; 4]) -> [u64; 5] {
     let [l0, l1, l2, l3] = limbs;
 
     [
@@ -280,12 +285,73 @@ fn u260_to_u256_simd(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
         ((l3 >> 36) | (l4 << 16)),
     ]
 }
-#[inline(never)]
+
+#[inline(always)]
 pub fn parallel_sub_r256(rtz: &RTZ, a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     let a = u256_to_u260_shl2(a);
     let b = u256_to_u260_shl2(b);
     let res = u260_to_u256(parallel_sub(rtz, a, b));
     res
+}
+
+#[inline(always)]
+/// Resolve the carry bits in the upper parts 12b and reduce the result to within < 3p
+///
+/// Note: constant time as it always performs the reduction
+pub fn reduce_ct(red: [u64; 6]) -> [u64; 5] {
+    // The lowest limb contains carries that still need to be applied.
+    let mut borrow = (red[0] >> 52) as i64;
+    let a = subarray!(red, 1, 5);
+
+    let b = if (red[5] >> 47) & 1 == 0 {
+        [0; 5]
+    } else {
+        U52_2P
+    };
+
+    let mut c = [0; 5];
+    for i in 0..c.len() {
+        let tmp = a[i] as i64 - b[i] as i64 + borrow;
+        c[i] = (tmp as u64) & MASK52;
+        borrow = tmp >> 52
+    }
+
+    c
+}
+
+#[inline(always)]
+/// Resolve the carry bits in the upper parts 12b and reduce the result to within < 3p
+pub fn reduce_ct_simd(red: [Simd<u64, 2>; 6]) -> [Simd<u64, 2>; 5] {
+    // The lowest limb contains carries that still need to be applied.
+    let mut borrow: Simd<i64, 2> = (red[0] >> 52).cast();
+    let a = [red[1], red[2], red[3], red[4], red[5]];
+
+    // To reduce Check whether the most significant bit is set
+    let mask = (a[4] >> 47).bitand(Simd::splat(1)).simd_eq(Simd::splat(0));
+
+    // Select values based on the mask: if mask lane is true, use zeros, else use U52_2P
+    let zeros = [Simd::splat(0); 5];
+    let twop = U52_2P.map(|pi| Simd::splat(pi));
+    let b: [_; 5] = array::from_fn(|i| mask.select(zeros[i], twop[i]));
+
+    let mut c = [Simd::splat(0); 5];
+    for i in 0..c.len() {
+        let tmp: Simd<i64, 2> = a[i].cast::<i64>() - b[i].cast() + borrow;
+        c[i] = tmp.cast().bitand(Simd::splat(MASK52));
+        borrow = tmp >> 52
+    }
+
+    c
+}
+
+#[inline(never)]
+pub fn reduce_stub(red: [u64; 6]) -> [u64; 5] {
+    reduce_ct(red)
+}
+
+#[inline(never)]
+pub fn reduce_ct_simd_stub(red: [Simd<u64, 2>; 6]) -> [Simd<u64, 2>; 5] {
+    reduce_ct_simd(red)
 }
 
 // Performs a lot better on MacOS (22ns vs 28 ns) but loses 2-3 ns on the Raspberry Pi compared to parallel_ref
@@ -314,8 +380,9 @@ pub fn parallel_sub(_rtz: &RTZ, a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     let s = addv(r3, addv(addv(s, r0), addv(r1, r2)));
 
     let m = s[0].wrapping_mul(U52_NP0) & MASK52;
-    let resolved = emmart::resolve(addv(s, smult_noinit(m, U52_P)));
-    subarray!(resolved, 1, 5)
+    // Note: using a condition reduction here results in the same assembly
+    // as the constant time one.
+    reduce_ct(addv(s, smult_noinit(m, U52_P)))
 }
 
 pub fn parallel_sub_simd_r256(_rtz: &RTZ, a: [[u64; 4]; 2], b: [[u64; 4]; 2]) -> [[u64; 4]; 2] {
@@ -351,8 +418,9 @@ pub fn parallel_sub_simd_r256(_rtz: &RTZ, a: [[u64; 4]; 2], b: [[u64; 4]; 2]) ->
     let m = (s[0] * Simd::splat(U52_NP0)).bitand(Simd::splat(MASK52));
     let mp = smult_noinit_simd(m, U52_P);
 
-    let resolve = resolve_simd_add_truncate(s, mp);
-    let u256_result = u260_to_u256_simd(resolve);
+    let reduced = reduce_ct_simd(addv_simd(s, mp));
+
+    let u256_result = u260_to_u256_simd(reduced);
     let res = transpose_simd_to_u256(u256_result);
 
     res

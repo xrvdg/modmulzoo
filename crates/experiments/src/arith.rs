@@ -1,6 +1,6 @@
 /// All these method operate on b64
 
-#[inline]
+#[inline(always)]
 pub fn school_method(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
     let mut ab = [0_u64; 8];
     for i in 0..a.len() {
@@ -13,6 +13,7 @@ pub fn school_method(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
     ab
 }
 
+#[inline(always)]
 pub fn smul(s: u64, v: [u64; 4]) -> [u64; 5] {
     let mut ab = [0_u64; 5];
     for j in 0..v.len() {
@@ -66,6 +67,7 @@ pub fn adds(t: &mut [u64], mut carry: u64) {
 /// # Returns
 ///
 /// The sum of the two multi-precision integers with carry propagation
+#[inline(always)]
 pub fn addv<const N: usize>(mut a: [u64; N], b: [u64; N]) -> [u64; N] {
     let mut carry = 0u64;
 
@@ -80,7 +82,7 @@ pub fn addv<const N: usize>(mut a: [u64; N], b: [u64; N]) -> [u64; N] {
     a
 }
 
-#[inline(never)]
+#[inline(always)]
 pub fn sub<const N: usize>(a: [u64; N], b: [u64; N]) -> [u64; N] {
     let mut borrow: i128 = 0;
     let mut c = [0; N];
