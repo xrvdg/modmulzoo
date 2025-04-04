@@ -46,6 +46,8 @@ enum Mod {
     None,
     Imm(u64),
     ImmLSL(u16, u8),
+    // LS could be combined with Imm and let the compiler backend deal with it.
+    LS(u8),
     Cond(String),
 }
 
@@ -86,6 +88,7 @@ impl<R: std::fmt::Display + Copy> InstructionF<R> {
             Mod::Imm(imm) => format!(", #{imm}"),
             Mod::Cond(cond) => format!(", {cond}"),
             Mod::ImmLSL(imm, shift) => format!(", #{imm}, lsl {shift}"),
+            Mod::LS(imm) => format!(", #{imm}"),
         };
         let inst = &self.opcode;
         format!("{inst} {regs}{extra}")
@@ -237,12 +240,53 @@ pub fn fmla2d_inst<const I: u8>(
     }
 }
 
+// Could add ins that returns consumes and returns the register
 pub fn ins_inst<const I: u8>(dest: &Reg<Idx<Simd<u64, 2>, I>>, a: &Reg<u64>) -> Instruction {
     InstructionF {
         opcode: "ins".to_string(),
         dest: Some(dest.to_typed_register()),
         src: vec![a.to_typed_register()],
         modifiers: Mod::None,
+    }
+}
+
+pub fn shl2d(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: &Reg<Simd<u64, 2>>,
+    imm: u8,
+) -> Reg<Simd<u64, 2>> {
+    let ret = alloc.fresh();
+    asm.append_instruction(vec![shl2d_inst(&ret, a, imm)]);
+    ret
+}
+
+pub fn shl2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> Instruction {
+    InstructionF {
+        opcode: "shl.2d".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![a.to_typed_register()],
+        modifiers: Mod::LS(imm),
+    }
+}
+
+pub fn usra2d(
+    _alloc: &mut Allocator,
+    asm: &mut Assembler,
+    add: Reg<Simd<u64, 2>>,
+    a: &Reg<Simd<u64, 2>>,
+    imm: u8,
+) -> Reg<Simd<u64, 2>> {
+    asm.append_instruction(vec![usra2d_inst(&add, a, imm)]);
+    add
+}
+
+pub fn usra2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> Instruction {
+    InstructionF {
+        opcode: "usra.2d".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![a.to_typed_register()],
+        modifiers: Mod::LS(imm),
     }
 }
 
@@ -260,6 +304,7 @@ embed_asm!(mov16b, "mov.16b", (a: Simd<u64,2>) -> Simd<u64,2>);
 embed_asm!(ucvtf2d, "ucvtf.2d", (a: Simd<u64,2>) -> Simd<f64,2>);
 embed_asm!(dup2d, "dup.2d", (a: u64) -> Simd<u64,2>);
 embed_asm!(ucvtf, "ucvtf", (a: u64) -> f64);
+embed_asm!(and16, "and.16b", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
 
 pub struct Reg<T> {
     reg: FreshRegister,
