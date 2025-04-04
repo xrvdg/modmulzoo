@@ -5,8 +5,6 @@ use std::{
     mem::{self},
 };
 
-pub mod montgomery;
-
 // See if these can be reduced. Took all of these as it was a u64 before
 
 impl TypedSizedRegister<FreshRegister> {
@@ -728,8 +726,8 @@ pub fn print_instructions<R: std::fmt::Display + Copy>(instrs: &[InstructionF<R>
 
 pub fn backend_global(label: String, instructions: &Vec<InstructionF<HardwareRegister>>) -> String {
     let mut asm_code = String::new();
-    asm_code.push_str(".text\n");
-    asm_code.push_str(&format!("_{}:\n", label));
+    asm_code.push_str(&format!(".global {label}\n.align 4\n.text\n"));
+    asm_code.push_str(&format!("_{label}:\n"));
     asm_code.extend(
         instructions
             .into_iter()

@@ -1,3 +1,5 @@
+.global single_step
+.align 4
 .text
 _single_step:
   mul x8, x0, x4

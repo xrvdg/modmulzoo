@@ -1,9 +1,9 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use hla::montgomery::{call_schoolmethod, call_schoolmethod_inline, call_single_step};
+use modmul_asm::{call_schoolmethod, call_schoolmethod_inline, call_single_step};
 use rand::Rng;
 
 fn generate_random_array() -> [u64; 4] {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     [
         rng.random::<u64>(),
         rng.random::<u64>(),
@@ -21,7 +21,7 @@ fn bench_single_step(c: &mut Criterion) {
         bencher.iter(|| {
             let a = black_box(a);
             let b = black_box(b);
-            black_box(call_single_step(a, b))
+            call_single_step(a, b)
         })
     });
 
@@ -37,7 +37,7 @@ fn bench_schoolmethod(c: &mut Criterion) {
         bencher.iter(|| {
             let a = black_box(a);
             let b = black_box(b);
-            black_box(call_schoolmethod(a, b))
+            call_schoolmethod(a, b)
         })
     });
 
@@ -45,7 +45,7 @@ fn bench_schoolmethod(c: &mut Criterion) {
         bencher.iter(|| {
             let a = black_box(a);
             let b = black_box(b);
-            black_box(call_schoolmethod_inline(a, b))
+            call_schoolmethod_inline(a, b)
         })
     });
 
