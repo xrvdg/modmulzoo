@@ -293,7 +293,14 @@ pub enum Addressing {
     D,
 }
 
-/// TODO new name under this construction
+impl Addressing {
+    fn to_pool(&self, reg: HardwareRegister) -> Pool {
+        match self {
+            Addressing::X => Pool::General(reg),
+            Addressing::V | Addressing::D => Pool::Vector(reg),
+        }
+    }
+}
 #[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
 pub struct TypedSizedRegister<R> {
     reg: R,
@@ -394,8 +401,23 @@ impl std::fmt::Display for HardwareRegister {
 #[derive(PartialEq, Debug)]
 enum RegisterState {
     Unassigned,
-    Assigned(TypedSizedRegister<HardwareRegister>),
+    Assigned(Pool),
     Dropped,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Pool {
+    General(HardwareRegister),
+    Vector(HardwareRegister),
+}
+
+impl Pool {
+    fn reg(&self) -> HardwareRegister {
+        match self {
+            Pool::General(reg) => *reg,
+            Pool::Vector(reg) => *reg,
+        }
+    }
 }
 
 type RegisterPool = BTreeSet<HardwareRegister>;
@@ -465,7 +487,7 @@ impl<T, const I: u8> RegisterSource for SimdIdx<T, 2, I> {
 pub fn input<T>(
     asm: &mut Allocator,
     mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
+    register_bank: &mut RegisterBank,
     phys: u64,
 ) -> Reg<T>
 where
@@ -474,13 +496,13 @@ where
     let fresh = asm.fresh();
 
     let hw_reg = HardwareRegister(phys);
+    let tp = fresh.to_typed_register();
 
-    let pool = T::get_register_pool(phys_registers);
-    if !pool.remove(&hw_reg) {
+    if !register_bank.remove(hw_reg, tp.addressing) {
         panic!("{:?} is already in use", phys)
     }
 
-    *mapping.index_mut(fresh.reg) = RegisterState::Assigned(T::to_typed_register(hw_reg));
+    *mapping.index_mut(fresh.reg) = RegisterState::Assigned(tp.addressing.to_pool(hw_reg));
 
     fresh
 }
@@ -522,10 +544,20 @@ impl RegisterBank {
         }
     }
 
+    fn pop_first(&mut self, addr: Addressing) -> Option<HardwareRegister> {
+        self.get_register_pool(addr).pop_first()
+    }
+
+    fn remove(&mut self, register: HardwareRegister, addr: Addressing) -> bool {
+        self.get_register_pool(addr).remove(&register)
+    }
+
     /// Return the hardware register back into the register pool
-    fn insert(&mut self, register: TypedSizedRegister<HardwareRegister>) -> bool {
-        self.get_register_pool(register.addressing)
-            .insert(register.reg)
+    fn insert(&mut self, register: Pool) -> bool {
+        match register {
+            Pool::General(hardware_register) => self.x.insert(hardware_register),
+            Pool::Vector(hardware_register) => self.v.insert(hardware_register),
+        }
     }
 }
 
@@ -546,7 +578,7 @@ impl std::fmt::Display for RegisterMapping {
         for (i, state) in self.0.iter().enumerate() {
             match state {
                 RegisterState::Unassigned => write!(f, "  {}: U", i)?,
-                RegisterState::Assigned(reg) => write!(f, "  {}: M{}", i, reg)?,
+                RegisterState::Assigned(reg) => write!(f, "  {}: M{:?}", i, reg)?,
                 RegisterState::Dropped => write!(f, "  {}: D", i)?,
             }
             write!(f, ", ")?
@@ -585,7 +617,7 @@ impl RegisterMapping {
             RegisterState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
 
             RegisterState::Assigned(reg) => TypedSizedRegister {
-                reg: reg.reg,
+                reg: reg.reg(),
                 addressing: fresh.addressing,
                 idx: fresh.idx,
             },
@@ -601,24 +633,22 @@ impl RegisterMapping {
     ) -> TypedSizedRegister<HardwareRegister> {
         // Possible to do a mutable reference here
         let entry = self.index_mut(*typed_register.as_fresh());
-        match *entry {
+        let hw_reg = match *entry {
             RegisterState::Unassigned => {
                 let addr = typed_register.addressing;
-                let pool = register_bank.get_register_pool(addr);
+                let hw_reg = register_bank.pop_first(addr).expect("ran out of registers");
 
-                let hw_reg = pool.pop_first().expect("ran out of registers");
-
-                let typed_hw_reg = TypedSizedRegister {
-                    reg: hw_reg,
-                    addressing: addr,
-                    idx: typed_register.idx,
-                };
-
-                *entry = RegisterState::Assigned(typed_hw_reg);
-                typed_hw_reg
+                *entry = RegisterState::Assigned(addr.to_pool(hw_reg));
+                hw_reg
             }
-            RegisterState::Assigned(reg) => reg,
+
+            RegisterState::Assigned(reg) => reg.reg(),
             RegisterState::Dropped => unreachable!("{typed_register:?} already has been dropped"),
+        };
+        TypedSizedRegister {
+            reg: hw_reg,
+            addressing: typed_register.addressing,
+            idx: typed_register.idx,
         }
     }
 
@@ -635,7 +665,7 @@ impl RegisterMapping {
                 let new = register_bank.insert(reg);
                 assert!(
                     new,
-                    "hardware:{reg} is assigned to more than one fresh register. "
+                    "hardware:{reg:?} is assigned to more than one fresh register. "
                 );
                 new
             }
@@ -654,7 +684,14 @@ impl RegisterMapping {
         // Todo this could go from Reg to index instead of to_type_registers
         match self.index(reg.reg) {
             RegisterState::Unassigned => None,
-            RegisterState::Assigned(hw_reg) => Some(*hw_reg),
+            RegisterState::Assigned(hw_reg) => {
+                let tp = reg.to_typed_register();
+                Some(TypedSizedRegister {
+                    reg: hw_reg.reg(),
+                    addressing: tp.addressing,
+                    idx: tp.idx,
+                })
+            }
             RegisterState::Dropped => None,
         }
     }
