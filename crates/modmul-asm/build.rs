@@ -400,6 +400,6 @@ pub fn smult_noinit_simd(
     let v0 = ucvtf(alloc, asm, &v[0]);
     let splat_c1 = dup2d(alloc, asm, &tmp);
     let cc1 = mov16b(alloc, asm, &splat_c1);
-    let t0 = fmla2d(alloc, asm, cc1.into_(), &s, &v0.as_simd()._0());
+    let t0 = fmla2d(alloc, asm, cc1.into_(), &s, v0.as_simd()._0());
     t0
 }

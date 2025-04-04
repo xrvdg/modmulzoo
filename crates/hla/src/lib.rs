@@ -218,7 +218,7 @@ pub fn fmla2d<const I: u8>(
     asm: &mut Assembler,
     add: Reg<Simd<f64, 2>>,
     a: &Reg<Simd<f64, 2>>,
-    b: &Reg<SimdIdx<f64, 2, I>>,
+    b: &Reg<Idx<Simd<f64, 2>, I>>,
 ) -> Reg<Simd<f64, 2>> {
     asm.append_instruction(vec![fmla2d_inst(&add, a, b)]);
     add
@@ -227,7 +227,7 @@ pub fn fmla2d<const I: u8>(
 pub fn fmla2d_inst<const I: u8>(
     dest_add: &Reg<Simd<f64, 2>>,
     a: &Reg<Simd<f64, 2>>,
-    b: &Reg<SimdIdx<f64, 2, I>>,
+    b: &Reg<Idx<Simd<f64, 2>, I>>,
 ) -> Instruction {
     InstructionF {
         opcode: "fmla.2d".to_string(),
@@ -259,7 +259,7 @@ pub struct Reg<T> {
 
 /// Define the struct ourself as to not have to import it
 pub struct Simd<T, const N: usize>(PhantomData<T>);
-pub struct SimdIdx<T, const N: usize, const I: u8>(PhantomData<T>);
+pub struct Idx<T, const I: u8>(PhantomData<T>);
 
 pub trait Reg64Bit {}
 impl Reg64Bit for u64 {}
@@ -339,16 +339,16 @@ impl Reg<f64> {
     }
 }
 
-impl<S> Reg<Simd<S, 2>> {
+impl<T> Reg<Simd<T, 2>> {
     pub fn into_<D>(self) -> Reg<Simd<D, 2>> {
         unsafe { std::mem::transmute(self) }
     }
 
-    pub fn _0(&self) -> &Reg<SimdIdx<S, 2, 0>> {
+    pub fn _0(&self) -> &Reg<Idx<Simd<T, 2>, 0>> {
         unsafe { std::mem::transmute(self) }
     }
 
-    pub fn _1(&self) -> &Reg<SimdIdx<S, 2, 1>> {
+    pub fn _1(&self) -> &Reg<Idx<Simd<T, 2>, 1>> {
         unsafe { std::mem::transmute(self) }
     }
 }
@@ -470,17 +470,15 @@ impl<T> RegisterSource for Simd<T, 2> {
     }
 }
 
-impl<T, const I: u8> RegisterSource for SimdIdx<T, 2, I> {
+impl<T: RegisterSource, const I: u8> RegisterSource for Idx<T, I> {
     fn get_register_pool(pools: &mut RegisterBank) -> &mut RegisterPool {
         &mut pools.v
     }
 
     fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
-        TypedSizedRegister {
-            reg,
-            addressing: Addressing::V,
-            idx: Some(I),
-        }
+        let mut tp = T::to_typed_register(reg);
+        tp.idx = Some(I);
+        tp
     }
 }
 
