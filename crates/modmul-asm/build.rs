@@ -1,5 +1,5 @@
 #![feature(iter_intersperse)]
-use std::{arch::global_asm, array};
+use std::{array, io::Write};
 
 use hla::*;
 use montgomery_reduction::yuval::{U64_2P, U64_I1, U64_I2, U64_I3, U64_MU0, U64_P};
@@ -93,7 +93,7 @@ fn build_smul() {
 
     let out = hardware_register_allocation(&mut mapping, &mut phys_registers, first, releases);
     let mut file = std::fs::File::create("./asm/global_asm_smul.s").expect("Unable to create file");
-    let txt = backend_global("smul".to_string(), out);
+    let txt = backend_global("smul".to_string(), &out);
     s.iter().for_each(|r| {
         println!("{}", mapping.output_register(r).unwrap());
     });
@@ -151,13 +151,19 @@ fn build_schoolmethod() {
 
     let mut file =
         std::fs::File::create("./asm/global_asm_schoolmethod.s").expect("Unable to create file");
-    let txt = backend_global("schoolmethod".to_string(), out);
+    let txt = backend_global("schoolmethod".to_string(), &out);
+
+    file.write_all(txt.as_bytes())
+        .expect("Unable to write data to file");
+
+    let mut file =
+        std::fs::File::create("./asm/inline_asm_schoolmethod.s").expect("Unable to create file");
+    let txt = backend_inline(&out);
 
     // Write this info in the assembly file
 
     println!("{}", outputs);
 
-    use std::io::Write;
     file.write_all(txt.as_bytes())
         .expect("Unable to write data to file");
 }
@@ -204,17 +210,19 @@ fn build_single_step() {
         .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
-    let outputs = backend_rust(mapping, &input_hw_registers, &output_hw_registers, &out);
-
-    let mut file =
-        std::fs::File::create("./asm/global_asm_single_step.s").expect("Unable to create file");
-    let txt = backend_global("single_step".to_string(), out);
+    let txt = backend_global("single_step".to_string(), &out);
 
     // Write this info in the assembly file
-
-    println!("{}", outputs);
+    let operands = backend_rust(mapping, &input_hw_registers, &output_hw_registers, &out);
+    let operands_with_semicolon: Vec<String> =
+        operands.lines().map(|line| format!("//{}", line)).collect();
+    let operands = format!("{}\n", operands_with_semicolon.join("\n"));
 
     use std::io::Write;
+    let mut file =
+        std::fs::File::create("./asm/global_asm_single_step.s").expect("Unable to create file");
+    file.write_all(operands.as_bytes())
+        .expect("Unable to write data to file");
     file.write_all(txt.as_bytes())
         .expect("Unable to write data to file");
 }
@@ -257,7 +265,7 @@ fn build_smul_add() {
     let out = hardware_register_allocation(&mut mapping, &mut phys_registers, first, releases);
     let mut file =
         std::fs::File::create("./asm/global_asm_smul_add.s").expect("Unable to create file");
-    let txt = backend_global("smul_add".to_string(), out);
+    let txt = backend_global("smul_add".to_string(), &out);
     let outputs: String = s
         .iter()
         .enumerate()
@@ -309,14 +317,6 @@ fn simd_test() {
     print_instructions(&out);
 }
 
-global_asm!(include_str!("../../asm/mulu128.s"));
-
-global_asm!(include_str!("../../asm/global_asm_smul.s"));
-// Doesn't work
-// fn inline_asm() {
-//     unsafe { asm!(include_str!("../asm/asm_test.s")) };
-// }
-
 fn gen_mulu128(
     alloc: &mut Allocator,
     asm: &mut Assembler,
@@ -348,24 +348,6 @@ fn build_mulu128() {
     print_instructions(&physical_inst);
     ret.iter()
         .for_each(|r| println!("{}", mapping.output_register(r).unwrap()));
-}
-#[derive(Debug)]
-#[repr(C)]
-pub struct U128S {
-    lo: u64,
-    hi: u64,
-}
-
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct U128L([u64; 3]);
-
-#[inline(never)]
-pub extern "C" fn struct_return(a: u64, c: u64, d: u64, b: u64) -> U128L {
-    let lo = a * b;
-    let hi = c * b;
-    let c = d * b;
-    U128L([lo, hi, lo - c])
 }
 
 fn main() {
@@ -567,21 +549,6 @@ pub fn mul_u128(
 ) -> [Reg<u64>; 2] {
     [mul(alloc, asm, a, b), umulh(alloc, asm, a, b)]
 }
-
-#[inline(never)]
-pub extern "C" fn test_input(a: [u64; 4], b: u64) -> [u64; 5] {
-    let mut out = [0; 5];
-    let mut sum = 0;
-    for (i, ai) in a.iter().enumerate() {
-        sum += ai;
-        out[i] = ai * b;
-    }
-    out[4] = sum;
-    out
-}
-
-#[inline(never)]
-pub extern "C" fn c_test_input(v: *const u64, size: u64, s: u64) {}
 
 // TODO initiliase constant
 const C1: f64 = 0.;

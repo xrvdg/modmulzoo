@@ -1,4 +1,6 @@
 .text
+.global _smul
+.align 4
 _smul:
   mul x5, x1, x0
   umulh x1, x1, x0

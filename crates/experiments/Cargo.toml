@@ -24,12 +24,3 @@ mod256-generator = { path = "../mod256-generator" }
 [[bench]]
 name = "montgomery"
 harness = false
-
-[profile.release]
-debug = 2
-lto = "fat"
-codegen-units = 1
-
-[profile.bench]
-lto = "fat"
-codegen-units = 1
