@@ -136,10 +136,34 @@ fn build_smul_add() {
     build_func("smul_add", input_setup);
 }
 
+fn build_smul_noinit_simd() {
+    fn input_setup(
+        mut alloc: Allocator,
+        mapping: &mut RegisterMapping,
+        phys_registers: &mut RegisterBank,
+        asm: &mut Assembler,
+    ) -> (
+        Vec<TypedSizedRegister<HardwareRegister>>,
+        Vec<Reg<Simd<f64, 2>>>,
+    ) {
+        let s: Reg<Simd<u64, 2>> = input(&mut alloc, mapping, phys_registers, 0);
+        let v = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, (1 + i) as u64));
+
+        let mut input_hw_registers = mapping.output_register(&s).into_iter().collect::<Vec<_>>();
+        input_hw_registers.extend(v.iter().filter_map(|reg| mapping.output_register(reg)));
+
+        let res = smult_noinit_simd(&mut alloc, asm, s, v);
+
+        (input_hw_registers, Vec::from([res]))
+    }
+    build_func("smul_noint_simd", input_setup);
+}
+
 fn main() {
     build_smul_add();
     build_schoolmethod();
     build_single_step();
+    build_smul_noinit_simd();
 }
 
 /* GENERATORS */
@@ -348,12 +372,26 @@ pub fn mul_u128(
 // TODO initiliase constant
 const C1: f64 = 0.;
 
+fn load_tuple(fst: Reg<u64>, snd: Reg<u64>) -> Reg<Simd<u64, 2>> {
+    todo!()
+}
+
+fn transpose_u256_to_simd(limbs: [[Reg<u64>; 4]; 2]) -> [Reg<Simd<u64, 2>>; 4] {
+    let [[l00, l01, l02, l03], [l10, l11, l12, l13]] = limbs;
+    [
+        load_tuple(l00, l10),
+        load_tuple(l01, l11),
+        load_tuple(l02, l12),
+        load_tuple(l03, l13),
+    ]
+}
+
 // Whole vector is in registers, but that might not be great. Better to have it on the stack and load it from there
 pub fn smult_noinit_simd(
     alloc: &mut Allocator,
     asm: &mut Assembler,
     s: Reg<Simd<u64, 2>>,
-    v: [Reg<u64>; 5],
+    v: [Reg<u64>; 1],
 ) -> Reg<Simd<f64, 2>> {
     // first do it as is written
     let s = ucvtf2d(alloc, asm, &s);
@@ -362,6 +400,6 @@ pub fn smult_noinit_simd(
     let v0 = ucvtf(alloc, asm, &v[0]);
     let splat_c1 = dup2d(alloc, asm, &tmp);
     let cc1 = mov16b(alloc, asm, &splat_c1);
-    let t0 = fmla2d(alloc, asm, cc1.into_(), &s, &v0.as_simd(), 0);
+    let t0 = fmla2d(alloc, asm, cc1.into_(), &s, &v0.as_simd()._0());
     t0
 }

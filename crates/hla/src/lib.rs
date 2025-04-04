@@ -46,7 +46,6 @@ enum Mod {
     None,
     Imm(u64),
     ImmLSL(u16, u8),
-    Idx(u8),
     Cond(String),
 }
 
@@ -56,7 +55,10 @@ impl<R: std::fmt::Display> std::fmt::Display for TypedSizedRegister<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let reg = &self.reg;
         let addr = self.addressing;
-        write!(f, "{addr}{reg}")
+        match self.idx {
+            Some(idx) => write!(f, "{addr}{reg}[{idx}]"),
+            None => write!(f, "{addr}{reg}"),
+        }
     }
 }
 
@@ -83,7 +85,6 @@ impl<R: std::fmt::Display + Copy> InstructionF<R> {
             Mod::None => String::new(),
             Mod::Imm(imm) => format!(", #{imm}"),
             Mod::Cond(cond) => format!(", {cond}"),
-            Mod::Idx(idx) => format!("[{idx}]"),
             Mod::ImmLSL(imm, shift) => format!(", #{imm}, lsl {shift}"),
         };
         let inst = &self.opcode;
@@ -212,29 +213,27 @@ pub fn movk_inst(dest: &Reg<u64>, imm: u16, shift: u8) -> Instruction {
 }
 
 // Create a new type for b that takes into account the index
-pub fn fmla2d(
+pub fn fmla2d<const I: u8>(
     _alloc: &mut Allocator, // Done to have the same pattern as the rest
     asm: &mut Assembler,
     add: Reg<Simd<f64, 2>>,
     a: &Reg<Simd<f64, 2>>,
-    b: &Reg<Simd<f64, 2>>,
-    idx: u8,
+    b: &Reg<SimdIdx<f64, 2, I>>,
 ) -> Reg<Simd<f64, 2>> {
-    asm.append_instruction(vec![fmla2d_inst(&add, a, b, idx)]);
+    asm.append_instruction(vec![fmla2d_inst(&add, a, b)]);
     add
 }
 
-pub fn fmla2d_inst(
+pub fn fmla2d_inst<const I: u8>(
     dest_add: &Reg<Simd<f64, 2>>,
     a: &Reg<Simd<f64, 2>>,
-    b: &Reg<Simd<f64, 2>>,
-    idx: u8,
+    b: &Reg<SimdIdx<f64, 2, I>>,
 ) -> Instruction {
     InstructionF {
         opcode: "fmla.2d".to_string(),
         dest: Some(dest_add.to_typed_register()),
         src: vec![a.to_typed_register(), b.to_typed_register()],
-        modifiers: Mod::Idx(idx),
+        modifiers: Mod::None,
     }
 }
 
@@ -249,9 +248,9 @@ embed_asm!(sbcs, "sbcs", (a: u64, b: u64) -> u64);
 
 // Doesn't support immediates
 embed_asm!(mov16b, "mov.16b", (a: Simd<u64,2>) -> Simd<u64,2>);
-embed_asm!(ucvtf2d, "uvctf.2d", (a: Simd<u64,2>) -> Simd<f64,2>);
+embed_asm!(ucvtf2d, "ucvtf.2d", (a: Simd<u64,2>) -> Simd<f64,2>);
 embed_asm!(dup2d, "dup.2d", (a: u64) -> Simd<u64,2>);
-embed_asm!(ucvtf, "uvctf", (a: u64) -> f64);
+embed_asm!(ucvtf, "ucvtf", (a: u64) -> f64);
 
 pub struct Reg<T> {
     reg: FreshRegister,
@@ -260,6 +259,7 @@ pub struct Reg<T> {
 
 /// Define the struct ourself as to not have to import it
 pub struct Simd<T, const N: usize>(PhantomData<T>);
+pub struct SimdIdx<T, const N: usize, const I: u8>(PhantomData<T>);
 
 pub trait Reg64Bit {}
 impl Reg64Bit for u64 {}
@@ -298,6 +298,7 @@ pub enum Addressing {
 pub struct TypedSizedRegister<R> {
     reg: R,
     addressing: Addressing,
+    idx: Option<u8>,
 }
 
 /// The result of the liveness analysis and it gives commands to the
@@ -333,6 +334,14 @@ impl Reg<f64> {
 
 impl<S> Reg<Simd<S, 2>> {
     pub fn into_<D>(self) -> Reg<Simd<D, 2>> {
+        unsafe { std::mem::transmute(self) }
+    }
+
+    pub fn _0(&self) -> &Reg<SimdIdx<S, 2, 0>> {
+        unsafe { std::mem::transmute(self) }
+    }
+
+    pub fn _1(&self) -> &Reg<SimdIdx<S, 2, 1>> {
         unsafe { std::mem::transmute(self) }
     }
 }
@@ -406,6 +415,7 @@ impl RegisterSource for u64 {
         TypedSizedRegister {
             reg,
             addressing: Addressing::X,
+            idx: None,
         }
     }
 }
@@ -419,6 +429,7 @@ impl RegisterSource for f64 {
         TypedSizedRegister {
             reg,
             addressing: Addressing::D,
+            idx: None,
         }
     }
 }
@@ -432,6 +443,21 @@ impl<T> RegisterSource for Simd<T, 2> {
         TypedSizedRegister {
             reg,
             addressing: Addressing::V,
+            idx: None,
+        }
+    }
+}
+
+impl<T, const I: u8> RegisterSource for SimdIdx<T, 2, I> {
+    fn get_register_pool(pools: &mut RegisterBank) -> &mut RegisterPool {
+        &mut pools.v
+    }
+
+    fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
+        TypedSizedRegister {
+            reg,
+            addressing: Addressing::V,
+            idx: Some(I),
         }
     }
 }
@@ -557,7 +583,12 @@ impl RegisterMapping {
     ) -> TypedSizedRegister<HardwareRegister> {
         match *self.index(*fresh.as_fresh()) {
             RegisterState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
-            RegisterState::Assigned(reg) => reg,
+
+            RegisterState::Assigned(reg) => TypedSizedRegister {
+                reg: reg.reg,
+                addressing: fresh.addressing,
+                idx: fresh.idx,
+            },
             RegisterState::Dropped => unreachable!("{fresh:?} already has been dropped"),
         }
     }
@@ -580,6 +611,7 @@ impl RegisterMapping {
                 let typed_hw_reg = TypedSizedRegister {
                     reg: hw_reg,
                     addressing: addr,
+                    idx: typed_register.idx,
                 };
 
                 *entry = RegisterState::Assigned(typed_hw_reg);
