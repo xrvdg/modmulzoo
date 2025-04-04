@@ -372,17 +372,28 @@ pub fn mul_u128(
 // TODO initiliase constant
 const C1: f64 = 0.;
 
-fn load_tuple(fst: Reg<u64>, snd: Reg<u64>) -> Reg<Simd<u64, 2>> {
-    todo!()
+fn load_tuple(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    fst: Reg<u64>,
+    snd: Reg<u64>,
+) -> Reg<Simd<u64, 2>> {
+    let fresh: Reg<Simd<u64, 2>> = alloc.fresh();
+    asm.append_instruction(vec![ins_inst(fresh._0(), &fst), ins_inst(fresh._1(), &snd)]);
+    fresh
 }
 
-fn transpose_u256_to_simd(limbs: [[Reg<u64>; 4]; 2]) -> [Reg<Simd<u64, 2>>; 4] {
+fn transpose_u256_to_simd(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    limbs: [[Reg<u64>; 4]; 2],
+) -> [Reg<Simd<u64, 2>>; 4] {
     let [[l00, l01, l02, l03], [l10, l11, l12, l13]] = limbs;
     [
-        load_tuple(l00, l10),
-        load_tuple(l01, l11),
-        load_tuple(l02, l12),
-        load_tuple(l03, l13),
+        load_tuple(alloc, asm, l00, l10),
+        load_tuple(alloc, asm, l01, l11),
+        load_tuple(alloc, asm, l02, l12),
+        load_tuple(alloc, asm, l03, l13),
     ]
 }
 

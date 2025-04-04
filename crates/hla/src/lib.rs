@@ -237,6 +237,15 @@ pub fn fmla2d_inst<const I: u8>(
     }
 }
 
+pub fn ins_inst<const I: u8>(dest: &Reg<Idx<Simd<u64, 2>, I>>, a: &Reg<u64>) -> Instruction {
+    InstructionF {
+        opcode: "ins".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![a.to_typed_register()],
+        modifiers: Mod::None,
+    }
+}
+
 embed_asm!(mul, "mul", (a: u64, b: u64) -> u64);
 embed_asm!(umulh, "umulh", (a: u64, b: u64) -> u64);
 
