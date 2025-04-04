@@ -1,5 +1,3 @@
-use std::arch::{asm, global_asm};
-
 use modmul_asm::call_single_step;
 
 fn main() {

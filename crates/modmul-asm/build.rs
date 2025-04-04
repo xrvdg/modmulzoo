@@ -1,5 +1,5 @@
 #![feature(iter_intersperse)]
-use std::{arch::global_asm, array, io::Write};
+use std::{array, io::Write};
 
 use hla::*;
 use montgomery_reduction::yuval::{U64_2P, U64_I1, U64_I2, U64_I3, U64_MU0, U64_P};
@@ -314,14 +314,6 @@ fn simd_test() {
     println!();
     print_instructions(&out);
 }
-
-global_asm!(include_str!("../../asm/mulu128.s"));
-
-global_asm!(include_str!("../../asm/global_asm_smul.s"));
-// Doesn't work
-// fn inline_asm() {
-//     unsafe { asm!(include_str!("../asm/asm_test.s")) };
-// }
 
 fn gen_mulu128(
     alloc: &mut Allocator,

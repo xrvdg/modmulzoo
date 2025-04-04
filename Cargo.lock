@@ -632,7 +632,6 @@ dependencies = [
  "hla",
  "mod256-generator",
  "montgomery_reduction",
- "paste",
  "quickcheck",
  "quickcheck_macros",
  "rand 0.9.0",
