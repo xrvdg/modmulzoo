@@ -210,17 +210,19 @@ fn build_single_step() {
         .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
-    let outputs = backend_rust(mapping, &input_hw_registers, &output_hw_registers, &out);
-
-    let mut file =
-        std::fs::File::create("./asm/global_asm_single_step.s").expect("Unable to create file");
     let txt = backend_global("single_step".to_string(), &out);
 
     // Write this info in the assembly file
-
-    println!("{}", outputs);
+    let operands = backend_rust(mapping, &input_hw_registers, &output_hw_registers, &out);
+    let operands_with_semicolon: Vec<String> =
+        operands.lines().map(|line| format!(";{}", line)).collect();
+    let operands = format!("{}\n", operands_with_semicolon.join("\n"));
 
     use std::io::Write;
+    let mut file =
+        std::fs::File::create("./asm/global_asm_single_step.s").expect("Unable to create file");
+    file.write_all(operands.as_bytes())
+        .expect("Unable to write data to file");
     file.write_all(txt.as_bytes())
         .expect("Unable to write data to file");
 }
