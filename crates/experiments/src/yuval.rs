@@ -220,7 +220,7 @@ pub fn reduce_ct_stub(a: [u64; 4]) -> [u64; 4] {
 mod tests {
     use crate::{
         arith::modulus,
-        yuval::{mul_logjumps_unr_2, parallel},
+        yuval::{mul_logjumps_unr_2, parallel_reduce},
     };
     use block_multiplier::constants::{P, R2};
     use mod256_generator::U256b64;
@@ -244,9 +244,9 @@ mod tests {
     fn parallel_roundtrip(a: U256b64) {
         let a = a.0;
         // Montgomery form
-        let a_tilde: [u64; 4] = parallel(a, R2);
+        let a_tilde: [u64; 4] = parallel_reduce(a, R2);
         // and back
-        let a_round: [u64; 4] = parallel(a_tilde, [1, 0, 0, 0]);
+        let a_round: [u64; 4] = parallel_reduce(a_tilde, [1, 0, 0, 0]);
 
         let d = modulus(a, P);
         let actual = modulus(a_round, P);
