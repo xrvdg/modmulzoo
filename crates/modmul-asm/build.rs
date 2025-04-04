@@ -215,7 +215,7 @@ fn build_single_step() {
     // Write this info in the assembly file
     let operands = backend_rust(mapping, &input_hw_registers, &output_hw_registers, &out);
     let operands_with_semicolon: Vec<String> =
-        operands.lines().map(|line| format!(";{}", line)).collect();
+        operands.lines().map(|line| format!("//{}", line)).collect();
     let operands = format!("{}\n", operands_with_semicolon.join("\n"));
 
     use std::io::Write;
