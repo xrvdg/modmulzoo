@@ -270,6 +270,26 @@ pub fn shl2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> I
     }
 }
 
+pub fn ushr2d(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: &Reg<Simd<u64, 2>>,
+    imm: u8,
+) -> Reg<Simd<u64, 2>> {
+    let ret = alloc.fresh();
+    asm.append_instruction(vec![ushr2d_inst(&ret, a, imm)]);
+    ret
+}
+
+pub fn ushr2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> Instruction {
+    InstructionF {
+        opcode: "ushr.2d".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![a.to_typed_register()],
+        modifiers: Mod::LS(imm),
+    }
+}
+
 pub fn usra2d(
     _alloc: &mut Allocator,
     asm: &mut Assembler,

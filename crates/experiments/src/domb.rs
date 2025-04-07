@@ -252,7 +252,7 @@ pub fn u256_to_u260_shl2_simd_stub(limbs: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5
 }
 
 #[inline(always)]
-fn u256_to_u260_shl2_simd(limbs: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
+pub fn u256_to_u260_shl2_simd(limbs: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
     let [l0, l1, l2, l3] = limbs;
     [
         (l0 << 2) & Simd::splat(MASK52),

@@ -1,6 +1,7 @@
 #![feature(iter_intersperse)]
 use std::array;
 
+use block_multiplier::constants::*;
 use hla::*;
 use montgomery_reduction::yuval::{U64_2P, U64_I1, U64_I2, U64_I3, U64_MU0, U64_P};
 
@@ -159,11 +160,36 @@ fn build_smul_noinit_simd() {
     build_func("smul_noint_simd", input_setup);
 }
 
+fn build_u256_to_u260_shl2_simd() {
+    fn input_setup(
+        mut alloc: Allocator,
+        mapping: &mut RegisterMapping,
+        phys_registers: &mut RegisterBank,
+        asm: &mut Assembler,
+    ) -> (
+        Vec<TypedSizedRegister<HardwareRegister>>,
+        Vec<Reg<Simd<u64, 2>>>,
+    ) {
+        let limbs = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, i as u64));
+
+        let input_hw_registers: Vec<_> = limbs
+            .iter()
+            .filter_map(|reg| mapping.output_register(reg))
+            .collect();
+
+        let res = u256_to_u260_shl2_simd(&mut alloc, asm, limbs);
+
+        (input_hw_registers, Vec::from(res))
+    }
+    build_func("u256_to_u260_shl2_simd", input_setup);
+}
+
 fn main() {
     build_smul_add();
     build_schoolmethod();
     build_single_step();
     build_smul_noinit_simd();
+    build_u256_to_u260_shl2_simd();
 }
 
 /* GENERATORS */
@@ -290,6 +316,7 @@ pub fn school_method(
     t
 }
 
+// TODO make load_const smart that it knowns when to use mov and when to use a sequence of movk?
 pub fn load_const(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<u64> {
     let reg = alloc.fresh();
 
@@ -395,6 +422,42 @@ fn transpose_u256_to_simd(
         load_tuple(alloc, asm, l02, l12),
         load_tuple(alloc, asm, l03, l13),
     ]
+}
+
+fn u256_to_u260_shl2_simd(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    limbs: [Reg<Simd<u64, 2>>; 4],
+) -> [Reg<Simd<u64, 2>>; 5] {
+    let [l0, l1, l2, l3] = limbs;
+    let mask = {
+        let val = mov(alloc, asm, MASK52);
+        let mask = dup2d(alloc, asm, &val);
+        mask
+    };
+
+    let shifted_l1 = shl2d(alloc, asm, &l1, 14);
+    let shifted_l2 = shl2d(alloc, asm, &l2, 26);
+    let shifted_l3 = shl2d(alloc, asm, &l3, 38);
+
+    let shifted_ol0 = shl2d(alloc, asm, &l0, 2);
+    let shifted_ol1 = usra2d(alloc, asm, shifted_l1, &l0, 50);
+    let shifted_ol2 = usra2d(alloc, asm, shifted_l2, &l1, 38);
+    let shifted_ol3 = usra2d(alloc, asm, shifted_l3, &l2, 26);
+
+    [
+        and16(alloc, asm, &shifted_ol0, &mask),
+        and16(alloc, asm, &shifted_ol1, &mask),
+        and16(alloc, asm, &shifted_ol2, &mask),
+        and16(alloc, asm, &shifted_ol3, &mask),
+        ushr2d(alloc, asm, &l3, 14),
+    ]
+}
+
+fn load_const_simd(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<Simd<u64, 2>> {
+    let val = load_const(alloc, asm, val);
+    let mask = dup2d(alloc, asm, &val);
+    mask
 }
 
 // Whole vector is in registers, but that might not be great. Better to have it on the stack and load it from there

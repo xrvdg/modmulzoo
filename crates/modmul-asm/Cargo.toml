@@ -5,6 +5,7 @@ edition = "2024"
 
 [build-dependencies]
 montgomery_reduction = { path = "../experiments" }
+block-multiplier = { path = "../block-multiplier" }
 hla = { path = "../hla" }
 
 [dev-dependencies]

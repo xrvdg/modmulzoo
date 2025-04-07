@@ -1,10 +1,15 @@
-use std::arch::{asm, global_asm};
+#![feature(portable_simd)]
+use std::{
+    arch::{asm, global_asm},
+    simd::Simd,
+};
 
 global_asm!(include_str!("../asm/global_asm_schoolmethod.s"));
 global_asm!(include_str!("../asm/mulu128.s"));
 global_asm!(include_str!("../asm/global_asm_smul.s"));
 global_asm!(include_str!("../asm/global_asm_smul_add.s"));
 global_asm!(include_str!("../asm/global_asm_single_step.s"));
+global_asm!(include_str!("../asm/global_asm_u256_to_u260_shl2_simd.s"));
 
 #[inline(never)]
 // If this function gets moved/inlined the linker won't be able to find the assembly.
@@ -205,13 +210,29 @@ fn call_smul_add(t: [u64; 5], a: [u64; 4], b: u64) -> [u64; 5] {
     out
 }
 
+#[inline(never)]
+fn call_u256_to_u260_shl2_simd(a: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
+    let [a0, a1, a2, a3] = a;
+    let mut out = [Simd::splat(0); 5];
+    unsafe {
+        asm!("bl _u256_to_u260_shl2_simd",
+        in("v0") a0, in("v1") a1, in("v2") a2, in("v3") a3,
+        lateout("v0") out[0], lateout("v1") out[1], lateout("v2") out[2], lateout("v4") out[3], lateout("v3") out[4],
+        lateout("x0") _, lateout("v5") _, lateout("v6") _, lateout("v7") _, lateout("v8") _,
+        lateout("lr") _)
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
+    use std::simd::Simd;
+
     use mod256_generator::U256b64;
-    use montgomery_reduction::{arith, yuval};
+    use montgomery_reduction::{arith, domb, yuval};
     use quickcheck_macros::quickcheck;
 
-    use crate::{call_schoolmethod, call_single_step};
+    use crate::{call_schoolmethod, call_single_step, call_u256_to_u260_shl2_simd};
     use crate::{call_smul, call_smul_add};
 
     #[quickcheck]
@@ -237,5 +258,11 @@ mod tests {
     #[quickcheck]
     fn single_step(a: U256b64, b: U256b64) -> bool {
         yuval::parallel_reduce(b.0, a.0) == call_single_step(a.0, b.0)
+    }
+
+    #[quickcheck]
+    fn u256_to_u260(a: U256b64) -> bool {
+        let input = a.0.map(|i| Simd::splat(i));
+        call_u256_to_u260_shl2_simd(input) == domb::u256_to_u260_shl2_simd(input)
     }
 }
