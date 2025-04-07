@@ -184,12 +184,37 @@ fn build_u256_to_u260_shl2_simd() {
     build_func("u256_to_u260_shl2_simd", input_setup);
 }
 
+fn build_u260_to_u256_simd() {
+    fn input_setup(
+        mut alloc: Allocator,
+        mapping: &mut RegisterMapping,
+        phys_registers: &mut RegisterBank,
+        asm: &mut Assembler,
+    ) -> (
+        Vec<TypedSizedRegister<HardwareRegister>>,
+        Vec<Reg<Simd<u64, 2>>>,
+    ) {
+        let limbs = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, i as u64));
+
+        let input_hw_registers: Vec<_> = limbs
+            .iter()
+            .filter_map(|reg| mapping.output_register(reg))
+            .collect();
+
+        let res = u260_to_u256_simd(&mut alloc, asm, limbs);
+
+        (input_hw_registers, Vec::from(res))
+    }
+    build_func("u260_to_u256_simd", input_setup);
+}
+
 fn main() {
     build_smul_add();
     build_schoolmethod();
     build_single_step();
     build_smul_noinit_simd();
     build_u256_to_u260_shl2_simd();
+    build_u260_to_u256_simd();
 }
 
 /* GENERATORS */
@@ -451,6 +476,26 @@ fn u256_to_u260_shl2_simd(
         and16(alloc, asm, &shifted_ol2, &mask),
         and16(alloc, asm, &shifted_ol3, &mask),
         ushr2d(alloc, asm, &l3, 14),
+    ]
+}
+
+fn u260_to_u256_simd(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    limbs: [Reg<Simd<u64, 2>>; 5],
+) -> [Reg<Simd<u64, 2>>; 4] {
+    let [l0, l1, l2, l3, l4] = limbs;
+
+    let shifted_l1 = shl2d(alloc, asm, &l1, 52);
+    let shifted_l2 = shl2d(alloc, asm, &l2, 40);
+    let shifted_l3 = shl2d(alloc, asm, &l3, 28);
+    let shifted_l4 = shl2d(alloc, asm, &l4, 16);
+
+    [
+        orr16(alloc, asm, &l0, &shifted_l1),
+        usra2d(alloc, asm, shifted_l2, &l1, 12),
+        usra2d(alloc, asm, shifted_l3, &l2, 24),
+        usra2d(alloc, asm, shifted_l4, &l3, 36),
     ]
 }
 

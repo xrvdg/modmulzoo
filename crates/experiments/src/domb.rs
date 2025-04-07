@@ -276,7 +276,7 @@ fn u260_to_u256(limbs: [u64; 5]) -> [u64; 4] {
 
 // THis can probably be combined and monomorphised, but that would require an into most likely
 #[inline(always)]
-fn u260_to_u256_simd(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
+pub fn u260_to_u256_simd(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
     let [l0, l1, l2, l3, l4] = limbs;
     [
         l0 | (l1 << 52),
@@ -284,6 +284,11 @@ fn u260_to_u256_simd(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
         ((l2 >> 24) | (l3 << 28)),
         ((l3 >> 36) | (l4 << 16)),
     ]
+}
+
+#[inline(never)]
+pub fn u260_to_u256_simd_stub(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
+    u260_to_u256_simd(limbs)
 }
 
 #[inline(always)]

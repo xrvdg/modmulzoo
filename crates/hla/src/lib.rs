@@ -325,6 +325,7 @@ embed_asm!(ucvtf2d, "ucvtf.2d", (a: Simd<u64,2>) -> Simd<f64,2>);
 embed_asm!(dup2d, "dup.2d", (a: u64) -> Simd<u64,2>);
 embed_asm!(ucvtf, "ucvtf", (a: u64) -> f64);
 embed_asm!(and16, "and.16b", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
+embed_asm!(orr16, "orr.16b", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
 
 pub struct Reg<T> {
     reg: FreshRegister,

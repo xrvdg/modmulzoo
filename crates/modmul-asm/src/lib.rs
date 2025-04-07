@@ -10,6 +10,7 @@ global_asm!(include_str!("../asm/global_asm_smul.s"));
 global_asm!(include_str!("../asm/global_asm_smul_add.s"));
 global_asm!(include_str!("../asm/global_asm_single_step.s"));
 global_asm!(include_str!("../asm/global_asm_u256_to_u260_shl2_simd.s"));
+global_asm!(include_str!("../asm/global_asm_u260_to_u256_simd.s"));
 
 #[inline(never)]
 // If this function gets moved/inlined the linker won't be able to find the assembly.
@@ -224,15 +225,31 @@ fn call_u256_to_u260_shl2_simd(a: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
     out
 }
 
+#[inline(never)]
+fn call_u260_to_u256_simd(a: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
+    let [a0, a1, a2, a3, a4] = a;
+    let mut out = [Simd::splat(0); 4];
+    unsafe {
+        asm!("bl _u260_to_u256_simd",
+        in("v0") a0, in("v1") a1, in("v2") a2, in("v3") a3, in("v4") a4,
+        lateout("v0") out[0], lateout("v6") out[1], lateout("v7") out[2], lateout("v4") out[3],
+        lateout("v1") _, lateout("v2") _, lateout("v3") _, lateout("v5") _,
+        lateout("lr") _)
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use std::simd::Simd;
 
-    use mod256_generator::U256b64;
+    use mod256_generator::{U256b52, U256b64};
     use montgomery_reduction::{arith, domb, yuval};
     use quickcheck_macros::quickcheck;
 
-    use crate::{call_schoolmethod, call_single_step, call_u256_to_u260_shl2_simd};
+    use crate::{
+        call_schoolmethod, call_single_step, call_u256_to_u260_shl2_simd, call_u260_to_u256_simd,
+    };
     use crate::{call_smul, call_smul_add};
 
     #[quickcheck]
@@ -264,5 +281,11 @@ mod tests {
     fn u256_to_u260(a: U256b64) -> bool {
         let input = a.0.map(|i| Simd::splat(i));
         call_u256_to_u260_shl2_simd(input) == domb::u256_to_u260_shl2_simd(input)
+    }
+
+    #[quickcheck]
+    fn u260_to_u256(a: U256b52) -> bool {
+        let input = a.0.map(|i| Simd::splat(i));
+        call_u260_to_u256_simd(input) == domb::u260_to_u256_simd(input)
     }
 }
