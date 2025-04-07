@@ -213,6 +213,42 @@ fn build_u260_to_u256_simd() {
     build_func("u260_to_u256_simd", input_setup);
 }
 
+fn build_vmultadd_noinit_simd() {
+    fn input_setup(
+        mut alloc: Allocator,
+        mapping: &mut RegisterMapping,
+        phys_registers: &mut RegisterBank,
+        asm: &mut Assembler,
+    ) -> (
+        Vec<TypedSizedRegister<HardwareRegister>>,
+        Vec<Reg<Simd<u64, 2>>>,
+    ) {
+        let t = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, i as u64));
+        let a =
+            array::from_fn(|i| input(&mut alloc, mapping, phys_registers, (i + t.len()) as u64));
+        let b = array::from_fn(|i| {
+            input(
+                &mut alloc,
+                mapping,
+                phys_registers,
+                (i + t.len() + a.len()) as u64,
+            )
+        }); // Assuming b starts after a
+
+        let input_hw_registers: Vec<_> = t
+            .iter()
+            .chain(a.iter())
+            .chain(b.iter())
+            .filter_map(|reg| mapping.output_register(reg))
+            .collect();
+
+        let res = vmultadd_noinit_simd(&mut alloc, asm, t, a, b);
+
+        (input_hw_registers, Vec::from(res))
+    }
+    build_func("vmultadd_noinit_simd", input_setup);
+}
+
 fn main() {
     build_smul_add();
     build_schoolmethod();
@@ -220,6 +256,7 @@ fn main() {
     build_smul_noinit_simd();
     build_u256_to_u260_shl2_simd();
     build_u260_to_u256_simd();
+    build_vmultadd_noinit_simd();
 }
 
 /* GENERATORS */
@@ -351,7 +388,11 @@ pub fn load_const(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<u
     let reg = alloc.fresh();
 
     for i in 0..4 {
-        asm.append_instruction(vec![movk_inst(&reg, (val >> (i * 16)) as u16, i * 16)])
+        let vali = (val >> (i * 16)) as u16;
+        // If the value for limb i is zero then we do not have to emit an instruction.
+        if vali != 0 {
+            asm.append_instruction(vec![movk_inst(&reg, vali, i * 16)])
+        }
     }
     reg
 }
@@ -426,9 +467,6 @@ pub fn mul_u128(
 }
 
 //*******  SIMD **********/
-// TODO initiliase constant
-const C1: f64 = 0.;
-
 fn load_tuple(
     alloc: &mut Allocator,
     asm: &mut Assembler,
@@ -529,6 +567,38 @@ fn make_initials(alloc: &mut Allocator, asm: &mut Assembler) -> [Reg<Simd<u64, 2
         t[j] = dup2d(alloc, asm, &upper_val);
     }
 
+    t
+}
+
+fn vmultadd_noinit_simd(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    mut t: [Reg<Simd<u64, 2>>; 10],
+    a: [Reg<Simd<u64, 2>>; 5],
+    b: [Reg<Simd<u64, 2>>; 5],
+) -> [Reg<Simd<u64, 2>>; 10] {
+    let c1 = mov(alloc, asm, C1.to_bits());
+    let c1 = dup2d(alloc, asm, &c1);
+
+    // Alternative is c2 = c1 + 1; This requires a change to add to support immediate
+    let c2 = load_const(alloc, asm, C2.to_bits());
+    let c2 = dup2d(alloc, asm, &c2);
+
+    for i in 0..a.len() {
+        let ai = ucvtf2d(alloc, asm, &a[i]);
+        for j in 0..b.len() {
+            let bj = ucvtf2d(alloc, asm, &b[j]);
+            let lc1 = mov16b(alloc, asm, &c1);
+            let lc2 = mov16b(alloc, asm, &c2);
+
+            let hi = fmla2d(alloc, asm, lc1.into_(), &ai, &bj);
+            let tmp = fsub2d(alloc, asm, &lc2.into_(), &hi);
+            let lo = fmla2d(alloc, asm, tmp, &ai, &bj);
+
+            t[i + j + 1] = add2d(alloc, asm, &t[i + j + 1], &hi.into_());
+            t[i + j] = add2d(alloc, asm, &t[i + j], &lo.into_());
+        }
+    }
     t
 }
 

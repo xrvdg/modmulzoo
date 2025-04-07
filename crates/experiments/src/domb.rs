@@ -114,6 +114,14 @@ pub fn trans_vmultadd_noinit_simd(
     t
 }
 
+pub fn vmultadd_noinit_simd_stub(
+    a: [Simd<u64, 2>; 5],
+    b: [Simd<u64, 2>; 5],
+    t: [Simd<u64, 2>; 10],
+) -> [Simd<u64, 2>; 10] {
+    vmultadd_noinit_simd(a, b, t)
+}
+
 #[inline(always)]
 pub fn vmultadd_noinit_simd(
     a: [Simd<u64, 2>; 5],

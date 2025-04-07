@@ -7,7 +7,7 @@
 .text
 _smul_noint_simd:
   ucvtf.2d v0, v0
-  mov x0, #0
+  mov x0, #5075556780046548992
   ucvtf d1, x1
   dup.2d v2, x0
   mov.16b v2, v2

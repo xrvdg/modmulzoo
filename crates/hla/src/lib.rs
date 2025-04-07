@@ -215,22 +215,27 @@ pub fn movk_inst(dest: &Reg<u64>, imm: u16, shift: u8) -> Instruction {
     }
 }
 
+pub trait SIMD {}
+
+impl<T, const N: usize> SIMD for Simd<T, N> {}
+impl<T: SIMD, const I: u8> SIMD for Idx<T, I> {}
+
 // Create a new type for b that takes into account the index
-pub fn fmla2d<const I: u8>(
+pub fn fmla2d<S: SIMD + RegisterSource>(
     _alloc: &mut Allocator, // Done to have the same pattern as the rest
     asm: &mut Assembler,
     add: Reg<Simd<f64, 2>>,
     a: &Reg<Simd<f64, 2>>,
-    b: &Reg<Idx<Simd<f64, 2>, I>>,
+    b: &Reg<S>, // Trait bound a bit too loose
 ) -> Reg<Simd<f64, 2>> {
     asm.append_instruction(vec![fmla2d_inst(&add, a, b)]);
     add
 }
 
-pub fn fmla2d_inst<const I: u8>(
+pub fn fmla2d_inst<S: SIMD + RegisterSource>(
     dest_add: &Reg<Simd<f64, 2>>,
     a: &Reg<Simd<f64, 2>>,
-    b: &Reg<Idx<Simd<f64, 2>, I>>,
+    b: &Reg<S>,
 ) -> Instruction {
     InstructionF {
         opcode: "fmla.2d".to_string(),
@@ -325,6 +330,8 @@ embed_asm!(ucvtf2d, "ucvtf.2d", (a: Simd<u64,2>) -> Simd<f64,2>);
 embed_asm!(dup2d, "dup.2d", (a: u64) -> Simd<u64,2>);
 embed_asm!(ucvtf, "ucvtf", (a: u64) -> f64);
 embed_asm!(and16, "and.16b", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
+embed_asm!(add2d, "add.2d", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
+embed_asm!(fsub2d, "fsub.2d", (a: Simd<f64,2>, b: Simd<f64,2>) -> Simd<f64,2>);
 embed_asm!(orr16, "orr.16b", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
 
 pub struct Reg<T> {

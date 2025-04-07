@@ -11,6 +11,7 @@ global_asm!(include_str!("../asm/global_asm_smul_add.s"));
 global_asm!(include_str!("../asm/global_asm_single_step.s"));
 global_asm!(include_str!("../asm/global_asm_u256_to_u260_shl2_simd.s"));
 global_asm!(include_str!("../asm/global_asm_u260_to_u256_simd.s"));
+global_asm!(include_str!("../asm/global_asm_vmultadd_noinit_simd.s"));
 
 #[inline(never)]
 // If this function gets moved/inlined the linker won't be able to find the assembly.
@@ -217,7 +218,7 @@ fn call_u256_to_u260_shl2_simd(a: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
     let mut out = [Simd::splat(0); 5];
     unsafe {
         asm!("bl _u256_to_u260_shl2_simd",
-        in("v0") a0, in("v1") a1, in("v2") a2, in("v3") a3,
+        in("v0") a[0], in("v1") a[1], in("v2") a[2], in("v3") a[3],
         lateout("v0") out[0], lateout("v1") out[1], lateout("v2") out[2], lateout("v4") out[3], lateout("v3") out[4],
         lateout("x0") _, lateout("v5") _, lateout("v6") _, lateout("v7") _, lateout("v8") _,
         lateout("lr") _)
@@ -227,14 +228,35 @@ fn call_u256_to_u260_shl2_simd(a: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
 
 #[inline(never)]
 fn call_u260_to_u256_simd(a: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
-    let [a0, a1, a2, a3, a4] = a;
     let mut out = [Simd::splat(0); 4];
     unsafe {
         asm!("bl _u260_to_u256_simd",
-        in("v0") a0, in("v1") a1, in("v2") a2, in("v3") a3, in("v4") a4,
+        in("v0") a[0], in("v1") a[1], in("v2") a[2], in("v3") a[3], in("v4") a[4],
         lateout("v0") out[0], lateout("v6") out[1], lateout("v7") out[2], lateout("v4") out[3],
         lateout("v1") _, lateout("v2") _, lateout("v3") _, lateout("v5") _,
         lateout("lr") _)
+    }
+    out
+}
+
+#[inline(never)]
+fn call_vmultadd_noinit_simd(
+    t: [Simd<u64, 2>; 10],
+    a: [Simd<u64, 2>; 5],
+    b: [Simd<u64, 2>; 5],
+) -> [Simd<u64, 2>; 10] {
+    let mut out: [_; 10] = [Simd::splat(0); 10];
+
+    unsafe {
+        asm!(
+            "bl _vmultadd_noinit_simd",
+            in("v0") t[0], in("v1") t[1], in("v2") t[2], in("v3") t[3], in("v4") t[4], in("v5") t[5], in("v6") t[6], in("v7") t[7], in("v8") t[8], in("v9") t[9],
+            in("v10") a[0], in("v11") a[1], in("v12") a[2], in("v13") a[3], in("v14") a[4],
+            in("v15") b[0], in("v16") b[1], in("v17") b[2], in("v18") b[3], in("v19") b[4],
+            lateout("v0") out[0], lateout("v1") out[1], lateout("v2") out[2], lateout("v3") out[3], lateout("v4") out[4], lateout("v5") out[5], lateout("v6") out[6], lateout("v7") out[7], lateout("v8") out[8], lateout("v9") out[9],
+            lateout("x0") _, lateout("v10") _, lateout("v11") _, lateout("v12") _, lateout("v13") _, lateout("v14") _, lateout("v15") _, lateout("v16") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("v20") _, lateout("v21") _, lateout("v22") _, lateout("v23") _, lateout("v24") _,
+            lateout("lr") _
+        )
     }
     out
 }
@@ -249,6 +271,7 @@ mod tests {
 
     use crate::{
         call_schoolmethod, call_single_step, call_u256_to_u260_shl2_simd, call_u260_to_u256_simd,
+        call_vmultadd_noinit_simd,
     };
     use crate::{call_smul, call_smul_add};
 
@@ -287,5 +310,16 @@ mod tests {
     fn u260_to_u256(a: U256b52) -> bool {
         let input = a.0.map(|i| Simd::splat(i));
         call_u260_to_u256_simd(input) == domb::u260_to_u256_simd(input)
+    }
+
+    #[quickcheck]
+    fn vmultadd_noinit_simd(t: U256b52, a: U256b52, b: U256b52) -> bool {
+        let mut t_array = [0; 10];
+        t_array[..5].copy_from_slice(&t.0);
+        t_array[5..].copy_from_slice(&t.0);
+        let t_array = t_array.map(|i| Simd::splat(i));
+        let a = a.0.map(|i| Simd::splat(i));
+        let b = b.0.map(|i| Simd::splat(i));
+        domb::vmultadd_noinit_simd(a, b, t_array) == call_vmultadd_noinit_simd(t_array, a, b)
     }
 }
