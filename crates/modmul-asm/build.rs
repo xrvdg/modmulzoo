@@ -385,9 +385,11 @@ pub fn school_method(
 
 // TODO make load_const smart that it knowns when to use mov and when to use a sequence of movk?
 pub fn load_const(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<u64> {
-    let reg = alloc.fresh();
+    // The first load we do with mov instead of movk because of the optimization that leaves moves out.
+    let l0 = val as u16;
+    let reg = mov(alloc, asm, l0 as u64);
 
-    for i in 0..4 {
+    for i in 1..4 {
         let vali = (val >> (i * 16)) as u16;
         // If the value for limb i is zero then we do not have to emit an instruction.
         if vali != 0 {

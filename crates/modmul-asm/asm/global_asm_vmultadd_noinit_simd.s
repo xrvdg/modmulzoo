@@ -8,7 +8,7 @@
 _vmultadd_noinit_simd:
   mov x0, #5075556780046548992
   dup.2d v20, x0
-  movk x0, #1, lsl 0
+  mov x0, #1
   movk x0, #18032, lsl 48
   dup.2d v21, x0
   ucvtf.2d v10, v10
