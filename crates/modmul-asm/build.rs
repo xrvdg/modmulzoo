@@ -1,9 +1,14 @@
 #![feature(iter_intersperse)]
 use std::array;
 
-use block_multiplier::constants::*;
+use block_multiplier::{constants::*, make_initial};
 use hla::*;
-use montgomery_reduction::yuval::{U64_2P, U64_I1, U64_I2, U64_I3, U64_MU0, U64_P};
+// TODO don't rely on montgomery_reduction for anything other than tests
+// Possible not even then
+use montgomery_reduction::{
+    domb::heaviside,
+    yuval::{U64_2P, U64_I1, U64_I2, U64_I3, U64_MU0, U64_P},
+};
 
 /* BUILDERS */
 fn build_schoolmethod() {
@@ -503,6 +508,28 @@ fn load_const_simd(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<
     let val = load_const(alloc, asm, val);
     let mask = dup2d(alloc, asm, &val);
     mask
+}
+
+// Embed the initials as instructions
+// TODO with larger block size this loading can be kept outside and copied
+// This is very specific to parallel_sub_simd_r256 is might be better inlined
+fn make_initials(alloc: &mut Allocator, asm: &mut Assembler) -> [Reg<Simd<u64, 2>>; 10] {
+    let mut t: [Reg<Simd<u64, 2>>; 10] = array::from_fn(|_| alloc.fresh());
+
+    for i in 0..5 {
+        let lower_val = make_initial(i + 1 + 5 * heaviside(i as isize - 4), i);
+        let lower_val = mov(alloc, asm, lower_val);
+
+        t[i] = dup2d(alloc, asm, &lower_val);
+
+        let j = 10 - 1 - i;
+
+        let upper_val = make_initial(i + 5 * (1 - heaviside(j as isize - 9)), i + 1 + 5 * 1);
+        let upper_val = mov(alloc, asm, upper_val);
+        t[j] = dup2d(alloc, asm, &upper_val);
+    }
+
+    t
 }
 
 // Whole vector is in registers, but that might not be great. Better to have it on the stack and load it from there

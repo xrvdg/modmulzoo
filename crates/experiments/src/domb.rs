@@ -135,7 +135,7 @@ pub fn vmultadd_noinit_simd(
     t
 }
 
-const fn heaviside(x: isize) -> usize {
+pub const fn heaviside(x: isize) -> usize {
     (x >= 0) as usize
 }
 
