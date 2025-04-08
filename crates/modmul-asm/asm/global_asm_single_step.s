@@ -2,7 +2,7 @@
 //lateout("x2") out[0], lateout("x3") out[1], lateout("x1") out[2], lateout("x0") out[3],
 //lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _,
 //lateout("lr") _
-.global single_step
+.global _single_step
 .align 4
 .text
 _single_step:
@@ -86,19 +86,19 @@ _single_step:
   cinc x3, x3, hs
   adds x1, x1, x6
   cinc x3, x3, hs
-  movk x2, #48718, lsl 0
+  mov x2, #48718
   movk x2, #4732, lsl 16
   movk x2, #45078, lsl 32
   movk x2, #39852, lsl 48
-  movk x6, #16676, lsl 0
+  mov x6, #16676
   movk x6, #12692, lsl 16
   movk x6, #20986, lsl 32
   movk x6, #2848, lsl 48
-  movk x7, #51052, lsl 0
+  mov x7, #51052
   movk x7, #24721, lsl 16
   movk x7, #61092, lsl 32
   movk x7, #45156, lsl 48
-  movk x9, #3197, lsl 0
+  mov x9, #3197
   movk x9, #18936, lsl 16
   movk x9, #10922, lsl 32
   movk x9, #11014, lsl 48
@@ -125,19 +125,19 @@ _single_step:
   adds x0, x0, x1
   cinc x6, x6, hs
   add x1, x3, x6
-  movk x3, #56431, lsl 0
+  mov x3, #56431
   movk x3, #30457, lsl 16
   movk x3, #30012, lsl 32
   movk x3, #6382, lsl 48
-  movk x6, #59151, lsl 0
+  mov x6, #59151
   movk x6, #41769, lsl 16
   movk x6, #32276, lsl 32
   movk x6, #21677, lsl 48
-  movk x7, #34015, lsl 0
+  mov x7, #34015
   movk x7, #20342, lsl 16
   movk x7, #13935, lsl 32
   movk x7, #11030, lsl 48
-  movk x8, #13689, lsl 0
+  mov x8, #13689
   movk x8, #8159, lsl 16
   movk x8, #215, lsl 32
   movk x8, #4913, lsl 48
@@ -164,19 +164,19 @@ _single_step:
   adds x2, x2, x0
   cinc x6, x6, hs
   add x0, x1, x6
-  movk x1, #61005, lsl 0
+  mov x1, #61005
   movk x1, #58262, lsl 16
   movk x1, #32851, lsl 32
   movk x1, #11582, lsl 48
-  movk x5, #37581, lsl 0
+  mov x5, #37581
   movk x5, #43836, lsl 16
   movk x5, #36286, lsl 32
   movk x5, #51783, lsl 48
-  movk x6, #10899, lsl 0
+  mov x6, #10899
   movk x6, #30709, lsl 16
   movk x6, #61551, lsl 32
   movk x6, #45784, lsl 48
-  movk x7, #36612, lsl 0
+  mov x7, #36612
   movk x7, #63402, lsl 16
   movk x7, #47623, lsl 32
   movk x7, #9430, lsl 48
@@ -203,24 +203,24 @@ _single_step:
   adds x3, x3, x2
   cinc x4, x4, hs
   add x0, x0, x4
-  movk x2, #65535, lsl 0
+  mov x2, #65535
   movk x2, #61439, lsl 16
   movk x2, #62867, lsl 32
   movk x2, #49889, lsl 48
   mul x2, x2, x8
-  movk x4, #1, lsl 0
+  mov x4, #1
   movk x4, #61440, lsl 16
   movk x4, #62867, lsl 32
   movk x4, #17377, lsl 48
-  movk x5, #28817, lsl 0
+  mov x5, #28817
   movk x5, #31161, lsl 16
   movk x5, #59464, lsl 32
   movk x5, #10291, lsl 48
-  movk x6, #22621, lsl 0
+  mov x6, #22621
   movk x6, #33153, lsl 16
   movk x6, #17846, lsl 32
   movk x6, #47184, lsl 48
-  movk x7, #41001, lsl 0
+  mov x7, #41001
   movk x7, #57649, lsl 16
   movk x7, #20082, lsl 32
   movk x7, #12388, lsl 48
@@ -247,19 +247,19 @@ _single_step:
   adds x1, x1, x3
   cinc x2, x2, hs
   add x0, x0, x2
-  movk x2, #2, lsl 0
+  mov x2, #2
   movk x2, #57344, lsl 16
   movk x2, #60199, lsl 32
   movk x2, #34755, lsl 48
-  movk x3, #57634, lsl 0
+  mov x3, #57634
   movk x3, #62322, lsl 16
   movk x3, #53392, lsl 32
   movk x3, #20583, lsl 48
-  movk x5, #45242, lsl 0
+  mov x5, #45242
   movk x5, #770, lsl 16
   movk x5, #35693, lsl 32
   movk x5, #28832, lsl 48
-  movk x6, #16467, lsl 0
+  mov x6, #16467
   movk x6, #49763, lsl 16
   movk x6, #40165, lsl 32
   movk x6, #24776, lsl 48

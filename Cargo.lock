@@ -628,6 +628,7 @@ dependencies = [
 name = "modmul-asm"
 version = "0.1.0"
 dependencies = [
+ "block-multiplier",
  "criterion",
  "hla",
  "mod256-generator",

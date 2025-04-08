@@ -114,8 +114,18 @@ pub fn trans_vmultadd_noinit_simd(
     t
 }
 
+pub fn vmultadd_noinit_simd_stub(
+    rtz: &RTZ,
+    a: [Simd<u64, 2>; 5],
+    b: [Simd<u64, 2>; 5],
+    t: [Simd<u64, 2>; 10],
+) -> [Simd<u64, 2>; 10] {
+    vmultadd_noinit_simd(rtz, a, b, t)
+}
+
 #[inline(always)]
 pub fn vmultadd_noinit_simd(
+    _rtz: &RTZ,
     a: [Simd<u64, 2>; 5],
     b: [Simd<u64, 2>; 5],
     mut t: [Simd<u64, 2>; 10],
@@ -135,7 +145,7 @@ pub fn vmultadd_noinit_simd(
     t
 }
 
-const fn heaviside(x: isize) -> usize {
+pub const fn heaviside(x: isize) -> usize {
     (x >= 0) as usize
 }
 
@@ -252,7 +262,7 @@ pub fn u256_to_u260_shl2_simd_stub(limbs: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5
 }
 
 #[inline(always)]
-fn u256_to_u260_shl2_simd(limbs: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
+pub fn u256_to_u260_shl2_simd(limbs: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
     let [l0, l1, l2, l3] = limbs;
     [
         (l0 << 2) & Simd::splat(MASK52),
@@ -276,7 +286,7 @@ fn u260_to_u256(limbs: [u64; 5]) -> [u64; 4] {
 
 // THis can probably be combined and monomorphised, but that would require an into most likely
 #[inline(always)]
-fn u260_to_u256_simd(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
+pub fn u260_to_u256_simd(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
     let [l0, l1, l2, l3, l4] = limbs;
     [
         l0 | (l1 << 52),
@@ -284,6 +294,11 @@ fn u260_to_u256_simd(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
         ((l2 >> 24) | (l3 << 28)),
         ((l3 >> 36) | (l4 << 16)),
     ]
+}
+
+#[inline(never)]
+pub fn u260_to_u256_simd_stub(limbs: [Simd<u64, 2>; 5]) -> [Simd<u64, 2>; 4] {
+    u260_to_u256_simd(limbs)
 }
 
 #[inline(always)]
@@ -385,9 +400,22 @@ pub fn parallel_sub(_rtz: &RTZ, a: [u64; 5], b: [u64; 5]) -> [u64; 5] {
     reduce_ct(addv(s, smult_noinit(m, U52_P)))
 }
 
-pub fn parallel_sub_simd_r256(_rtz: &RTZ, a: [[u64; 4]; 2], b: [[u64; 4]; 2]) -> [[u64; 4]; 2] {
-    let a = u256_to_u260_shl2_simd(transpose_u256_to_simd(a));
-    let b = u256_to_u260_shl2_simd(transpose_u256_to_simd(b));
+pub fn parallel_sub_simd_r256(rtz: &RTZ, a: [[u64; 4]; 2], b: [[u64; 4]; 2]) -> [[u64; 4]; 2] {
+    transpose_simd_to_u256(parallel_sub_simd_r256_no_trans(
+        rtz,
+        transpose_u256_to_simd(a),
+        transpose_u256_to_simd(b),
+    ))
+}
+
+#[inline(always)]
+pub fn parallel_sub_simd_r256_no_trans(
+    rtz: &RTZ,
+    a: [Simd<u64, 2>; 4],
+    b: [Simd<u64, 2>; 4],
+) -> [Simd<u64, 2>; 4] {
+    let a = u256_to_u260_shl2_simd(a);
+    let b = u256_to_u260_shl2_simd(b);
 
     let mut t: [Simd<u64, 2>; 10] = [Simd::splat(0); 10];
     for i in 0..5 {
@@ -399,7 +427,7 @@ pub fn parallel_sub_simd_r256(_rtz: &RTZ, a: [[u64; 4]; 2], b: [[u64; 4]; 2]) ->
         ));
     }
 
-    let mut t = vmultadd_noinit_simd(a, b, t);
+    let mut t = vmultadd_noinit_simd(rtz, a, b, t);
 
     t[1] += t[0] >> 52;
     t[2] += t[1] >> 52;
@@ -420,10 +448,7 @@ pub fn parallel_sub_simd_r256(_rtz: &RTZ, a: [[u64; 4]; 2], b: [[u64; 4]; 2]) ->
 
     let reduced = reduce_ct_simd(addv_simd(s, mp));
 
-    let u256_result = u260_to_u256_simd(reduced);
-    let res = transpose_simd_to_u256(u256_result);
-
-    res
+    u260_to_u256_simd(reduced)
 }
 
 pub fn parallel_simd_sub(_rtz: &RTZ, a: [[u64; 5]; 2], b: [[u64; 5]; 2]) -> [[u64; 5]; 2] {
