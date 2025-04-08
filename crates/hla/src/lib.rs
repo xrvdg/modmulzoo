@@ -676,7 +676,7 @@ pub struct RegisterBank {
 impl RegisterBank {
     pub fn new() -> Self {
         Self {
-            x: BTreeSet::from_iter((0..=30).map(HardwareRegister)),
+            x: BTreeSet::from_iter((0..=17).chain(19..29).map(HardwareRegister)),
             v: BTreeSet::from_iter((0..=30).map(HardwareRegister)),
         }
     }
@@ -984,12 +984,12 @@ pub fn backend_rust(
         .map(|(i, r)| format!("lateout(\"{}\") out[{}]", r, i))
         .intersperse(", ".to_string());
 
-    let mut clobber_registers: BTreeSet<&TypedSizedRegister<HardwareRegister>> = BTreeSet::new();
+    let mut clobber_registers: BTreeSet<TypedSizedRegister<HardwareRegister>> = BTreeSet::new();
     instructions.iter().for_each(|instruction| {
-        clobber_registers.extend(instruction.extract_registers());
+        clobber_registers.extend(instruction.extract_registers().map(|reg| clobber(reg)));
     });
 
-    let output_registers = BTreeSet::from_iter(output_registers.iter());
+    let output_registers = BTreeSet::from_iter(output_registers.to_owned());
 
     let clobbers = clobber_registers
         .difference(&output_registers)
@@ -1009,4 +1009,26 @@ pub fn backend_rust(
         .chain(newline.clone())
         .chain(lr)
         .collect()
+}
+
+/// For the clobber register we only have to mention the register
+fn clobber(c: &TypedSizedRegister<HardwareRegister>) -> TypedSizedRegister<HardwareRegister> {
+    // Unpack the fields of TypedSizedRegister using destructuring
+    let TypedSizedRegister {
+        reg,
+        addressing,
+        idx: _idx,
+    } = c;
+
+    let addressing = match addressing {
+        Addressing::D => Addressing::V,
+        other => *other,
+    };
+
+    // Return a new TypedSizedRegister with the same values
+    TypedSizedRegister {
+        reg: *reg,
+        addressing,
+        idx: None,
+    }
 }
