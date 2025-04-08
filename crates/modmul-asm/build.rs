@@ -54,7 +54,7 @@ fn build_func<T: RegisterSource>(
 
     let first: Vec<_> = asm.instructions.into_iter().flatten().collect();
 
-    // Is there something we can do to tie off the outputs.
+    // Is there something we n do to tie off the outputs.
     // and to make sure it happens before drop_pass
     let mut seen = Seen::new();
     s.iter().for_each(|r| {
@@ -506,7 +506,10 @@ fn load_tuple(
     snd: Reg<u64>,
 ) -> Reg<Simd<u64, 2>> {
     let fresh: Reg<Simd<u64, 2>> = alloc.fresh();
-    asm.append_instruction(vec![ins_inst(fresh._0(), &fst), ins_inst(fresh._1(), &snd)]);
+    asm.append_instruction(vec![
+        ins_inst(fresh._d0(), &fst),
+        ins_inst(fresh._d1(), &snd),
+    ]);
     fresh
 }
 
@@ -694,20 +697,20 @@ fn single_step_simd(
     let t2 = and16(alloc, asm, &t2, &mask_simd);
     let t3 = and16(alloc, asm, &t3, &mask_simd);
 
+    // loading rho interleaved with multiplication to prevent to prevent allocation a lot of X-registers
     let rho_4 = RHO_4.map(|c| load_const(alloc, asm, c));
-    let rho_3 = RHO_3.map(|c| load_const(alloc, asm, c));
-    let rho_2 = RHO_2.map(|c| load_const(alloc, asm, c));
-    let rho_1 = RHO_1.map(|c| load_const(alloc, asm, c));
-
     let r0 = smultadd_noinit_simd(alloc, asm, t6_10, t0, rho_4);
+    let rho_3 = RHO_3.map(|c| load_const(alloc, asm, c));
     let r1 = smultadd_noinit_simd(alloc, asm, r0, t1, rho_3);
+    let rho_2 = RHO_2.map(|c| load_const(alloc, asm, c));
     let r2 = smultadd_noinit_simd(alloc, asm, r1, t2, rho_2);
+    let rho_1 = RHO_1.map(|c| load_const(alloc, asm, c));
     let s = smultadd_noinit_simd(alloc, asm, r2, t3, rho_1);
 
     // Could be replaced with fmul, but the rust compiler generates this
     let u52_np0 = load_const(alloc, asm, U52_NP0);
-    let s00 = umov(alloc, asm, &s[0]._0());
-    let s01 = umov(alloc, asm, &s[0]._1());
+    let s00 = umov(alloc, asm, &s[0]._d0());
+    let s01 = umov(alloc, asm, &s[0]._d1());
     let m0 = mul(alloc, asm, &s00, &u52_np0);
     let m1 = mul(alloc, asm, &s01, &u52_np0);
 

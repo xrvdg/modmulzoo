@@ -58,8 +58,18 @@ impl<R: std::fmt::Display> std::fmt::Display for TypedSizedRegister<R> {
         let reg = &self.reg;
         let addr = self.addressing;
         match self.idx {
-            Some(idx) => write!(f, "{addr}{reg}[{idx}]"),
-            None => write!(f, "{addr}{reg}"),
+            Index::Lane(idx) => write!(f, "{addr}{reg}[{idx}]"),
+            Index::None => write!(f, "{addr}{reg}"),
+            Index::LaneSized(lane_sizes, idx) => write!(f, "{addr}{reg}.{lane_sizes}[{idx}]"),
+        }
+    }
+}
+
+impl std::fmt::Display for LaneSizes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LaneSizes::S => write!(f, "s"),
+            LaneSizes::D => write!(f, "d"),
         }
     }
 }
@@ -246,7 +256,10 @@ pub fn fmla2d_inst<S: SIMD + RegisterSource>(
 }
 
 // Could add ins that returns consumes and returns the register
-pub fn ins_inst<const I: u8>(dest: &Reg<Idx<Simd<u64, 2>, I>>, a: &Reg<u64>) -> Instruction {
+pub fn ins_inst<const L: u8, const I: u8>(
+    dest: &Reg<IdxSized<Simd<u64, 2>, L, I>>,
+    a: &Reg<u64>,
+) -> Instruction {
     InstructionF {
         opcode: "ins".to_string(),
         dest: Some(dest.to_typed_register()),
@@ -335,16 +348,19 @@ pub fn ssra2d_inst(dest: &Reg<Simd<i64, 2>>, a: &Reg<Simd<i64, 2>>, imm: u8) -> 
     }
 }
 
-pub fn umov<const I: u8>(
+pub fn umov<const Lanes: u8, const I: u8>(
     alloc: &mut Allocator,
     asm: &mut Assembler,
-    a: &Reg<Idx<Simd<u64, 2>, I>>,
+    a: &Reg<IdxSized<Simd<u64, 2>, Lanes, I>>,
 ) -> Reg<u64> {
     let ret = alloc.fresh();
     asm.append_instruction(vec![umov_inst(&ret, a)]);
     ret
 }
-pub fn umov_inst<const I: u8>(dest: &Reg<u64>, a: &Reg<Idx<Simd<u64, 2>, I>>) -> Instruction {
+pub fn umov_inst<const Lanes: u8, const I: u8>(
+    dest: &Reg<u64>,
+    a: &Reg<IdxSized<Simd<u64, 2>, Lanes, I>>,
+) -> Instruction {
     InstructionF {
         opcode: "umov".to_string(),
         dest: Some(dest.to_typed_register()),
@@ -402,6 +418,7 @@ pub struct Reg<T> {
 /// Define the struct ourself as to not have to import it
 pub struct Simd<T, const N: usize>(PhantomData<T>);
 pub struct Idx<T, const I: u8>(PhantomData<T>);
+pub struct IdxSized<T, const Lanes: u8, const I: u8>(PhantomData<T>);
 
 pub trait Reg64Bit {}
 impl Reg64Bit for u64 {}
@@ -447,7 +464,20 @@ impl Addressing {
 pub struct TypedSizedRegister<R> {
     reg: R,
     addressing: Addressing,
-    idx: Option<u8>,
+    idx: Index,
+}
+
+#[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
+enum LaneSizes {
+    S,
+    D,
+}
+
+#[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
+enum Index {
+    None,
+    Lane(u8),
+    LaneSized(LaneSizes, u8),
 }
 
 /// The result of the liveness analysis and it gives commands to the
@@ -495,6 +525,14 @@ impl<T> Reg<Simd<T, 2>> {
     }
 
     pub fn _1(&self) -> &Reg<Idx<Simd<T, 2>, 1>> {
+        unsafe { std::mem::transmute(self) }
+    }
+
+    pub fn _d0(&self) -> &Reg<IdxSized<Simd<T, 2>, 2, 0>> {
+        unsafe { std::mem::transmute(self) }
+    }
+
+    pub fn _d1(&self) -> &Reg<IdxSized<Simd<T, 2>, 2, 1>> {
         unsafe { std::mem::transmute(self) }
     }
 }
@@ -583,7 +621,7 @@ impl RegisterSource for u64 {
         TypedSizedRegister {
             reg,
             addressing: Addressing::X,
-            idx: None,
+            idx: Index::None,
         }
     }
 }
@@ -597,7 +635,7 @@ impl RegisterSource for f64 {
         TypedSizedRegister {
             reg,
             addressing: Addressing::D,
-            idx: None,
+            idx: Index::None,
         }
     }
 }
@@ -611,7 +649,7 @@ impl<T> RegisterSource for Simd<T, 2> {
         TypedSizedRegister {
             reg,
             addressing: Addressing::V,
-            idx: None,
+            idx: Index::None,
         }
     }
 }
@@ -623,7 +661,26 @@ impl<T: RegisterSource, const I: u8> RegisterSource for Idx<T, I> {
 
     fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
         let mut tp = T::to_typed_register(reg);
-        tp.idx = Some(I);
+        tp.idx = Index::Lane(I);
+        tp
+    }
+}
+
+impl<T: RegisterSource, const I: u8, const Lanes: u8> RegisterSource for IdxSized<T, Lanes, I> {
+    fn get_register_pool(pools: &mut RegisterBank) -> &mut RegisterPool {
+        &mut pools.v
+    }
+
+    fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
+        let mut tp = T::to_typed_register(reg);
+
+        let sizes = match Lanes {
+            2 => LaneSizes::D,
+            4 => LaneSizes::S,
+            _ => panic!("invalid lane size"),
+        };
+
+        tp.idx = Index::LaneSized(sizes, I);
         tp
     }
 }
@@ -1029,6 +1086,6 @@ fn clobber(c: &TypedSizedRegister<HardwareRegister>) -> TypedSizedRegister<Hardw
     TypedSizedRegister {
         reg: *reg,
         addressing,
-        idx: None,
+        idx: Index::None,
     }
 }
