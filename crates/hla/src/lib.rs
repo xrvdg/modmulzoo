@@ -418,6 +418,7 @@ pub struct Reg<T> {
 /// Define the struct ourself as to not have to import it
 pub struct Simd<T, const N: usize>(PhantomData<T>);
 pub struct Idx<T, const I: u8>(PhantomData<T>);
+// TODO better separated into Sized and Idx
 pub struct IdxSized<T, const Lanes: u8, const I: u8>(PhantomData<T>);
 
 pub trait Reg64Bit {}
