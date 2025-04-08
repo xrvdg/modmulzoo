@@ -142,29 +142,6 @@ fn build_smul_add() {
     build_func("smul_add", input_setup);
 }
 
-fn build_smul_noinit_simd() {
-    fn input_setup(
-        mut alloc: Allocator,
-        mapping: &mut RegisterMapping,
-        phys_registers: &mut RegisterBank,
-        asm: &mut Assembler,
-    ) -> (
-        Vec<TypedSizedRegister<HardwareRegister>>,
-        Vec<Reg<Simd<f64, 2>>>,
-    ) {
-        let s: Reg<Simd<u64, 2>> = input(&mut alloc, mapping, phys_registers, 0);
-        let v = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, (1 + i) as u64));
-
-        let mut input_hw_registers = mapping.output_register(&s).into_iter().collect::<Vec<_>>();
-        input_hw_registers.extend(v.iter().filter_map(|reg| mapping.output_register(reg)));
-
-        let res = smult_noinit_simd(&mut alloc, asm, s, v);
-
-        (input_hw_registers, Vec::from([res]))
-    }
-    build_func("smul_noint_simd", input_setup);
-}
-
 fn build_u256_to_u260_shl2_simd() {
     fn input_setup(
         mut alloc: Allocator,
@@ -249,14 +226,66 @@ fn build_vmultadd_noinit_simd() {
     build_func("vmultadd_noinit_simd", input_setup);
 }
 
+fn build_single_step_simd() {
+    fn input_setup(
+        mut alloc: Allocator,
+        mapping: &mut RegisterMapping,
+        phys_registers: &mut RegisterBank,
+        asm: &mut Assembler,
+    ) -> (
+        Vec<TypedSizedRegister<HardwareRegister>>,
+        Vec<Reg<Simd<u64, 2>>>,
+    ) {
+        let a = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, i as u64));
+        let b =
+            array::from_fn(|i| input(&mut alloc, mapping, phys_registers, (i + a.len()) as u64)); // Assuming b starts after a
+
+        let input_hw_registers: Vec<_> = a
+            .iter()
+            .chain(b.iter())
+            .filter_map(|reg| mapping.output_register(reg))
+            .collect();
+
+        let res = single_step_simd(&mut alloc, asm, a, b);
+
+        (input_hw_registers, Vec::from(res))
+    }
+    build_func("single_step_simd", input_setup);
+}
+
+fn build_reduce_ct_simd() {
+    fn input_setup(
+        mut alloc: Allocator,
+        mapping: &mut RegisterMapping,
+        phys_registers: &mut RegisterBank,
+        asm: &mut Assembler,
+    ) -> (
+        Vec<TypedSizedRegister<HardwareRegister>>,
+        Vec<Reg<Simd<u64, 2>>>,
+    ) {
+        let red = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, i as u64));
+
+        let input_hw_registers: Vec<_> = red
+            .iter()
+            .filter_map(|reg| mapping.output_register(reg))
+            .collect();
+
+        let res = reduce_ct_simd(&mut alloc, asm, red);
+
+        (input_hw_registers, Vec::from(res))
+    }
+    build_func("reduce_ct_simd", input_setup);
+}
+
 fn main() {
     build_smul_add();
     build_schoolmethod();
     build_single_step();
-    build_smul_noinit_simd();
     build_u256_to_u260_shl2_simd();
     build_u260_to_u256_simd();
     build_vmultadd_noinit_simd();
+    build_single_step_simd();
+    build_reduce_ct_simd();
 }
 
 /* GENERATORS */
@@ -384,6 +413,7 @@ pub fn school_method(
 }
 
 // TODO make load_const smart that it knowns when to use mov and when to use a sequence of movk?
+// That would require checking if only one of the 16 bit libs is zero.
 pub fn load_const(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<u64> {
     // The first load we do with mov instead of movk because of the optimization that leaves moves out.
     let l0 = val as u16;
@@ -605,19 +635,128 @@ fn vmultadd_noinit_simd(
 }
 
 // Whole vector is in registers, but that might not be great. Better to have it on the stack and load it from there
-pub fn smult_noinit_simd(
+pub fn smultadd_noinit_simd(
     alloc: &mut Allocator,
     asm: &mut Assembler,
+    mut t: [Reg<Simd<u64, 2>>; 6],
     s: Reg<Simd<u64, 2>>,
-    v: [Reg<u64>; 1],
-) -> Reg<Simd<f64, 2>> {
-    // first do it as is written
+    v: [Reg<u64>; 5],
+) -> [Reg<Simd<u64, 2>>; 6] {
+    let c1 = mov(alloc, asm, C1.to_bits());
+    let c1 = dup2d(alloc, asm, &c1);
+
+    // Alternative is c2 = c1 + 1; This requires a change to add to support immediate
+    let c2 = load_const(alloc, asm, C2.to_bits());
+    let c2 = dup2d(alloc, asm, &c2);
+
     let s = ucvtf2d(alloc, asm, &s);
 
-    let tmp = mov(alloc, asm, C1.to_bits());
-    let v0 = ucvtf(alloc, asm, &v[0]);
-    let splat_c1 = dup2d(alloc, asm, &tmp);
-    let cc1 = mov16b(alloc, asm, &splat_c1);
-    let t0 = fmla2d(alloc, asm, cc1.into_(), &s, v0.as_simd()._0());
-    t0
+    for i in 0..v.len() {
+        let vi = ucvtf(alloc, asm, &v[i]);
+        let lc1 = mov16b(alloc, asm, &c1);
+        let lc2 = mov16b(alloc, asm, &c2);
+
+        let hi = fmla2d(alloc, asm, lc1.into_(), &s, &vi.as_simd()._0());
+        let tmp = fsub2d(alloc, asm, &lc2.into_(), &hi);
+        let lo = fmla2d(alloc, asm, tmp, &s, &vi.as_simd()._0());
+
+        t[i + 1] = add2d(alloc, asm, &t[i + 1], &hi.into_());
+        t[i] = add2d(alloc, asm, &t[i], &lo.into_());
+    }
+    t
+}
+
+/// Misses the transposing to make it easier on the registers for the next steps
+fn single_step_simd(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: [Reg<Simd<u64, 2>>; 4],
+    b: [Reg<Simd<u64, 2>>; 4],
+) -> [Reg<Simd<u64, 2>>; 4] {
+    let a = u256_to_u260_shl2_simd(alloc, asm, a);
+    let b = u256_to_u260_shl2_simd(alloc, asm, b);
+    let t = make_initials(alloc, asm);
+
+    let [t0, t1, t2, t3, t4, t5, t6, t7, t8, t9] = vmultadd_noinit_simd(alloc, asm, t, a, b);
+
+    let t1 = usra2d(alloc, asm, t1, &t0, 52);
+    let t2 = usra2d(alloc, asm, t2, &t1, 52);
+    let t3 = usra2d(alloc, asm, t3, &t2, 52);
+    let t4 = usra2d(alloc, asm, t4, &t3, 52);
+
+    let t6_10 = [t4, t5, t6, t7, t8, t9];
+
+    let mask = mov(alloc, asm, MASK52);
+    let mask_simd = dup2d(alloc, asm, &mask);
+
+    let t0 = and16(alloc, asm, &t0, &mask_simd);
+    let t1 = and16(alloc, asm, &t1, &mask_simd);
+    let t2 = and16(alloc, asm, &t2, &mask_simd);
+    let t3 = and16(alloc, asm, &t3, &mask_simd);
+
+    let rho_4 = RHO_4.map(|c| load_const(alloc, asm, c));
+    let rho_3 = RHO_3.map(|c| load_const(alloc, asm, c));
+    let rho_2 = RHO_2.map(|c| load_const(alloc, asm, c));
+    let rho_1 = RHO_1.map(|c| load_const(alloc, asm, c));
+
+    let r0 = smultadd_noinit_simd(alloc, asm, t6_10, t0, rho_4);
+    let r1 = smultadd_noinit_simd(alloc, asm, r0, t1, rho_3);
+    let r2 = smultadd_noinit_simd(alloc, asm, r1, t2, rho_2);
+    let s = smultadd_noinit_simd(alloc, asm, r2, t3, rho_1);
+
+    // Could be replaced with fmul, but the rust compiler generates this
+    let u52_np0 = load_const(alloc, asm, U52_NP0);
+    let s00 = umov(alloc, asm, &s[0]._0());
+    let s01 = umov(alloc, asm, &s[0]._1());
+    let m0 = mul(alloc, asm, &s00, &u52_np0);
+    let m1 = mul(alloc, asm, &s01, &u52_np0);
+
+    let m0 = and(alloc, asm, &m0, &mask);
+    let m1 = and(alloc, asm, &m1, &mask);
+    let m = load_tuple(alloc, asm, m0, m1);
+
+    let u52_p = U52_P.map(|i| load_const(alloc, asm, i));
+
+    let s = smultadd_noinit_simd(alloc, asm, s, m, u52_p);
+
+    let rs = reduce_ct_simd(alloc, asm, s);
+
+    u260_to_u256_simd(alloc, asm, rs)
+}
+
+fn reduce_ct_simd(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    red: [Reg<Simd<u64, 2>>; 6],
+) -> [Reg<Simd<u64, 2>>; 5] {
+    // Set cmp to zero if the msb (4x52 + 47) is set.
+    let msb_mask = mov(alloc, asm, 1 << 47);
+    let msb_mask = dup2d(alloc, asm, &msb_mask);
+    let msb = and16(alloc, asm, &red[5], &msb_mask);
+    // The comparison state is stored in a vector register instead of NCVF
+    // Therefore these operations can be interleaved without making it atomic
+    let cmp = cmeq2d(alloc, asm, &msb, 0);
+
+    let subtrahend: [Reg<Simd<_, 2>>; 5] = U52_2P.map(|i| {
+        let p = load_const_simd(alloc, asm, i);
+        // p & (~cmp) -> if msb is set return p else return 0
+        bic16(alloc, asm, &p, &cmp)
+    });
+
+    let mask52 = mov(alloc, asm, MASK52);
+    let mask52 = dup2d(alloc, asm, &mask52);
+
+    let mut c = array::from_fn(|_| alloc.fresh());
+    let [prev, minuend @ ..] = red;
+    let mut prev = prev.into_();
+
+    for i in 0..c.len() {
+        let tmp = sub2d(alloc, asm, minuend[i].as_(), &subtrahend[i].as_());
+        // tmp + (prev >> 52)
+        let tmp_plus_borrow = ssra2d(alloc, asm, tmp, &prev, 52);
+        c[i] = and16(alloc, asm, tmp_plus_borrow.as_(), &mask52);
+        prev = tmp_plus_borrow;
+    }
+
+    c.map(|ci| ci.into_())
 }

@@ -12,6 +12,7 @@ global_asm!(include_str!("../asm/global_asm_single_step.s"));
 global_asm!(include_str!("../asm/global_asm_u256_to_u260_shl2_simd.s"));
 global_asm!(include_str!("../asm/global_asm_u260_to_u256_simd.s"));
 global_asm!(include_str!("../asm/global_asm_vmultadd_noinit_simd.s"));
+global_asm!(include_str!("../asm/global_asm_reduce_ct_simd.s"));
 
 #[inline(never)]
 // If this function gets moved/inlined the linker won't be able to find the assembly.
@@ -261,6 +262,21 @@ fn call_vmultadd_noinit_simd(
     out
 }
 
+#[inline(never)]
+fn call_reduce_ct_simd(a: [Simd<u64, 2>; 6]) -> [Simd<u64, 2>; 5] {
+    let mut out = [Simd::splat(0); 5];
+    unsafe {
+        asm!(
+            "bl _reduce_ct_simd",
+            in("v0") a[0], in("v1") a[1], in("v2") a[2], in("v3") a[3], in("v4") a[4], in("v5") a[5],
+            lateout("v0") out[0], lateout("v1") out[1], lateout("v2") out[2], lateout("v3") out[3], lateout("v4") out[4],
+            lateout("x0") _, lateout("v5") _, lateout("v6") _, lateout("v7") _, lateout("v8") _, lateout("v9") _, lateout("v10") _, lateout("v11") _,
+            lateout("lr") _
+        )
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use std::simd::Simd;
@@ -270,8 +286,8 @@ mod tests {
     use quickcheck_macros::quickcheck;
 
     use crate::{
-        call_schoolmethod, call_single_step, call_u256_to_u260_shl2_simd, call_u260_to_u256_simd,
-        call_vmultadd_noinit_simd,
+        call_reduce_ct_simd, call_schoolmethod, call_single_step, call_u256_to_u260_shl2_simd,
+        call_u260_to_u256_simd, call_vmultadd_noinit_simd,
     };
     use crate::{call_smul, call_smul_add};
 
@@ -321,5 +337,15 @@ mod tests {
         let a = a.0.map(|i| Simd::splat(i));
         let b = b.0.map(|i| Simd::splat(i));
         domb::vmultadd_noinit_simd(a, b, t_array) == call_vmultadd_noinit_simd(t_array, a, b)
+    }
+
+    #[quickcheck]
+    fn reduce_ct_simd_test(red: U256b52) {
+        let red = red.0;
+        let mut t = [0; 6];
+        t[1..].copy_from_slice(&red);
+        let input = t.map(|i| Simd::splat(i));
+
+        assert_eq!(call_reduce_ct_simd(input), domb::reduce_ct_simd(input))
     }
 }

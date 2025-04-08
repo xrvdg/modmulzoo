@@ -226,7 +226,7 @@ pub fn fmla2d<S: SIMD + RegisterSource>(
     asm: &mut Assembler,
     add: Reg<Simd<f64, 2>>,
     a: &Reg<Simd<f64, 2>>,
-    b: &Reg<S>, // Trait bound a bit too loose
+    b: &Reg<S>, // Trait bound a bit too loose, but for now don't want to add the complexity necessary
 ) -> Reg<Simd<f64, 2>> {
     asm.append_instruction(vec![fmla2d_inst(&add, a, b)]);
     add
@@ -315,10 +315,68 @@ pub fn usra2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> 
     }
 }
 
+pub fn ssra2d(
+    _alloc: &mut Allocator,
+    asm: &mut Assembler,
+    add: Reg<Simd<i64, 2>>,
+    a: &Reg<Simd<i64, 2>>,
+    imm: u8,
+) -> Reg<Simd<i64, 2>> {
+    asm.append_instruction(vec![ssra2d_inst(&add, a, imm)]);
+    add
+}
+
+pub fn ssra2d_inst(dest: &Reg<Simd<i64, 2>>, a: &Reg<Simd<i64, 2>>, imm: u8) -> Instruction {
+    InstructionF {
+        opcode: "ssra.2d".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![a.to_typed_register()],
+        modifiers: Mod::LS(imm),
+    }
+}
+
+pub fn umov<const I: u8>(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: &Reg<Idx<Simd<u64, 2>, I>>,
+) -> Reg<u64> {
+    let ret = alloc.fresh();
+    asm.append_instruction(vec![umov_inst(&ret, a)]);
+    ret
+}
+pub fn umov_inst<const I: u8>(dest: &Reg<u64>, a: &Reg<Idx<Simd<u64, 2>, I>>) -> Instruction {
+    InstructionF {
+        opcode: "umov".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![a.to_typed_register()],
+        modifiers: Mod::None,
+    }
+}
+
+pub fn cmeq2d(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: &Reg<Simd<u64, 2>>,
+    imm: u64,
+) -> Reg<Simd<u64, 2>> {
+    let ret = alloc.fresh();
+    asm.append_instruction(vec![cmeq2d_inst(&ret, a, imm)]);
+    ret
+}
+pub fn cmeq2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u64) -> Instruction {
+    InstructionF {
+        opcode: "cmeq.2d".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![a.to_typed_register()],
+        modifiers: Mod::Imm(imm),
+    }
+}
+
 embed_asm!(mul, "mul", (a: u64, b: u64) -> u64);
 embed_asm!(umulh, "umulh", (a: u64, b: u64) -> u64);
 
 embed_asm!(add, "add", (a: u64, b: u64) -> u64);
+embed_asm!(and, "and", (a: u64, b: u64) -> u64);
 // TODO: These operations set flags and should only make their inst available
 embed_asm!(adds, "adds", (a: u64, b: u64) -> u64);
 embed_asm!(subs, "subs", (a: u64, b: u64) -> u64);
@@ -330,7 +388,9 @@ embed_asm!(ucvtf2d, "ucvtf.2d", (a: Simd<u64,2>) -> Simd<f64,2>);
 embed_asm!(dup2d, "dup.2d", (a: u64) -> Simd<u64,2>);
 embed_asm!(ucvtf, "ucvtf", (a: u64) -> f64);
 embed_asm!(and16, "and.16b", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
+embed_asm!(bic16, "bic.16b", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
 embed_asm!(add2d, "add.2d", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
+embed_asm!(sub2d, "sub.2d", (a: Simd<i64,2>, b: Simd<i64,2>) -> Simd<i64,2>);
 embed_asm!(fsub2d, "fsub.2d", (a: Simd<f64,2>, b: Simd<f64,2>) -> Simd<f64,2>);
 embed_asm!(orr16, "orr.16b", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
 
@@ -423,6 +483,10 @@ impl Reg<f64> {
 
 impl<T> Reg<Simd<T, 2>> {
     pub fn into_<D>(self) -> Reg<Simd<D, 2>> {
+        unsafe { std::mem::transmute(self) }
+    }
+
+    pub fn as_<D>(&self) -> &Reg<Simd<D, 2>> {
         unsafe { std::mem::transmute(self) }
     }
 
@@ -676,7 +740,7 @@ impl RegisterMapping {
         // get_or_allocate_register needs to deal with the resizing
         Self(
             std::iter::repeat_with(|| RegisterState::Unassigned)
-                .take(200)
+                .take(1000)
                 .collect::<Vec<_>>(),
         )
     }
@@ -795,7 +859,7 @@ pub fn liveness_analysis(
     instructions: &[Instruction],
 ) -> VecDeque<HashSet<FreshRegister>> {
     let mut commands = VecDeque::new();
-    for instruction in instructions.iter().rev() {
+    for (line, instruction) in instructions.iter().enumerate().rev() {
         // Add check whether the source is released here.
         // If we don't want to check for that later it is required that the instruction is filtered out here
         // otherwise we need a special structure that checks for both
@@ -811,7 +875,7 @@ pub fn liveness_analysis(
                 // Better way to give feedback? Now the user doesn't know where it comes from
                 // We view an unused instruction as a problem
                 print_instructions(&instructions);
-                panic!("{instruction:?} does not use the destination")
+                panic!("{line}: {instruction:?} does not use the destination")
             }; // The union could be mutable
         }
 
@@ -870,7 +934,8 @@ pub fn hardware_register_allocation(
 pub fn print_instructions<R: std::fmt::Display + Copy>(instrs: &[InstructionF<R>]) {
     instrs
         .iter()
-        .for_each(|inst| println!("{}", inst.format_instruction()));
+        .enumerate()
+        .for_each(|(line, inst)| println!("{line}: {}", inst.format_instruction()));
 }
 
 pub fn backend_global(label: &str, instructions: &Vec<InstructionF<HardwareRegister>>) -> String {
