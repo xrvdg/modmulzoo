@@ -282,7 +282,7 @@ fn call_reduce_ct_simd(a: [Simd<u64, 2>; 6]) -> [Simd<u64, 2>; 5] {
 }
 
 #[inline(never)]
-fn call_single_step_simd(
+pub fn call_single_step_simd(
     _rtz: &RTZ,
     a: [Simd<u64, 2>; 4],
     b: [Simd<u64, 2>; 4],

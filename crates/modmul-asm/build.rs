@@ -277,6 +277,8 @@ fn build_reduce_ct_simd() {
     build_func("reduce_ct_simd", input_setup);
 }
 
+fn build_interleaved() {}
+
 fn main() {
     build_smul_add();
     build_schoolmethod();

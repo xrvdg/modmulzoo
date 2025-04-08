@@ -1,5 +1,11 @@
+#![feature(portable_simd)]
+use std::simd::Simd;
+
+use block_multiplier::rtz::RTZ;
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use modmul_asm::{call_schoolmethod, call_schoolmethod_inline, call_single_step};
+use modmul_asm::{
+    call_schoolmethod, call_schoolmethod_inline, call_single_step, call_single_step_simd,
+};
 use rand::Rng;
 
 fn generate_random_array() -> [u64; 4] {
@@ -22,6 +28,19 @@ fn bench_single_step(c: &mut Criterion) {
             let a = black_box(a);
             let b = black_box(b);
             call_single_step(a, b)
+        })
+    });
+
+    let rtz = RTZ::set().unwrap();
+
+    let av = a.map(|i| Simd::splat(i));
+    let bv = b.map(|i| Simd::splat(i));
+
+    group.bench_function("single_step_simd", |bencher| {
+        bencher.iter(|| {
+            let a = black_box(av);
+            let b = black_box(bv);
+            call_single_step_simd(&rtz, a, b)
         })
     });
 
