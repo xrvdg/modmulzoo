@@ -293,7 +293,9 @@ fn call_single_step_simd(
             "bl _single_step_simd",
             in("v0") a[0], in("v1") a[1], in("v2") a[2], in("v3") a[3], in("v4") b[0], in("v5") b[1], in("v6") b[2], in("v7") b[3],
             lateout("v4") out[0], lateout("v6") out[1], lateout("v7") out[2], lateout("v3") out[3],
-            lateout("x0") _, lateout("v0") _, lateout("x1") _, lateout("v1") _, lateout("x2") _, lateout("v2") _, lateout("x3") _, lateout("x4") _, lateout("x5") _, lateout("v5") _, lateout("x6") _, lateout("v8") _, lateout("v9") _, lateout("v10") _, lateout("v11") _, lateout("v12") _, lateout("v13") _, lateout("v14") _, lateout("v15") _, lateout("v16") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("v20") _, lateout("v21") _, lateout("v22") _, lateout("v23") _, lateout("v24") _,
+            lateout("x0") _, lateout("v0") _, lateout("x1") _, lateout("v1") _, lateout("x2") _, lateout("v2") _, lateout("x3") _, lateout("x4") _, lateout("x5") _, lateout("v5") _,
+            lateout("x6") _, lateout("v8") _, lateout("v9") _, lateout("v10") _, lateout("v11") _, lateout("v12") _, lateout("v13") _, lateout("v14") _, lateout("v15") _,
+            lateout("v16") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("v20") _, lateout("v21") _, lateout("v22") _, lateout("v23") _, lateout("v24") _,
             lateout("lr") _
 
         )
@@ -354,10 +356,10 @@ mod tests {
     }
 
     #[quickcheck]
-    fn vmultadd_noinit_simd(t: U256b52, a: U256b52, b: U256b52) -> bool {
+    fn vmultadd_noinit_simd(t0: U256b52, t1: U256b52, a: U256b52, b: U256b52) -> bool {
         let mut t_array = [0; 10];
-        t_array[..5].copy_from_slice(&t.0);
-        t_array[5..].copy_from_slice(&t.0);
+        t_array[..5].copy_from_slice(&t0.0);
+        t_array[5..].copy_from_slice(&t1.0);
         let t_array = t_array.map(|i| Simd::splat(i));
         let a = a.0.map(|i| Simd::splat(i));
         let b = b.0.map(|i| Simd::splat(i));
@@ -376,11 +378,19 @@ mod tests {
         assert_eq!(call_reduce_ct_simd(input), domb::reduce_ct_simd(input))
     }
 
+    fn zip_with<F, O>(a: [u64; 4], b: [u64; 4], f: F) -> [O; 4]
+    where
+        F: Fn(u64, u64) -> O,
+    {
+        std::array::from_fn(|i| f(a[i], b[i]))
+    }
+
     #[quickcheck]
-    fn single_step_simd(a: U256b64, b: U256b64) -> bool {
-        let a = a.0.map(|i| Simd::splat(i));
-        let b = b.0.map(|i| Simd::splat(i));
+    fn single_step_simd(a: U256b64, b: U256b64, c: U256b64, d: U256b64) -> bool {
+        let ac = zip_with(a.0, c.0, |fst, snd| Simd::from_array([fst, snd]));
+        let bd = zip_with(b.0, d.0, |fst, snd| Simd::from_array([fst, snd]));
+
         let rtz = RTZ::set().unwrap();
-        domb::parallel_sub_simd_r256_no_trans(&rtz, a, b) == call_single_step_simd(&rtz, a, b)
+        domb::parallel_sub_simd_r256_no_trans(&rtz, ac, bd) == call_single_step_simd(&rtz, ac, bd)
     }
 }
