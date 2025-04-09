@@ -73,7 +73,7 @@ fn build_func<T: RegisterSource>(
     let txt = backend_global(label, &out);
 
     // Write this info in the assembly file
-    let operands = backend_rust(mapping, &input_hw_registers, &output_hw_registers, &out);
+    let operands = backend_rust(mapping, &input_hw_registers, &[&output_hw_registers], &out);
     let operands_with_semicolon: Vec<String> =
         operands.lines().map(|line| format!("//{}", line)).collect();
     let operands = format!("{}\n", operands_with_semicolon.join("\n"));
@@ -359,21 +359,25 @@ fn build_interleaved(label: &str) {
 
     let input_hw_registers = fst_input_hw_registers;
 
-    let mut output_hw_registers: Vec<_> = fst_regs
+    let fst_output_hw_registers: Vec<_> = fst_regs
         .iter()
         .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
-    output_hw_registers.extend(
-        snd_regs
-            .iter()
-            .filter_map(|reg| mapping.output_register(reg)),
-    );
+    let snd_output_hw_registers: Vec<_> = snd_regs
+        .iter()
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
 
     let txt = backend_global(label, &out);
 
     // Write this info in the assembly file
-    let operands = backend_rust(mapping, &input_hw_registers, &output_hw_registers, &out);
+    let operands = backend_rust(
+        mapping,
+        &input_hw_registers,
+        &[&fst_output_hw_registers, &snd_output_hw_registers],
+        &out,
+    );
     let operands_with_semicolon: Vec<String> =
         operands.lines().map(|line| format!("//{}", line)).collect();
     let operands = format!("{}\n", operands_with_semicolon.join("\n"));

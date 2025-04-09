@@ -1,5 +1,5 @@
 //in("x0") _, in("x1") _, in("x2") _, in("x3") _, in("x4") _, in("x5") _, in("x6") _, in("x7") _,
-//lateout("x8") out[0], lateout("x12") out[1], lateout("x4") out[2], lateout("x5") out[3], lateout("x10") out[4], lateout("x0") out[5], lateout("x1") out[6], lateout("x3") out[7],
+//lateout("x8") out0[0], lateout("x12") out0[1], lateout("x4") out0[2], lateout("x5") out0[3], lateout("x10") out0[4], lateout("x0") out0[5], lateout("x1") out0[6], lateout("x3") out0[7],
 //lateout("x2") _, lateout("x6") _, lateout("x7") _, lateout("x9") _, lateout("x11") _, lateout("x13") _, lateout("x14") _,
 //lateout("lr") _
 .global _school_method

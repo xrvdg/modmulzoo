@@ -1,5 +1,5 @@
 //in("v0") _, in("v1") _, in("v2") _, in("v3") _, in("v4") _,
-//lateout("v0") out[0], lateout("v6") out[1], lateout("v7") out[2], lateout("v4") out[3],
+//lateout("v0") out0[0], lateout("v6") out0[1], lateout("v7") out0[2], lateout("v4") out0[3],
 //lateout("v1") _, lateout("v2") _, lateout("v3") _, lateout("v5") _,
 //lateout("lr") _
 .global _u260_to_u256_simd

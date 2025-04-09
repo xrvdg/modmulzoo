@@ -1,5 +1,5 @@
 //in("x0") _, in("x1") _, in("x2") _, in("x3") _, in("x4") _, in("x5") _, in("x6") _, in("x7") _, in("v8") _, in("v9") _, in("v10") _, in("v11") _, in("v12") _, in("v13") _, in("v14") _, in("v15") _,
-//lateout("x2") out[0], lateout("x3") out[1], lateout("x1") out[2], lateout("x0") out[3], lateout("v3") out[4], lateout("v5") out[5], lateout("v7") out[6], lateout("v0") out[7],
+//lateout("x2") out0[0], lateout("x3") out0[1], lateout("x1") out0[2], lateout("x0") out0[3], lateout("v3") out1[0], lateout("v5") out1[1], lateout("v7") out1[2], lateout("v0") out1[3],
 //lateout("v1") _, lateout("v2") _, lateout("x4") _, lateout("v4") _, lateout("x5") _, lateout("x6") _, lateout("v6") _, lateout("x7") _, lateout("x8") _, lateout("v8") _, lateout("x9") _, lateout("v9") _, lateout("x10") _, lateout("v10") _, lateout("x11") _, lateout("v11") _, lateout("x12") _, lateout("v12") _, lateout("x13") _, lateout("v13") _, lateout("x14") _, lateout("v14") _, lateout("x15") _, lateout("v15") _, lateout("x16") _, lateout("v16") _, lateout("x17") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("v20") _, lateout("v21") _, lateout("v22") _, lateout("v23") _, lateout("v24") _,
 //lateout("lr") _
 .global _single_step_interleaved

@@ -1061,29 +1061,47 @@ pub fn backend_inline(instructions: &Vec<InstructionF<HardwareRegister>>) -> Str
 pub fn backend_rust(
     mapping: RegisterMapping,
     input_registers: &[TypedSizedRegister<HardwareRegister>],
-    output_registers: &[TypedSizedRegister<HardwareRegister>],
+    outputs_registers: &[&[TypedSizedRegister<HardwareRegister>]],
     instructions: &Vec<InstructionF<HardwareRegister>>,
 ) -> String {
-    assert_eq!(mapping.allocated(), output_registers.len());
+    assert_eq!(
+        mapping.allocated(),
+        outputs_registers
+            .iter()
+            .map(|output_register| output_register.len())
+            .sum()
+    );
 
     let inputs = input_registers
         .iter()
         .map(|r| format!("in(\"{}\") _", r))
         .intersperse(", ".to_string());
 
-    let outputs = output_registers
+    // Make this work with
+    let outputs: Vec<_> = outputs_registers
         .iter()
         .enumerate()
-        .map(|(i, r)| format!("lateout(\"{}\") out[{}]", r, i))
-        .intersperse(", ".to_string());
+        .flat_map(|(n, output_registers)| {
+            output_registers
+                .iter()
+                .enumerate()
+                .map(move |(i, r)| format!("lateout(\"{r}\") out{n}[{i}]"))
+        })
+        .intersperse(", ".to_string())
+        .collect();
 
     let mut clobber_registers: BTreeSet<TypedSizedRegister<HardwareRegister>> = BTreeSet::new();
     instructions.iter().for_each(|instruction| {
         clobber_registers.extend(instruction.extract_registers().map(|reg| clobber(reg)));
     });
 
-    let output_registers = BTreeSet::from_iter(output_registers.to_owned());
+    let output_registers = BTreeSet::from_iter(
+        outputs_registers
+            .into_iter()
+            .flat_map(|&r| Vec::from(r).into_iter()),
+    );
 
+    // For the clobbers
     let clobbers = clobber_registers
         .difference(&output_registers)
         .map(|r| format!("lateout(\"{}\") _", r))
