@@ -1,4 +1,4 @@
-//in("v0") _, in("v1") _, in("v2") _, in("v3") _, in("v4") _, in("v5") _, in("v6") _, in("v7") _, in("v8") _, in("v9") _, in("v10") _, in("v11") _, in("v12") _, in("v13") _, in("v14") _, in("v15") _, in("v16") _, in("v17") _, in("v18") _, in("v19") _,
+//in("v0") in0[0], in("v1") in0[1], in("v2") in0[2], in("v3") in0[3], in("v4") in0[4], in("v5") in0[5], in("v6") in0[6], in("v7") in0[7], in("v8") in0[8], in("v9") in0[9], in("v10") in1[0], in("v11") in1[1], in("v12") in1[2], in("v13") in1[3], in("v14") in1[4], in("v15") in2[0], in("v16") in2[1], in("v17") in2[2], in("v18") in2[3], in("v19") in2[4],
 //lateout("v0") out0[0], lateout("v1") out0[1], lateout("v2") out0[2], lateout("v3") out0[3], lateout("v4") out0[4], lateout("v5") out0[5], lateout("v6") out0[6], lateout("v7") out0[7], lateout("v8") out0[8], lateout("v9") out0[9],
 //lateout("x0") _, lateout("v10") _, lateout("v11") _, lateout("v12") _, lateout("v13") _, lateout("v14") _, lateout("v15") _, lateout("v16") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("v20") _, lateout("v21") _, lateout("v22") _, lateout("v23") _, lateout("v24") _,
 //lateout("lr") _

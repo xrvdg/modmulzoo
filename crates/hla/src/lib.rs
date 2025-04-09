@@ -1060,8 +1060,8 @@ pub fn backend_inline(instructions: &Vec<InstructionF<HardwareRegister>>) -> Str
 
 pub fn backend_rust(
     mapping: RegisterMapping,
-    input_registers: &[TypedSizedRegister<HardwareRegister>],
-    outputs_registers: &[&[TypedSizedRegister<HardwareRegister>]],
+    inputs_registers: Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    outputs_registers: Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
     instructions: &Vec<InstructionF<HardwareRegister>>,
 ) -> String {
     assert_eq!(
@@ -1072,10 +1072,17 @@ pub fn backend_rust(
             .sum()
     );
 
-    let inputs = input_registers
+    let inputs: Vec<_> = inputs_registers
         .iter()
-        .map(|r| format!("in(\"{}\") _", r))
-        .intersperse(", ".to_string());
+        .enumerate()
+        .flat_map(|(n, input_register)| {
+            input_register
+                .iter()
+                .enumerate()
+                .map(move |(i, r)| format!("in(\"{r}\") in{n}[{i}]"))
+        })
+        .intersperse(", ".to_string())
+        .collect();
 
     // Make this work with
     let outputs: Vec<_> = outputs_registers
@@ -1095,11 +1102,8 @@ pub fn backend_rust(
         clobber_registers.extend(instruction.extract_registers().map(|reg| clobber(reg)));
     });
 
-    let output_registers = BTreeSet::from_iter(
-        outputs_registers
-            .into_iter()
-            .flat_map(|&r| Vec::from(r).into_iter()),
-    );
+    let output_registers =
+        BTreeSet::from_iter(outputs_registers.into_iter().flat_map(|r| r.into_iter()));
 
     // For the clobbers
     let clobbers = clobber_registers
@@ -1113,6 +1117,7 @@ pub fn backend_rust(
     let lr = std::iter::once("lateout(\"lr\") _".to_string());
 
     inputs
+        .into_iter()
         .chain(newline.clone())
         .chain(outputs)
         .chain(newline.clone())

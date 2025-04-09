@@ -1,4 +1,4 @@
-//in("x0") _, in("x1") _, in("x2") _, in("x3") _, in("x4") _, in("x5") _, in("x6") _, in("x7") _,
+//in("x0") in0[0], in("x1") in0[1], in("x2") in0[2], in("x3") in0[3], in("x4") in1[0], in("x5") in1[1], in("x6") in1[2], in("x7") in1[3],
 //lateout("x2") out0[0], lateout("x3") out0[1], lateout("x1") out0[2], lateout("x0") out0[3],
 //lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _,
 //lateout("lr") _
