@@ -277,7 +277,115 @@ fn build_reduce_ct_simd() {
     build_func("reduce_ct_simd", input_setup);
 }
 
-fn build_interleaved() {}
+fn build_interleaved(label: &str) {
+    let mut alloc = Allocator::new();
+    let mut mapping = RegisterMapping::new();
+    let mut phys_registers = RegisterBank::new();
+
+    let mut fst_asm = Assembler::new();
+    let (mut fst_input_hw_registers, fst_regs) = {
+        let a = array::from_fn(|i| input(&mut alloc, &mut mapping, &mut phys_registers, i as u64));
+        let b = array::from_fn(|i| {
+            input(
+                &mut alloc,
+                &mut mapping,
+                &mut phys_registers,
+                (a.len() + i) as u64,
+            )
+        });
+
+        let input_hw_registers: Vec<_> = a
+            .iter()
+            .chain(&b)
+            .filter_map(|reg| mapping.output_register(&reg))
+            .collect();
+
+        let s = single_step(&mut alloc, &mut fst_asm, &a, &b);
+        (input_hw_registers, Vec::from(s))
+    };
+
+    let mut snd_asm = Assembler::new();
+
+    let (snd_input_hw_registers, snd_regs) = {
+        let offset = fst_input_hw_registers.len();
+        let a = array::from_fn(|i| {
+            input(
+                &mut alloc,
+                &mut mapping,
+                &mut phys_registers,
+                (offset + i) as u64,
+            )
+        });
+        let b = array::from_fn(|i| {
+            input(
+                &mut alloc,
+                &mut mapping,
+                &mut phys_registers,
+                (offset + i + a.len()) as u64,
+            )
+        }); // Assuming b starts after a
+
+        let input_hw_registers: Vec<_> = a
+            .iter()
+            .chain(b.iter())
+            .filter_map(|reg| mapping.output_register(reg))
+            .collect();
+
+        let res = single_step_simd(&mut alloc, &mut snd_asm, a, b);
+
+        (input_hw_registers, Vec::from(res))
+    };
+
+    let mixed: Vec<_> = interleave(fst_asm.instructions, snd_asm.instructions)
+        .into_iter()
+        .flatten()
+        .collect();
+
+    // Is there something we n do to tie off the outputs.
+    // and to make sure it happens before drop_pass
+    let mut seen = Seen::new();
+    fst_regs.iter().for_each(|r| {
+        seen.output_interface(r);
+    });
+    snd_regs.iter().for_each(|r| {
+        seen.output_interface(r);
+    });
+
+    let releases = liveness_analysis(&mut seen, &mixed);
+
+    let out = hardware_register_allocation(&mut mapping, &mut phys_registers, mixed, releases);
+
+    fst_input_hw_registers.extend(snd_input_hw_registers);
+
+    let input_hw_registers = fst_input_hw_registers;
+
+    let mut output_hw_registers: Vec<_> = fst_regs
+        .iter()
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
+
+    output_hw_registers.extend(
+        snd_regs
+            .iter()
+            .filter_map(|reg| mapping.output_register(reg)),
+    );
+
+    let txt = backend_global(label, &out);
+
+    // Write this info in the assembly file
+    let operands = backend_rust(mapping, &input_hw_registers, &output_hw_registers, &out);
+    let operands_with_semicolon: Vec<String> =
+        operands.lines().map(|line| format!("//{}", line)).collect();
+    let operands = format!("{}\n", operands_with_semicolon.join("\n"));
+
+    use std::io::Write;
+    let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
+        .expect("Unable to create file");
+    file.write_all(operands.as_bytes())
+        .expect("Unable to write data to file");
+    file.write_all(txt.as_bytes())
+        .expect("Unable to write data to file");
+}
 
 fn main() {
     build_smul_add();
@@ -288,6 +396,7 @@ fn main() {
     build_vmultadd_noinit_simd();
     build_single_step_simd();
     build_reduce_ct_simd();
+    build_interleaved("single_step_interleaved");
 }
 
 /* GENERATORS */
