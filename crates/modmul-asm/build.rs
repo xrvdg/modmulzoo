@@ -194,7 +194,10 @@ fn build_u256_to_u260_shl2_simd() {
             .filter_map(|reg| mapping.output_register(reg))
             .collect();
 
-        let res = u256_to_u260_shl2_simd(&mut alloc, asm, limbs);
+        let mask = mov(&mut alloc, asm, MASK52);
+        let mask_simd = dup2d(&mut alloc, asm, &mask);
+
+        let res = u256_to_u260_shl2_simd(&mut alloc, asm, &mask_simd, limbs);
 
         (vec![input_hw_registers], Vec::from(res))
     }
@@ -260,7 +263,14 @@ fn build_vmultadd_noinit_simd() {
             .filter_map(|reg| mapping.output_register(reg))
             .collect();
 
-        let res = vmultadd_noinit_simd(&mut alloc, asm, t, a, b);
+        let c1 = mov(&mut alloc, asm, C1.to_bits());
+        let c1 = dup2d(&mut alloc, asm, &c1);
+
+        // Alternative is c2 = c1 + 1; This requires a change to add to support immediate
+        let c2 = load_const(&mut alloc, asm, C2.to_bits());
+        let c2 = dup2d(&mut alloc, asm, &c2);
+
+        let res = vmultadd_noinit_simd(&mut alloc, asm, &c1, &c2, t, a, b);
 
         (
             vec![
@@ -325,7 +335,10 @@ fn build_reduce_ct_simd() {
             .filter_map(|reg| mapping.output_register(reg))
             .collect();
 
-        let res = reduce_ct_simd(&mut alloc, asm, red);
+        let mask = mov(&mut alloc, asm, MASK52);
+        let mask52 = dup2d(&mut alloc, asm, &mask);
+
+        let res = reduce_ct_simd(&mut alloc, asm, &mask52, red);
 
         (vec![input_hw_registers], Vec::from(res))
     }
@@ -705,14 +718,10 @@ fn transpose_u256_to_simd(
 fn u256_to_u260_shl2_simd(
     alloc: &mut Allocator,
     asm: &mut Assembler,
+    mask52: &Reg<Simd<u64, 2>>,
     limbs: [Reg<Simd<u64, 2>>; 4],
 ) -> [Reg<Simd<u64, 2>>; 5] {
     let [l0, l1, l2, l3] = limbs;
-    let mask = {
-        let val = mov(alloc, asm, MASK52);
-        let mask = dup2d(alloc, asm, &val);
-        mask
-    };
 
     let shifted_l1 = shl2d(alloc, asm, &l1, 14);
     let shifted_l2 = shl2d(alloc, asm, &l2, 26);
@@ -724,10 +733,10 @@ fn u256_to_u260_shl2_simd(
     let shifted_ol3 = usra2d(alloc, asm, shifted_l3, &l2, 26);
 
     [
-        and16(alloc, asm, &shifted_ol0, &mask),
-        and16(alloc, asm, &shifted_ol1, &mask),
-        and16(alloc, asm, &shifted_ol2, &mask),
-        and16(alloc, asm, &shifted_ol3, &mask),
+        and16(alloc, asm, &shifted_ol0, &mask52),
+        and16(alloc, asm, &shifted_ol1, &mask52),
+        and16(alloc, asm, &shifted_ol2, &mask52),
+        and16(alloc, asm, &shifted_ol3, &mask52),
         ushr2d(alloc, asm, &l3, 14),
     ]
 }
@@ -783,23 +792,18 @@ fn make_initials(alloc: &mut Allocator, asm: &mut Assembler) -> [Reg<Simd<u64, 2
 fn vmultadd_noinit_simd(
     alloc: &mut Allocator,
     asm: &mut Assembler,
+    c1: &Reg<Simd<u64, 2>>,
+    c2: &Reg<Simd<u64, 2>>,
     mut t: [Reg<Simd<u64, 2>>; 10],
     a: [Reg<Simd<u64, 2>>; 5],
     b: [Reg<Simd<u64, 2>>; 5],
 ) -> [Reg<Simd<u64, 2>>; 10] {
-    let c1 = mov(alloc, asm, C1.to_bits());
-    let c1 = dup2d(alloc, asm, &c1);
-
-    // Alternative is c2 = c1 + 1; This requires a change to add to support immediate
-    let c2 = load_const(alloc, asm, C2.to_bits());
-    let c2 = dup2d(alloc, asm, &c2);
-
     for i in 0..a.len() {
         let ai = ucvtf2d(alloc, asm, &a[i]);
         for j in 0..b.len() {
             let bj = ucvtf2d(alloc, asm, &b[j]);
-            let lc1 = mov16b(alloc, asm, &c1);
-            let lc2 = mov16b(alloc, asm, &c2);
+            let lc1 = mov16b(alloc, asm, c1);
+            let lc2 = mov16b(alloc, asm, c2);
 
             let hi = fmla2d(alloc, asm, lc1.into_(), &ai, &bj);
             let tmp = fsub2d(alloc, asm, &lc2.into_(), &hi);
@@ -817,16 +821,11 @@ pub fn smultadd_noinit_simd(
     alloc: &mut Allocator,
     asm: &mut Assembler,
     mut t: [Reg<Simd<u64, 2>>; 6],
+    c1: &Reg<Simd<u64, 2>>,
+    c2: &Reg<Simd<u64, 2>>,
     s: Reg<Simd<u64, 2>>,
     v: [Reg<u64>; 5],
 ) -> [Reg<Simd<u64, 2>>; 6] {
-    let c1 = mov(alloc, asm, C1.to_bits());
-    let c1 = dup2d(alloc, asm, &c1);
-
-    // Alternative is c2 = c1 + 1; This requires a change to add to support immediate
-    let c2 = load_const(alloc, asm, C2.to_bits());
-    let c2 = dup2d(alloc, asm, &c2);
-
     let s = ucvtf2d(alloc, asm, &s);
 
     for i in 0..v.len() {
@@ -844,6 +843,7 @@ pub fn smultadd_noinit_simd(
     t
 }
 
+/// Constants that are used across functions
 /// Misses the transposing to make it easier on the registers for the next steps
 fn single_step_simd(
     alloc: &mut Allocator,
@@ -851,11 +851,21 @@ fn single_step_simd(
     a: [Reg<Simd<u64, 2>>; 4],
     b: [Reg<Simd<u64, 2>>; 4],
 ) -> [Reg<Simd<u64, 2>>; 4] {
-    let a = u256_to_u260_shl2_simd(alloc, asm, a);
-    let b = u256_to_u260_shl2_simd(alloc, asm, b);
+    let mask = mov(alloc, asm, MASK52);
+    let mask52 = dup2d(alloc, asm, &mask);
+    let a = u256_to_u260_shl2_simd(alloc, asm, &mask52, a);
+    let b = u256_to_u260_shl2_simd(alloc, asm, &mask52, b);
     let t = make_initials(alloc, asm);
 
-    let [t0, t1, t2, t3, t4, t5, t6, t7, t8, t9] = vmultadd_noinit_simd(alloc, asm, t, a, b);
+    let c1 = mov(alloc, asm, C1.to_bits());
+    let c1 = dup2d(alloc, asm, &c1);
+
+    // Alternative is c2 = c1 + 1; This requires a change to add to support immediate
+    let c2 = load_const(alloc, asm, C2.to_bits());
+    let c2 = dup2d(alloc, asm, &c2);
+
+    let [t0, t1, t2, t3, t4, t5, t6, t7, t8, t9] =
+        vmultadd_noinit_simd(alloc, asm, &c1, &c2, t, a, b);
 
     let t1 = usra2d(alloc, asm, t1, &t0, 52);
     let t2 = usra2d(alloc, asm, t2, &t1, 52);
@@ -864,23 +874,20 @@ fn single_step_simd(
 
     let t6_10 = [t4, t5, t6, t7, t8, t9];
 
-    let mask = mov(alloc, asm, MASK52);
-    let mask_simd = dup2d(alloc, asm, &mask);
-
-    let t0 = and16(alloc, asm, &t0, &mask_simd);
-    let t1 = and16(alloc, asm, &t1, &mask_simd);
-    let t2 = and16(alloc, asm, &t2, &mask_simd);
-    let t3 = and16(alloc, asm, &t3, &mask_simd);
+    let t0 = and16(alloc, asm, &t0, &mask52);
+    let t1 = and16(alloc, asm, &t1, &mask52);
+    let t2 = and16(alloc, asm, &t2, &mask52);
+    let t3 = and16(alloc, asm, &t3, &mask52);
 
     // loading rho interleaved with multiplication to prevent to prevent allocation a lot of X-registers
     let rho_4 = RHO_4.map(|c| load_const(alloc, asm, c));
-    let r0 = smultadd_noinit_simd(alloc, asm, t6_10, t0, rho_4);
+    let r0 = smultadd_noinit_simd(alloc, asm, t6_10, &c1, &c2, t0, rho_4);
     let rho_3 = RHO_3.map(|c| load_const(alloc, asm, c));
-    let r1 = smultadd_noinit_simd(alloc, asm, r0, t1, rho_3);
+    let r1 = smultadd_noinit_simd(alloc, asm, r0, &c1, &c2, t1, rho_3);
     let rho_2 = RHO_2.map(|c| load_const(alloc, asm, c));
-    let r2 = smultadd_noinit_simd(alloc, asm, r1, t2, rho_2);
+    let r2 = smultadd_noinit_simd(alloc, asm, r1, &c1, &c2, t2, rho_2);
     let rho_1 = RHO_1.map(|c| load_const(alloc, asm, c));
-    let s = smultadd_noinit_simd(alloc, asm, r2, t3, rho_1);
+    let s = smultadd_noinit_simd(alloc, asm, r2, &c1, &c2, t3, rho_1);
 
     // Could be replaced with fmul, but the rust compiler generates this
     let u52_np0 = load_const(alloc, asm, U52_NP0);
@@ -895,9 +902,9 @@ fn single_step_simd(
 
     let u52_p = U52_P.map(|i| load_const(alloc, asm, i));
 
-    let s = smultadd_noinit_simd(alloc, asm, s, m, u52_p);
+    let s = smultadd_noinit_simd(alloc, asm, s, &c1, &c2, m, u52_p);
 
-    let rs = reduce_ct_simd(alloc, asm, s);
+    let rs = reduce_ct_simd(alloc, asm, &mask52, s);
 
     u260_to_u256_simd(alloc, asm, rs)
 }
@@ -905,6 +912,7 @@ fn single_step_simd(
 fn reduce_ct_simd(
     alloc: &mut Allocator,
     asm: &mut Assembler,
+    mask52: &Reg<Simd<u64, 2>>,
     red: [Reg<Simd<u64, 2>>; 6],
 ) -> [Reg<Simd<u64, 2>>; 5] {
     // Set cmp to zero if the msb (4x52 + 47) is set.
@@ -920,9 +928,6 @@ fn reduce_ct_simd(
         // p & (~cmp) -> if msb is set return p else return 0
         bic16(alloc, asm, &p, &cmp)
     });
-
-    let mask52 = mov(alloc, asm, MASK52);
-    let mask52 = dup2d(alloc, asm, &mask52);
 
     let mut c = array::from_fn(|_| alloc.fresh());
     let [prev, minuend @ ..] = red;
