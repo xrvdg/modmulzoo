@@ -16,6 +16,7 @@ global_asm!(include_str!("../asm/global_asm_u260_to_u256_simd.s"));
 global_asm!(include_str!("../asm/global_asm_vmultadd_noinit_simd.s"));
 global_asm!(include_str!("../asm/global_asm_reduce_ct_simd.s"));
 global_asm!(include_str!("../asm/global_asm_single_step_simd.s"));
+global_asm!(include_str!("../asm/global_asm_single_step_interleaved.s"));
 
 #[inline(never)]
 // If this function gets moved/inlined the linker won't be able to find the assembly.
@@ -303,6 +304,38 @@ pub fn call_single_step_simd(
     out
 }
 
+#[inline(never)]
+pub fn call_single_step_interleaved(
+    _rtz: &RTZ,
+    a: [u64; 4],
+    b: [u64; 4],
+    va: [Simd<u64, 2>; 4],
+    vb: [Simd<u64, 2>; 4],
+) -> ([u64; 4], [Simd<u64, 2>; 4]) {
+    let mut out0 = [0; 4];
+    let mut out1 = [Simd::splat(0); 4];
+    unsafe {
+        asm!("bl _single_step_interleaved",
+        in("x0") a[0], in("x1") a[1], in("x2") a[2], in("x3") a[3],
+        in("x4") b[0], in("x5") b[1], in("x6") b[2], in("x7") b[3],
+        in("v0") va[0], in("v1") va[1], in("v2") va[2], in("v3") va[3],
+        in("v4") vb[0], in("v5") vb[1], in("v6") vb[2], in("v7") vb[3],
+        lateout("x2") out0[0], lateout("x3") out0[1], lateout("x1") out0[2], lateout("x0") out0[3],
+        lateout("v4") out1[0], lateout("v6") out1[1], lateout("v7") out1[2], lateout("v3") out1[3],
+
+        lateout("v0") _, lateout("v1") _, lateout("v2") _, lateout("x4") _, lateout("x5") _, lateout("v5") _,
+        lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("v8") _, lateout("x9") _, lateout("v9") _,
+        lateout("x10") _, lateout("v10") _, lateout("x11") _, lateout("v11") _, lateout("x12") _, lateout("v12") _,
+        lateout("x13") _, lateout("v13") _, lateout("x14") _, lateout("v14") _, lateout("x15") _, lateout("v15") _,
+        lateout("x16") _, lateout("v16") _, lateout("x17") _, lateout("v17") _, lateout("v18") _, lateout("v19") _,
+        lateout("v20") _, lateout("v21") _, lateout("v22") _, lateout("v23") _, lateout("v24") _,
+        lateout("lr") _
+
+                )
+    }
+    (out0, out1)
+}
+
 #[cfg(test)]
 mod tests {
     use std::simd::Simd;
@@ -313,8 +346,9 @@ mod tests {
     use quickcheck_macros::quickcheck;
 
     use crate::{
-        call_reduce_ct_simd, call_schoolmethod, call_single_step, call_single_step_simd,
-        call_u256_to_u260_shl2_simd, call_u260_to_u256_simd, call_vmultadd_noinit_simd,
+        call_reduce_ct_simd, call_schoolmethod, call_single_step, call_single_step_interleaved,
+        call_single_step_simd, call_u256_to_u260_shl2_simd, call_u260_to_u256_simd,
+        call_vmultadd_noinit_simd,
     };
     use crate::{call_smul, call_smul_add};
 
@@ -392,5 +426,16 @@ mod tests {
 
         let rtz = RTZ::set().unwrap();
         domb::parallel_sub_simd_r256_no_trans(&rtz, ac, bd) == call_single_step_simd(&rtz, ac, bd)
+    }
+
+    #[quickcheck]
+    fn single_step_interleaved(a: U256b64, b: U256b64, c: U256b64, d: U256b64) {
+        let ac = zip_with(a.0, c.0, |fst, snd| Simd::from_array([fst, snd]));
+        let bd = zip_with(b.0, d.0, |fst, snd| Simd::from_array([fst, snd]));
+
+        let rtz = RTZ::set().unwrap();
+        let (scalar, vector) = call_single_step_interleaved(&rtz, a.0, b.0, ac, bd);
+        assert_eq!(domb::parallel_sub_simd_r256_no_trans(&rtz, ac, bd), vector);
+        assert_eq!(yuval::parallel_reduce(a.0, b.0), scalar);
     }
 }

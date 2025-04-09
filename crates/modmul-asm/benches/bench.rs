@@ -4,7 +4,8 @@ use std::simd::Simd;
 use block_multiplier::rtz::RTZ;
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use modmul_asm::{
-    call_schoolmethod, call_schoolmethod_inline, call_single_step, call_single_step_simd,
+    call_schoolmethod, call_schoolmethod_inline, call_single_step, call_single_step_interleaved,
+    call_single_step_simd,
 };
 use rand::Rng;
 
@@ -41,6 +42,16 @@ fn bench_single_step(c: &mut Criterion) {
             let a = black_box(av);
             let b = black_box(bv);
             call_single_step_simd(&rtz, a, b)
+        })
+    });
+
+    group.bench_function("single_step_interleaved", |bencher| {
+        bencher.iter(|| {
+            let a = black_box(a);
+            let b = black_box(b);
+            let av = black_box(av);
+            let bv = black_box(bv);
+            call_single_step_interleaved(&rtz, a, b, av, bv)
         })
     });
 
