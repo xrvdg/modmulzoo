@@ -773,6 +773,10 @@ pub fn interleave<T>(lhs: Vec<T>, rhs: Vec<T>) -> Vec<T> {
         (rhs, lhs)
     };
 
+    if shorter.is_empty() {
+        return longer;
+    }
+
     let mut result = Vec::with_capacity(shorter.len() + longer.len());
 
     let short_len = shorter.len();
