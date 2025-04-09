@@ -617,6 +617,15 @@ pub fn load_const(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<u
     reg
 }
 
+pub fn load_floating_simd(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    val: f64,
+) -> Reg<Simd<f64, 2>> {
+    let c = load_const(alloc, asm, val.to_bits());
+    dup2d(alloc, asm, &c).into_()
+}
+
 pub fn subv(
     alloc: &mut Allocator,
     asm: &mut Assembler,
@@ -824,19 +833,18 @@ pub fn smultadd_noinit_simd(
     c1: &Reg<Simd<u64, 2>>,
     c2: &Reg<Simd<u64, 2>>,
     s: Reg<Simd<u64, 2>>,
-    v: [Reg<u64>; 5],
+    v: [Reg<Simd<f64, 2>>; 5],
 ) -> [Reg<Simd<u64, 2>>; 6] {
     let s = ucvtf2d(alloc, asm, &s);
 
     for i in 0..v.len() {
         // TODO These are known constants so we can load them directly into floating point registers
-        let vi = ucvtf(alloc, asm, &v[i]);
         let lc1 = mov16b(alloc, asm, &c1);
         let lc2 = mov16b(alloc, asm, &c2);
 
-        let hi = fmla2d(alloc, asm, lc1.into_(), &s, &vi.as_simd()._0());
+        let hi = fmla2d(alloc, asm, lc1.into_(), &s, &v[i]);
         let tmp = fsub2d(alloc, asm, &lc2.into_(), &hi);
-        let lo = fmla2d(alloc, asm, tmp, &s, &vi.as_simd()._0());
+        let lo = fmla2d(alloc, asm, tmp, &s, &v[i]);
 
         t[i + 1] = add2d(alloc, asm, &t[i + 1], &hi.into_());
         t[i] = add2d(alloc, asm, &t[i], &lo.into_());
@@ -882,13 +890,13 @@ fn single_step_simd(
     let t3 = and16(alloc, asm, &t3, &mask52);
 
     // loading rho interleaved with multiplication to prevent to prevent allocation a lot of X-registers
-    let rho_4 = RHO_4.map(|c| load_const(alloc, asm, c));
+    let rho_4 = RHO_4.map(|c| load_floating_simd(alloc, asm, c as f64));
     let r0 = smultadd_noinit_simd(alloc, asm, t4_10, &c1, &c2, t0, rho_4);
-    let rho_3 = RHO_3.map(|c| load_const(alloc, asm, c));
+    let rho_3 = RHO_3.map(|c| load_floating_simd(alloc, asm, c as f64));
     let r1 = smultadd_noinit_simd(alloc, asm, r0, &c1, &c2, t1, rho_3);
-    let rho_2 = RHO_2.map(|c| load_const(alloc, asm, c));
+    let rho_2 = RHO_2.map(|c| load_floating_simd(alloc, asm, c as f64));
     let r2 = smultadd_noinit_simd(alloc, asm, r1, &c1, &c2, t2, rho_2);
-    let rho_1 = RHO_1.map(|c| load_const(alloc, asm, c));
+    let rho_1 = RHO_1.map(|c| load_floating_simd(alloc, asm, c as f64));
     let s = smultadd_noinit_simd(alloc, asm, r2, &c1, &c2, t3, rho_1);
 
     // Could be replaced with fmul, but the rust compiler generates this
@@ -902,7 +910,7 @@ fn single_step_simd(
     let m1 = and(alloc, asm, &m1, &mask);
     let m = load_tuple(alloc, asm, m0, m1);
 
-    let u52_p = U52_P.map(|i| load_const(alloc, asm, i));
+    let u52_p = U52_P.map(|i| load_floating_simd(alloc, asm, i as f64));
 
     let s = smultadd_noinit_simd(alloc, asm, s, &c1, &c2, m, u52_p);
 
