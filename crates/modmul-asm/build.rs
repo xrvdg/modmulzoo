@@ -798,16 +798,16 @@ fn vmultadd_noinit_simd(
     a: [Reg<Simd<u64, 2>>; 5],
     b: [Reg<Simd<u64, 2>>; 5],
 ) -> [Reg<Simd<u64, 2>>; 10] {
+    let a = a.map(|ai| ucvtf2d(alloc, asm, &ai));
+    let b = b.map(|bi| ucvtf2d(alloc, asm, &bi));
     for i in 0..a.len() {
-        let ai = ucvtf2d(alloc, asm, &a[i]);
         for j in 0..b.len() {
-            let bj = ucvtf2d(alloc, asm, &b[j]);
             let lc1 = mov16b(alloc, asm, c1);
             let lc2 = mov16b(alloc, asm, c2);
 
-            let hi = fmla2d(alloc, asm, lc1.into_(), &ai, &bj);
+            let hi = fmla2d(alloc, asm, lc1.into_(), &a[i], &b[j]);
             let tmp = fsub2d(alloc, asm, &lc2.into_(), &hi);
-            let lo = fmla2d(alloc, asm, tmp, &ai, &bj);
+            let lo = fmla2d(alloc, asm, tmp, &a[i], &b[j]);
 
             t[i + j + 1] = add2d(alloc, asm, &t[i + j + 1], &hi.into_());
             t[i + j] = add2d(alloc, asm, &t[i + j], &lo.into_());
@@ -829,6 +829,7 @@ pub fn smultadd_noinit_simd(
     let s = ucvtf2d(alloc, asm, &s);
 
     for i in 0..v.len() {
+        // TODO These are known constants so we can load them directly into floating point registers
         let vi = ucvtf(alloc, asm, &v[i]);
         let lc1 = mov16b(alloc, asm, &c1);
         let lc2 = mov16b(alloc, asm, &c2);
@@ -853,6 +854,7 @@ fn single_step_simd(
 ) -> [Reg<Simd<u64, 2>>; 4] {
     let mask = mov(alloc, asm, MASK52);
     let mask52 = dup2d(alloc, asm, &mask);
+
     let a = u256_to_u260_shl2_simd(alloc, asm, &mask52, a);
     let b = u256_to_u260_shl2_simd(alloc, asm, &mask52, b);
     let t = make_initials(alloc, asm);
@@ -872,7 +874,7 @@ fn single_step_simd(
     let t3 = usra2d(alloc, asm, t3, &t2, 52);
     let t4 = usra2d(alloc, asm, t4, &t3, 52);
 
-    let t6_10 = [t4, t5, t6, t7, t8, t9];
+    let t4_10 = [t4, t5, t6, t7, t8, t9];
 
     let t0 = and16(alloc, asm, &t0, &mask52);
     let t1 = and16(alloc, asm, &t1, &mask52);
@@ -881,7 +883,7 @@ fn single_step_simd(
 
     // loading rho interleaved with multiplication to prevent to prevent allocation a lot of X-registers
     let rho_4 = RHO_4.map(|c| load_const(alloc, asm, c));
-    let r0 = smultadd_noinit_simd(alloc, asm, t6_10, &c1, &c2, t0, rho_4);
+    let r0 = smultadd_noinit_simd(alloc, asm, t4_10, &c1, &c2, t0, rho_4);
     let rho_3 = RHO_3.map(|c| load_const(alloc, asm, c));
     let r1 = smultadd_noinit_simd(alloc, asm, r0, &c1, &c2, t1, rho_3);
     let rho_2 = RHO_2.map(|c| load_const(alloc, asm, c));

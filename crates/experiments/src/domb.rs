@@ -408,6 +408,15 @@ pub fn parallel_sub_simd_r256(rtz: &RTZ, a: [[u64; 4]; 2], b: [[u64; 4]; 2]) -> 
     ))
 }
 
+#[inline(never)]
+pub fn parallel_sub_simd_r256_no_trans_stub(
+    rtz: &RTZ,
+    a: [Simd<u64, 2>; 4],
+    b: [Simd<u64, 2>; 4],
+) -> [Simd<u64, 2>; 4] {
+    parallel_sub_simd_r256_no_trans(rtz, a, b)
+}
+
 #[inline(always)]
 pub fn parallel_sub_simd_r256_no_trans(
     rtz: &RTZ,

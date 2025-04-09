@@ -1,6 +1,6 @@
 //in("v0") in0[0], in("v1") in0[1], in("v2") in0[2], in("v3") in0[3], in("v4") in1[0], in("v5") in1[1], in("v6") in1[2], in("v7") in1[3],
 //lateout("v4") out0[0], lateout("v6") out0[1], lateout("v7") out0[2], lateout("v3") out0[3],
-//lateout("x0") _, lateout("v0") _, lateout("x1") _, lateout("v1") _, lateout("x2") _, lateout("v2") _, lateout("x3") _, lateout("x4") _, lateout("x5") _, lateout("v5") _, lateout("v8") _, lateout("v9") _, lateout("v10") _, lateout("v11") _, lateout("v12") _, lateout("v13") _, lateout("v14") _, lateout("v15") _, lateout("v16") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("v20") _, lateout("v21") _, lateout("v22") _, lateout("v23") _, lateout("v24") _, lateout("v25") _,
+//lateout("x0") _, lateout("v0") _, lateout("x1") _, lateout("v1") _, lateout("x2") _, lateout("v2") _, lateout("x3") _, lateout("x4") _, lateout("x5") _, lateout("v5") _, lateout("v8") _, lateout("v9") _, lateout("v10") _, lateout("v11") _, lateout("v12") _, lateout("v13") _, lateout("v14") _, lateout("v15") _, lateout("v16") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("v20") _, lateout("v21") _, lateout("v22") _, lateout("v23") _, lateout("v24") _,
 //lateout("lr") _
 .global _single_step_simd
 .align 4
@@ -58,171 +58,155 @@ _single_step_simd:
   movk x1, #18032, lsl 48
   dup.2d v22, x1
   ucvtf.2d v0, v0
-  ucvtf.2d v23, v4
-  mov.16b v24, v21
-  mov.16b v25, v22
-  fmla.2d v24, v0, v23
-  fsub.2d v25, v25, v24
-  fmla.2d v25, v0, v23
-  add.2d v13, v13, v24
-  add.2d v11, v11, v25
-  ucvtf.2d v23, v5
-  mov.16b v24, v21
-  mov.16b v25, v22
-  fmla.2d v24, v0, v23
-  fsub.2d v25, v25, v24
-  fmla.2d v25, v0, v23
-  add.2d v15, v15, v24
-  add.2d v13, v13, v25
-  ucvtf.2d v23, v6
-  mov.16b v24, v21
-  mov.16b v25, v22
-  fmla.2d v24, v0, v23
-  fsub.2d v25, v25, v24
-  fmla.2d v25, v0, v23
-  add.2d v17, v17, v24
-  add.2d v15, v15, v25
-  ucvtf.2d v23, v10
-  mov.16b v24, v21
-  mov.16b v25, v22
-  fmla.2d v24, v0, v23
-  fsub.2d v25, v25, v24
-  fmla.2d v25, v0, v23
-  add.2d v19, v19, v24
-  add.2d v17, v17, v25
-  ucvtf.2d v23, v7
-  mov.16b v24, v21
-  mov.16b v25, v22
-  fmla.2d v24, v0, v23
-  fsub.2d v25, v25, v24
-  fmla.2d v25, v0, v23
-  add.2d v0, v20, v24
-  add.2d v19, v19, v25
   ucvtf.2d v1, v1
-  ucvtf.2d v20, v4
-  mov.16b v23, v21
-  mov.16b v24, v22
-  fmla.2d v23, v1, v20
-  fsub.2d v24, v24, v23
-  fmla.2d v24, v1, v20
-  add.2d v15, v15, v23
-  add.2d v13, v13, v24
-  ucvtf.2d v20, v5
-  mov.16b v23, v21
-  mov.16b v24, v22
-  fmla.2d v23, v1, v20
-  fsub.2d v24, v24, v23
-  fmla.2d v24, v1, v20
-  add.2d v17, v17, v23
-  add.2d v15, v15, v24
-  ucvtf.2d v20, v6
-  mov.16b v23, v21
-  mov.16b v24, v22
-  fmla.2d v23, v1, v20
-  fsub.2d v24, v24, v23
-  fmla.2d v24, v1, v20
-  add.2d v19, v19, v23
-  add.2d v17, v17, v24
-  ucvtf.2d v20, v10
-  mov.16b v23, v21
-  mov.16b v24, v22
-  fmla.2d v23, v1, v20
-  fsub.2d v24, v24, v23
-  fmla.2d v24, v1, v20
-  add.2d v0, v0, v23
-  add.2d v19, v19, v24
-  ucvtf.2d v20, v7
-  mov.16b v23, v21
-  mov.16b v24, v22
-  fmla.2d v23, v1, v20
-  fsub.2d v24, v24, v23
-  fmla.2d v24, v1, v20
-  add.2d v1, v18, v23
-  add.2d v0, v0, v24
   ucvtf.2d v2, v2
-  ucvtf.2d v18, v4
-  mov.16b v20, v21
-  mov.16b v23, v22
-  fmla.2d v20, v2, v18
-  fsub.2d v23, v23, v20
-  fmla.2d v23, v2, v18
-  add.2d v17, v17, v20
-  add.2d v15, v15, v23
-  ucvtf.2d v18, v5
-  mov.16b v20, v21
-  mov.16b v23, v22
-  fmla.2d v20, v2, v18
-  fsub.2d v23, v23, v20
-  fmla.2d v23, v2, v18
-  add.2d v18, v19, v20
-  add.2d v17, v17, v23
-  ucvtf.2d v19, v6
-  mov.16b v20, v21
-  mov.16b v23, v22
-  fmla.2d v20, v2, v19
-  fsub.2d v23, v23, v20
-  fmla.2d v23, v2, v19
-  add.2d v0, v0, v20
-  add.2d v18, v18, v23
-  ucvtf.2d v19, v10
-  mov.16b v20, v21
-  mov.16b v23, v22
-  fmla.2d v20, v2, v19
-  fsub.2d v23, v23, v20
-  fmla.2d v23, v2, v19
-  add.2d v1, v1, v20
-  add.2d v0, v0, v23
-  ucvtf.2d v19, v7
-  mov.16b v20, v21
-  mov.16b v23, v22
-  fmla.2d v20, v2, v19
-  fsub.2d v23, v23, v20
-  fmla.2d v23, v2, v19
-  add.2d v2, v16, v20
-  add.2d v1, v1, v23
   ucvtf.2d v9, v9
-  ucvtf.2d v16, v4
-  mov.16b v19, v21
-  mov.16b v20, v22
-  fmla.2d v19, v9, v16
-  fsub.2d v20, v20, v19
-  fmla.2d v20, v9, v16
-  add.2d v16, v18, v19
-  add.2d v17, v17, v20
-  ucvtf.2d v18, v5
-  mov.16b v19, v21
-  mov.16b v20, v22
-  fmla.2d v19, v9, v18
-  fsub.2d v20, v20, v19
-  fmla.2d v20, v9, v18
-  add.2d v0, v0, v19
-  add.2d v16, v16, v20
-  ucvtf.2d v18, v6
-  mov.16b v19, v21
-  mov.16b v20, v22
-  fmla.2d v19, v9, v18
-  fsub.2d v20, v20, v19
-  fmla.2d v20, v9, v18
-  add.2d v1, v1, v19
-  add.2d v0, v0, v20
-  ucvtf.2d v18, v10
-  mov.16b v19, v21
-  mov.16b v20, v22
-  fmla.2d v19, v9, v18
-  fsub.2d v20, v20, v19
-  fmla.2d v20, v9, v18
-  add.2d v2, v2, v19
-  add.2d v1, v1, v20
-  ucvtf.2d v18, v7
-  mov.16b v19, v21
-  mov.16b v20, v22
-  fmla.2d v19, v9, v18
-  fsub.2d v20, v20, v19
-  fmla.2d v20, v9, v18
-  add.2d v9, v14, v19
-  add.2d v2, v2, v20
   ucvtf.2d v3, v3
   ucvtf.2d v4, v4
+  ucvtf.2d v5, v5
+  ucvtf.2d v6, v6
+  ucvtf.2d v10, v10
+  ucvtf.2d v7, v7
+  mov.16b v23, v21
+  mov.16b v24, v22
+  fmla.2d v23, v0, v4
+  fsub.2d v24, v24, v23
+  fmla.2d v24, v0, v4
+  add.2d v13, v13, v23
+  add.2d v11, v11, v24
+  mov.16b v23, v21
+  mov.16b v24, v22
+  fmla.2d v23, v0, v5
+  fsub.2d v24, v24, v23
+  fmla.2d v24, v0, v5
+  add.2d v15, v15, v23
+  add.2d v13, v13, v24
+  mov.16b v23, v21
+  mov.16b v24, v22
+  fmla.2d v23, v0, v6
+  fsub.2d v24, v24, v23
+  fmla.2d v24, v0, v6
+  add.2d v17, v17, v23
+  add.2d v15, v15, v24
+  mov.16b v23, v21
+  mov.16b v24, v22
+  fmla.2d v23, v0, v10
+  fsub.2d v24, v24, v23
+  fmla.2d v24, v0, v10
+  add.2d v19, v19, v23
+  add.2d v17, v17, v24
+  mov.16b v23, v21
+  mov.16b v24, v22
+  fmla.2d v23, v0, v7
+  fsub.2d v24, v24, v23
+  fmla.2d v24, v0, v7
+  add.2d v0, v20, v23
+  add.2d v19, v19, v24
+  mov.16b v20, v21
+  mov.16b v23, v22
+  fmla.2d v20, v1, v4
+  fsub.2d v23, v23, v20
+  fmla.2d v23, v1, v4
+  add.2d v15, v15, v20
+  add.2d v13, v13, v23
+  mov.16b v20, v21
+  mov.16b v23, v22
+  fmla.2d v20, v1, v5
+  fsub.2d v23, v23, v20
+  fmla.2d v23, v1, v5
+  add.2d v17, v17, v20
+  add.2d v15, v15, v23
+  mov.16b v20, v21
+  mov.16b v23, v22
+  fmla.2d v20, v1, v6
+  fsub.2d v23, v23, v20
+  fmla.2d v23, v1, v6
+  add.2d v19, v19, v20
+  add.2d v17, v17, v23
+  mov.16b v20, v21
+  mov.16b v23, v22
+  fmla.2d v20, v1, v10
+  fsub.2d v23, v23, v20
+  fmla.2d v23, v1, v10
+  add.2d v0, v0, v20
+  add.2d v19, v19, v23
+  mov.16b v20, v21
+  mov.16b v23, v22
+  fmla.2d v20, v1, v7
+  fsub.2d v23, v23, v20
+  fmla.2d v23, v1, v7
+  add.2d v1, v18, v20
+  add.2d v0, v0, v23
+  mov.16b v18, v21
+  mov.16b v20, v22
+  fmla.2d v18, v2, v4
+  fsub.2d v20, v20, v18
+  fmla.2d v20, v2, v4
+  add.2d v17, v17, v18
+  add.2d v15, v15, v20
+  mov.16b v18, v21
+  mov.16b v20, v22
+  fmla.2d v18, v2, v5
+  fsub.2d v20, v20, v18
+  fmla.2d v20, v2, v5
+  add.2d v18, v19, v18
+  add.2d v17, v17, v20
+  mov.16b v19, v21
+  mov.16b v20, v22
+  fmla.2d v19, v2, v6
+  fsub.2d v20, v20, v19
+  fmla.2d v20, v2, v6
+  add.2d v0, v0, v19
+  add.2d v18, v18, v20
+  mov.16b v19, v21
+  mov.16b v20, v22
+  fmla.2d v19, v2, v10
+  fsub.2d v20, v20, v19
+  fmla.2d v20, v2, v10
+  add.2d v1, v1, v19
+  add.2d v0, v0, v20
+  mov.16b v19, v21
+  mov.16b v20, v22
+  fmla.2d v19, v2, v7
+  fsub.2d v20, v20, v19
+  fmla.2d v20, v2, v7
+  add.2d v2, v16, v19
+  add.2d v1, v1, v20
+  mov.16b v16, v21
+  mov.16b v19, v22
+  fmla.2d v16, v9, v4
+  fsub.2d v19, v19, v16
+  fmla.2d v19, v9, v4
+  add.2d v16, v18, v16
+  add.2d v17, v17, v19
+  mov.16b v18, v21
+  mov.16b v19, v22
+  fmla.2d v18, v9, v5
+  fsub.2d v19, v19, v18
+  fmla.2d v19, v9, v5
+  add.2d v0, v0, v18
+  add.2d v16, v16, v19
+  mov.16b v18, v21
+  mov.16b v19, v22
+  fmla.2d v18, v9, v6
+  fsub.2d v19, v19, v18
+  fmla.2d v19, v9, v6
+  add.2d v1, v1, v18
+  add.2d v0, v0, v19
+  mov.16b v18, v21
+  mov.16b v19, v22
+  fmla.2d v18, v9, v10
+  fsub.2d v19, v19, v18
+  fmla.2d v19, v9, v10
+  add.2d v2, v2, v18
+  add.2d v1, v1, v19
+  mov.16b v18, v21
+  mov.16b v19, v22
+  fmla.2d v18, v9, v7
+  fsub.2d v19, v19, v18
+  fmla.2d v19, v9, v7
+  add.2d v9, v14, v18
+  add.2d v2, v2, v19
   mov.16b v14, v21
   mov.16b v18, v22
   fmla.2d v14, v3, v4
@@ -230,7 +214,6 @@ _single_step_simd:
   fmla.2d v18, v3, v4
   add.2d v0, v0, v14
   add.2d v4, v16, v18
-  ucvtf.2d v5, v5
   mov.16b v14, v21
   mov.16b v16, v22
   fmla.2d v14, v3, v5
@@ -238,29 +221,26 @@ _single_step_simd:
   fmla.2d v16, v3, v5
   add.2d v1, v1, v14
   add.2d v0, v0, v16
-  ucvtf.2d v5, v6
-  mov.16b v6, v21
+  mov.16b v5, v21
   mov.16b v14, v22
-  fmla.2d v6, v3, v5
-  fsub.2d v14, v14, v6
-  fmla.2d v14, v3, v5
-  add.2d v2, v2, v6
+  fmla.2d v5, v3, v6
+  fsub.2d v14, v14, v5
+  fmla.2d v14, v3, v6
+  add.2d v2, v2, v5
   add.2d v1, v1, v14
-  ucvtf.2d v5, v10
+  mov.16b v5, v21
+  mov.16b v6, v22
+  fmla.2d v5, v3, v10
+  fsub.2d v6, v6, v5
+  fmla.2d v6, v3, v10
+  add.2d v5, v9, v5
+  add.2d v2, v2, v6
   mov.16b v6, v21
-  mov.16b v10, v22
-  fmla.2d v6, v3, v5
-  fsub.2d v10, v10, v6
-  fmla.2d v10, v3, v5
-  add.2d v5, v9, v6
-  add.2d v2, v2, v10
-  ucvtf.2d v6, v7
-  mov.16b v7, v21
   mov.16b v9, v22
-  fmla.2d v7, v3, v6
-  fsub.2d v9, v9, v7
-  fmla.2d v9, v3, v6
-  add.2d v3, v12, v7
+  fmla.2d v6, v3, v7
+  fsub.2d v9, v9, v6
+  fmla.2d v9, v3, v7
+  add.2d v3, v12, v6
   add.2d v5, v5, v9
   usra.2d v13, v11, #52
   usra.2d v15, v13, #52
