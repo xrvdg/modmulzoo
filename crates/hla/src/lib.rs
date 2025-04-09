@@ -32,7 +32,7 @@ pub type Instruction = InstructionF<FreshRegister>;
 // and then write the aliases as instruction as the current design.
 // It requires more changes if we want the user to be able to use XZR.
 // The best way to do that would likely be a trait and a zero sized type for XZR
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct InstructionF<R> {
     opcode: String,
     dest: Option<TypedSizedRegister<R>>,
@@ -41,7 +41,7 @@ pub struct InstructionF<R> {
 }
 
 // Proper name for this
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum Mod {
     None,
     Imm(u64),
@@ -766,13 +766,45 @@ impl RegisterBank {
     }
 }
 
-pub fn interleave(lhs: Vec<AtomicInstruction>, rhs: Vec<AtomicInstruction>) -> Vec<Instruction> {
-    lhs.into_iter()
-        .zip(rhs)
-        .flat_map(|(a, b)| [a, b])
-        .flatten()
-        .collect()
+pub fn interleave<T>(lhs: Vec<T>, rhs: Vec<T>) -> Vec<T> {
+    let (shorter, longer) = if lhs.len() <= rhs.len() {
+        (lhs, rhs)
+    } else {
+        (rhs, lhs)
+    };
+
+    let mut result = Vec::with_capacity(shorter.len() + longer.len());
+
+    let short_len = shorter.len();
+    let mut short_iter = shorter.into_iter().enumerate();
+
+    let long_len = longer.len();
+    let mut long_iter = longer.into_iter();
+    // For the first element (short_index = 0 ) -> The location will be ((short_index + 1) * long_len) / short_len
+    let mut next = long_len / short_len;
+
+    // With spacing i needs to reach and place the last element of short
+    // ((short_len - 1 + 1) * long_len) / short_len = long_len. Therefore the range is 0..=long_len
+    for i in 0..=long_len {
+        if i == next {
+            if let Some((short_index, item)) = short_iter.next() {
+                result.push(item);
+                // Order is important due to flooring
+                // next = index next element (short_index + 1) + 1
+                next = ((short_index + 2) * long_len) / short_len;
+            }
+        }
+
+        if let Some(item) = long_iter.next() {
+            result.push(item)
+        }
+    }
+
+    assert!(short_iter.next().is_none());
+
+    result
 }
+// Write test that checks if the combined length is always the same as from the individual lengths
 
 #[derive(Debug)]
 pub struct RegisterMapping(Vec<RegisterState>);
@@ -1091,5 +1123,18 @@ fn clobber(c: &TypedSizedRegister<HardwareRegister>) -> TypedSizedRegister<Hardw
         reg: *reg,
         addressing,
         idx: Index::None,
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use quickcheck_macros::quickcheck;
+
+    #[quickcheck]
+    fn interleave(lhs: Vec<u64>, rhs: Vec<u64>) -> bool {
+        let left = lhs.len();
+        let right = rhs.len();
+        let res = super::interleave(lhs, rhs);
+        res.len() == left + right
     }
 }
