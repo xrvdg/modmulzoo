@@ -22,177 +22,152 @@ _vmultadd_noinit_simd:
   ucvtf.2d v18, v18
   ucvtf.2d v19, v19
   mov.16b v22, v20
-  mov.16b v23, v21
   fmla.2d v22, v10, v15
-  fsub.2d v23, v23, v22
+  fsub.2d v23, v21, v22
   fmla.2d v23, v10, v15
   add.2d v1, v1, v22
   add.2d v0, v0, v23
   mov.16b v22, v20
-  mov.16b v23, v21
   fmla.2d v22, v10, v16
-  fsub.2d v23, v23, v22
+  fsub.2d v23, v21, v22
   fmla.2d v23, v10, v16
   add.2d v2, v2, v22
   add.2d v1, v1, v23
   mov.16b v22, v20
-  mov.16b v23, v21
   fmla.2d v22, v10, v17
-  fsub.2d v23, v23, v22
+  fsub.2d v23, v21, v22
   fmla.2d v23, v10, v17
   add.2d v3, v3, v22
   add.2d v2, v2, v23
   mov.16b v22, v20
-  mov.16b v23, v21
   fmla.2d v22, v10, v18
-  fsub.2d v23, v23, v22
+  fsub.2d v23, v21, v22
   fmla.2d v23, v10, v18
   add.2d v4, v4, v22
   add.2d v3, v3, v23
   mov.16b v22, v20
-  mov.16b v23, v21
   fmla.2d v22, v10, v19
-  fsub.2d v23, v23, v22
+  fsub.2d v23, v21, v22
   fmla.2d v23, v10, v19
   add.2d v5, v5, v22
   add.2d v4, v4, v23
   mov.16b v10, v20
-  mov.16b v22, v21
   fmla.2d v10, v11, v15
-  fsub.2d v22, v22, v10
+  fsub.2d v22, v21, v10
   fmla.2d v22, v11, v15
   add.2d v2, v2, v10
   add.2d v1, v1, v22
   mov.16b v10, v20
-  mov.16b v22, v21
   fmla.2d v10, v11, v16
-  fsub.2d v22, v22, v10
+  fsub.2d v22, v21, v10
   fmla.2d v22, v11, v16
   add.2d v3, v3, v10
   add.2d v2, v2, v22
   mov.16b v10, v20
-  mov.16b v22, v21
   fmla.2d v10, v11, v17
-  fsub.2d v22, v22, v10
+  fsub.2d v22, v21, v10
   fmla.2d v22, v11, v17
   add.2d v4, v4, v10
   add.2d v3, v3, v22
   mov.16b v10, v20
-  mov.16b v22, v21
   fmla.2d v10, v11, v18
-  fsub.2d v22, v22, v10
+  fsub.2d v22, v21, v10
   fmla.2d v22, v11, v18
   add.2d v5, v5, v10
   add.2d v4, v4, v22
   mov.16b v10, v20
-  mov.16b v22, v21
   fmla.2d v10, v11, v19
-  fsub.2d v22, v22, v10
+  fsub.2d v22, v21, v10
   fmla.2d v22, v11, v19
   add.2d v6, v6, v10
   add.2d v5, v5, v22
   mov.16b v10, v20
-  mov.16b v11, v21
   fmla.2d v10, v12, v15
-  fsub.2d v11, v11, v10
+  fsub.2d v11, v21, v10
   fmla.2d v11, v12, v15
   add.2d v3, v3, v10
   add.2d v2, v2, v11
   mov.16b v10, v20
-  mov.16b v11, v21
   fmla.2d v10, v12, v16
-  fsub.2d v11, v11, v10
+  fsub.2d v11, v21, v10
   fmla.2d v11, v12, v16
   add.2d v4, v4, v10
   add.2d v3, v3, v11
   mov.16b v10, v20
-  mov.16b v11, v21
   fmla.2d v10, v12, v17
-  fsub.2d v11, v11, v10
+  fsub.2d v11, v21, v10
   fmla.2d v11, v12, v17
   add.2d v5, v5, v10
   add.2d v4, v4, v11
   mov.16b v10, v20
-  mov.16b v11, v21
   fmla.2d v10, v12, v18
-  fsub.2d v11, v11, v10
+  fsub.2d v11, v21, v10
   fmla.2d v11, v12, v18
   add.2d v6, v6, v10
   add.2d v5, v5, v11
   mov.16b v10, v20
-  mov.16b v11, v21
   fmla.2d v10, v12, v19
-  fsub.2d v11, v11, v10
+  fsub.2d v11, v21, v10
   fmla.2d v11, v12, v19
   add.2d v7, v7, v10
   add.2d v6, v6, v11
   mov.16b v10, v20
-  mov.16b v11, v21
   fmla.2d v10, v13, v15
-  fsub.2d v11, v11, v10
+  fsub.2d v11, v21, v10
   fmla.2d v11, v13, v15
   add.2d v4, v4, v10
   add.2d v3, v3, v11
   mov.16b v10, v20
-  mov.16b v11, v21
   fmla.2d v10, v13, v16
-  fsub.2d v11, v11, v10
+  fsub.2d v11, v21, v10
   fmla.2d v11, v13, v16
   add.2d v5, v5, v10
   add.2d v4, v4, v11
   mov.16b v10, v20
-  mov.16b v11, v21
   fmla.2d v10, v13, v17
-  fsub.2d v11, v11, v10
+  fsub.2d v11, v21, v10
   fmla.2d v11, v13, v17
   add.2d v6, v6, v10
   add.2d v5, v5, v11
   mov.16b v10, v20
-  mov.16b v11, v21
   fmla.2d v10, v13, v18
-  fsub.2d v11, v11, v10
+  fsub.2d v11, v21, v10
   fmla.2d v11, v13, v18
   add.2d v7, v7, v10
   add.2d v6, v6, v11
   mov.16b v10, v20
-  mov.16b v11, v21
   fmla.2d v10, v13, v19
-  fsub.2d v11, v11, v10
+  fsub.2d v11, v21, v10
   fmla.2d v11, v13, v19
   add.2d v8, v8, v10
   add.2d v7, v7, v11
   mov.16b v10, v20
-  mov.16b v11, v21
   fmla.2d v10, v14, v15
-  fsub.2d v11, v11, v10
+  fsub.2d v11, v21, v10
   fmla.2d v11, v14, v15
   add.2d v5, v5, v10
   add.2d v4, v4, v11
   mov.16b v10, v20
-  mov.16b v11, v21
   fmla.2d v10, v14, v16
-  fsub.2d v11, v11, v10
+  fsub.2d v11, v21, v10
   fmla.2d v11, v14, v16
   add.2d v6, v6, v10
   add.2d v5, v5, v11
   mov.16b v10, v20
-  mov.16b v11, v21
   fmla.2d v10, v14, v17
-  fsub.2d v11, v11, v10
+  fsub.2d v11, v21, v10
   fmla.2d v11, v14, v17
   add.2d v7, v7, v10
   add.2d v6, v6, v11
   mov.16b v10, v20
-  mov.16b v11, v21
   fmla.2d v10, v14, v18
-  fsub.2d v11, v11, v10
+  fsub.2d v11, v21, v10
   fmla.2d v11, v14, v18
   add.2d v8, v8, v10
   add.2d v7, v7, v11
   mov.16b v10, v20
-  mov.16b v11, v21
   fmla.2d v10, v14, v19
-  fsub.2d v11, v11, v10
+  fsub.2d v11, v21, v10
   fmla.2d v11, v14, v19
   add.2d v9, v9, v10
   add.2d v8, v8, v11

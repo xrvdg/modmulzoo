@@ -793,10 +793,9 @@ fn vmultadd_noinit_simd(
     for i in 0..a.len() {
         for j in 0..b.len() {
             let lc1 = mov16b(alloc, asm, c1);
-            let lc2 = mov16b(alloc, asm, c2);
 
             let hi = fmla2d(alloc, asm, lc1.into_(), &a[i], &b[j]);
-            let tmp = fsub2d(alloc, asm, &lc2.into_(), &hi);
+            let tmp = fsub2d(alloc, asm, &c2.as_(), &hi);
             let lo = fmla2d(alloc, asm, tmp, &a[i], &b[j]);
 
             t[i + j + 1] = add2d(alloc, asm, &t[i + j + 1], &hi.into_());
@@ -823,10 +822,9 @@ pub fn smultadd_noinit_simd(
         // No measurable difference in loading the vector v completely outside or per element inside the load
         let vi = load_floating_simd(alloc, asm, v[i] as f64);
         let lc1 = mov16b(alloc, asm, &c1);
-        let lc2 = mov16b(alloc, asm, &c2);
 
         let hi = fmla2d(alloc, asm, lc1.into_(), &s, &vi);
-        let tmp = fsub2d(alloc, asm, &lc2.into_(), &hi);
+        let tmp = fsub2d(alloc, asm, c2.as_(), &hi);
         let lo = fmla2d(alloc, asm, tmp, &s, &vi);
 
         t[i + 1] = add2d(alloc, asm, &t[i + 1], &hi.into_());
