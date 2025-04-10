@@ -817,18 +817,20 @@ pub fn smultadd_noinit_simd(
 ) -> [Reg<Simd<u64, 2>>; 6] {
     let s = ucvtf2d(alloc, asm, &s);
 
+    // This ordering is the fastest that I've found. Any change or breaking up into parts seem
+    // to inhibit bypass
     for i in 0..v.len() {
         // skip ucvtf by loading the constant directly as (simd) floating point
         // No measurable difference in loading the vector v completely outside or per element inside the load
-        let vi = load_floating_simd(alloc, asm, v[i] as f64);
+        let vs = load_floating_simd(alloc, asm, v[i] as f64);
         let lc1 = mov16b(alloc, asm, &c1);
 
-        let hi = fmla2d(alloc, asm, lc1.into_(), &s, &vi);
+        let hi = fmla2d(alloc, asm, lc1.into_(), &s, &vs);
         let tmp = fsub2d(alloc, asm, c2.as_(), &hi);
-        let lo = fmla2d(alloc, asm, tmp, &s, &vi);
+        let lo = fmla2d(alloc, asm, tmp, &s, &vs);
 
-        t[i + 1] = add2d(alloc, asm, &t[i + 1], &hi.into_());
-        t[i] = add2d(alloc, asm, &t[i], &lo.into_());
+        t[i + 1] = add2d(alloc, asm, &t[i + 1], hi.as_());
+        t[i] = add2d(alloc, asm, &t[i], lo.as_());
     }
     t
 }
