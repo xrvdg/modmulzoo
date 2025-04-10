@@ -750,26 +750,6 @@ fn u256_to_u260_shl2_simd(
     ]
 }
 
-fn u260_to_u256_simd(
-    alloc: &mut Allocator,
-    asm: &mut Assembler,
-    limbs: [Reg<Simd<u64, 2>>; 5],
-) -> [Reg<Simd<u64, 2>>; 4] {
-    let [l0, l1, l2, l3, l4] = limbs;
-
-    let shifted_l1 = shl2d(alloc, asm, &l1, 52);
-    let shifted_l2 = shl2d(alloc, asm, &l2, 40);
-    let shifted_l3 = shl2d(alloc, asm, &l3, 28);
-    let shifted_l4 = shl2d(alloc, asm, &l4, 16);
-
-    [
-        orr16(alloc, asm, &l0, &shifted_l1),
-        usra2d(alloc, asm, shifted_l2, &l1, 12),
-        usra2d(alloc, asm, shifted_l3, &l2, 24),
-        usra2d(alloc, asm, shifted_l4, &l3, 36),
-    ]
-}
-
 fn load_const_simd(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<Simd<u64, 2>> {
     let val = load_const(alloc, asm, val);
     let mask = dup2d(alloc, asm, &val);
@@ -897,7 +877,7 @@ fn single_step_simd(
     let r2 = smultadd_noinit_simd(alloc, asm, r1, &c1, &c2, t2, RHO_2);
     let s = smultadd_noinit_simd(alloc, asm, r2, &c1, &c2, t3, RHO_1);
 
-    // Could be replaced with fmul, but the rust compiler generates this
+    // Could be replaced with fmul, but the rust compiler generates something close to this
     let u52_np0 = load_const(alloc, asm, U52_NP0);
     let s00 = umov(alloc, asm, &s[0]._d0());
     let s01 = umov(alloc, asm, &s[0]._d1());
@@ -913,6 +893,25 @@ fn single_step_simd(
     let rs = reduce_ct_simd(alloc, asm, &mask52, s);
 
     u260_to_u256_simd(alloc, asm, rs)
+}
+
+fn u260_to_u256_simd(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    limbs: [Reg<Simd<u64, 2>>; 5],
+) -> [Reg<Simd<u64, 2>>; 4] {
+    let [l0, l1, l2, l3, l4] = limbs;
+
+    let shifted_l1 = ushr2d(alloc, asm, &l1, 12);
+    let shifted_l2 = ushr2d(alloc, asm, &l2, 24);
+    let shifted_l3 = ushr2d(alloc, asm, &l3, 36);
+
+    [
+        sli2d(alloc, asm, l0, &l1, 52),
+        sli2d(alloc, asm, shifted_l1, &l2, 40),
+        sli2d(alloc, asm, shifted_l2, &l3, 28),
+        sli2d(alloc, asm, shifted_l3, &l4, 16),
+    ]
 }
 
 fn reduce_ct_simd(

@@ -426,6 +426,25 @@ embed_asm!(sub2d, "sub.2d", (a: Simd<i64,2>, b: Simd<i64,2>) -> Simd<i64,2>);
 embed_asm!(fsub2d, "fsub.2d", (a: Simd<f64,2>, b: Simd<f64,2>) -> Simd<f64,2>);
 embed_asm!(orr16, "orr.16b", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
 
+pub fn sli2d(
+    _alloc: &mut Allocator,
+    asm: &mut Assembler,
+    dest: Reg<Simd<u64, 2>>,
+    source: &Reg<Simd<u64, 2>>,
+    shl: u8,
+) -> Reg<Simd<u64, 2>> {
+    asm.append_instruction(vec![sli2d_inst(&dest, source, shl)]);
+    dest
+}
+pub fn sli2d_inst(dest: &Reg<Simd<u64, 2>>, source: &Reg<Simd<u64, 2>>, shl: u8) -> Instruction {
+    InstructionF {
+        opcode: "sli.2d".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![source.to_typed_register()],
+        modifiers: Mod::LS(shl),
+    }
+}
+
 pub struct Reg<T> {
     reg: FreshRegister,
     _marker: PhantomData<T>,

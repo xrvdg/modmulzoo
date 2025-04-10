@@ -1,6 +1,6 @@
 //in("v0") in0[0], in("v1") in0[1], in("v2") in0[2], in("v3") in0[3], in("v4") in1[0], in("v5") in1[1], in("v6") in1[2], in("v7") in1[3],
-//lateout("v4") out0[0], lateout("v6") out0[1], lateout("v7") out0[2], lateout("v3") out0[3],
-//lateout("x0") _, lateout("v0") _, lateout("x1") _, lateout("v1") _, lateout("x2") _, lateout("v2") _, lateout("x3") _, lateout("v5") _, lateout("v8") _, lateout("v9") _, lateout("v10") _, lateout("v11") _, lateout("v12") _, lateout("v13") _, lateout("v14") _, lateout("v15") _, lateout("v16") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("v20") _, lateout("v21") _, lateout("v22") _, lateout("v23") _, lateout("v24") _,
+//lateout("v4") out0[0], lateout("v5") out0[1], lateout("v6") out0[2], lateout("v7") out0[3],
+//lateout("x0") _, lateout("v0") _, lateout("x1") _, lateout("v1") _, lateout("x2") _, lateout("v2") _, lateout("x3") _, lateout("v3") _, lateout("v8") _, lateout("v9") _, lateout("v10") _, lateout("v11") _, lateout("v12") _, lateout("v13") _, lateout("v14") _, lateout("v15") _, lateout("v16") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("v20") _, lateout("v21") _, lateout("v22") _, lateout("v23") _, lateout("v24") _,
 //lateout("lr") _
 .global _single_step_simd
 .align 4
@@ -614,12 +614,11 @@ _single_step_simd:
   sub.2d v3, v3, v6
   ssra.2d v3, v5, #52
   and.16b v3, v3, v8
-  shl.2d v5, v0, #52
-  shl.2d v6, v1, #40
-  shl.2d v7, v2, #28
-  shl.2d v3, v3, #16
-  orr.16b v4, v4, v5
-  usra.2d v6, v0, #12
-  usra.2d v7, v1, #24
-  usra.2d v3, v2, #36
+  ushr.2d v5, v0, #12
+  ushr.2d v6, v1, #24
+  ushr.2d v7, v2, #36
+  sli.2d v4, v0, #52
+  sli.2d v5, v1, #40
+  sli.2d v6, v2, #28
+  sli.2d v7, v3, #16
 ret
