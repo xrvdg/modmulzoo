@@ -43,17 +43,22 @@ _reduce_ct_simd:
   bic.16b v7, v12, v7
   sub.2d v1, v1, v8
   ssra.2d v1, v0, #52
-  and.16b v0, v1, v6
+  mov.16b v0, v1
   sub.2d v2, v2, v9
   ssra.2d v2, v1, #52
-  and.16b v1, v2, v6
+  mov.16b v1, v2
   sub.2d v3, v3, v10
   ssra.2d v3, v2, #52
-  and.16b v2, v3, v6
+  mov.16b v2, v3
   sub.2d v4, v4, v11
   ssra.2d v4, v3, #52
-  and.16b v3, v4, v6
+  mov.16b v3, v4
   sub.2d v5, v5, v7
   ssra.2d v5, v4, #52
-  and.16b v4, v5, v6
+  mov.16b v4, v5
+  and.16b v0, v0, v6
+  and.16b v1, v1, v6
+  and.16b v2, v2, v6
+  and.16b v3, v3, v6
+  and.16b v4, v4, v6
 ret

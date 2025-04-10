@@ -338,7 +338,8 @@ fn build_reduce_ct_simd() {
         let mask = mov(&mut alloc, asm, MASK52);
         let mask52 = dup2d(&mut alloc, asm, &mask);
 
-        let res = reduce_ct_simd(&mut alloc, asm, &mask52, red);
+        let res =
+            reduce_ct_simd(&mut alloc, asm, red).map(|reg| and16(&mut alloc, asm, &reg, &mask52));
 
         (vec![input_hw_registers], Vec::from(res))
     }
@@ -890,7 +891,7 @@ fn single_step_simd(
 
     let s = smultadd_noinit_simd(alloc, asm, s, &c1, &c2, m, U52_P);
 
-    let rs = reduce_ct_simd(alloc, asm, &mask52, s);
+    let rs = reduce_ct_simd(alloc, asm, s);
 
     u260_to_u256_simd(alloc, asm, rs)
 }
@@ -917,7 +918,6 @@ fn u260_to_u256_simd(
 fn reduce_ct_simd(
     alloc: &mut Allocator,
     asm: &mut Assembler,
-    mask52: &Reg<Simd<u64, 2>>,
     red: [Reg<Simd<u64, 2>>; 6],
 ) -> [Reg<Simd<u64, 2>>; 5] {
     // Set cmp to zero if the msb (4x52 + 47) is set.
@@ -942,7 +942,7 @@ fn reduce_ct_simd(
         let tmp = sub2d(alloc, asm, minuend[i].as_(), &subtrahend[i].as_());
         // tmp + (prev >> 52)
         let tmp_plus_borrow = ssra2d(alloc, asm, tmp, &prev, 52);
-        c[i] = and16(alloc, asm, tmp_plus_borrow.as_(), &mask52);
+        c[i] = mov16b(alloc, asm, &tmp_plus_borrow);
         prev = tmp_plus_borrow;
     }
 
