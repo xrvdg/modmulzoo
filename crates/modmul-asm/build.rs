@@ -915,6 +915,9 @@ fn u260_to_u256_simd(
     ]
 }
 
+/// Does reduction with -2p, but DOESN'T return a clean 52 bit limbs.
+/// It doesn't clean up the carries in the upper 52bit. u260-to-u256 takes care of that.
+/// This allows us to drop 5 vector instructions.
 fn reduce_ct_simd(
     alloc: &mut Allocator,
     asm: &mut Assembler,
@@ -936,14 +939,14 @@ fn reduce_ct_simd(
 
     let mut c = array::from_fn(|_| alloc.fresh());
     let [prev, minuend @ ..] = red;
-    let mut prev = prev.into_();
+    let mut prev = prev.as_();
 
     for i in 0..c.len() {
         let tmp = sub2d(alloc, asm, minuend[i].as_(), &subtrahend[i].as_());
         // tmp + (prev >> 52)
         let tmp_plus_borrow = ssra2d(alloc, asm, tmp, &prev, 52);
-        c[i] = mov16b(alloc, asm, &tmp_plus_borrow);
-        prev = tmp_plus_borrow;
+        c[i] = tmp_plus_borrow;
+        prev = &c[i];
     }
 
     c.map(|ci| ci.into_())
