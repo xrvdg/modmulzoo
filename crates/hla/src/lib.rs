@@ -398,8 +398,24 @@ embed_asm!(adds, "adds", (a: u64, b: u64) -> u64);
 embed_asm!(subs, "subs", (a: u64, b: u64) -> u64);
 embed_asm!(sbcs, "sbcs", (a: u64, b: u64) -> u64);
 
-// Doesn't support immediates
-embed_asm!(mov16b, "mov.16b", (a: Simd<u64,2>) -> Simd<u64,2>);
+pub fn mov16b<T>(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: &Reg<Simd<T, 2>>,
+) -> Reg<Simd<T, 2>> {
+    let ret = alloc.fresh();
+    asm.append_instruction(vec![mov16b_inst(&ret, a)]);
+    ret
+}
+pub fn mov16b_inst<T>(dest: &Reg<Simd<T, 2>>, a: &Reg<Simd<T, 2>>) -> Instruction {
+    InstructionF {
+        opcode: "mov.16b".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![a.to_typed_register()],
+        modifiers: Mod::None,
+    }
+}
+
 embed_asm!(ucvtf2d, "ucvtf.2d", (a: Simd<u64,2>) -> Simd<f64,2>);
 embed_asm!(dup2d, "dup.2d", (a: u64) -> Simd<u64,2>);
 embed_asm!(ucvtf, "ucvtf", (a: u64) -> f64);
