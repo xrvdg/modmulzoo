@@ -395,6 +395,8 @@ embed_asm!(add, "add", (a: u64, b: u64) -> u64);
 embed_asm!(and, "and", (a: u64, b: u64) -> u64);
 // TODO: These operations set flags and should only make their inst available
 embed_asm!(adds, "adds", (a: u64, b: u64) -> u64);
+embed_asm!(adcs, "adds", (a: u64, b: u64) -> u64);
+embed_asm!(adc, "adds", (a: u64, b: u64) -> u64);
 embed_asm!(subs, "subs", (a: u64, b: u64) -> u64);
 embed_asm!(sbcs, "sbcs", (a: u64, b: u64) -> u64);
 
@@ -772,7 +774,10 @@ pub struct RegisterBank {
 impl RegisterBank {
     pub fn new() -> Self {
         Self {
-            x: BTreeSet::from_iter((0..=17).chain(19..29).map(HardwareRegister)),
+            // Exclude registers:
+            // - 18 Reserved by OS
+            // - 19 Reserved by LLVM
+            x: BTreeSet::from_iter((0..=17).chain(20..29).map(HardwareRegister)),
             v: BTreeSet::from_iter((0..=30).map(HardwareRegister)),
         }
     }

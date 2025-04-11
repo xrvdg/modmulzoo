@@ -5,7 +5,7 @@ use block_multiplier::rtz::RTZ;
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use modmul_asm::{
     call_schoolmethod, call_schoolmethod_inline, call_single_step, call_single_step_interleaved,
-    call_single_step_simd,
+    call_single_step_simd, call_single_step_split,
 };
 use rand::Rng;
 
@@ -29,6 +29,14 @@ fn bench_single_step(c: &mut Criterion) {
             let a = black_box(a);
             let b = black_box(b);
             call_single_step(a, b)
+        })
+    });
+
+    group.bench_function("single_step_split", |bencher| {
+        bencher.iter(|| {
+            let a = black_box(a);
+            let b = black_box(b);
+            call_single_step_split(a, b)
         })
     });
 

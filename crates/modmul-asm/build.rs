@@ -1,5 +1,5 @@
 #![feature(iter_intersperse)]
-use std::array;
+use std::{alloc::alloc, array};
 
 use block_multiplier::{constants::*, make_initial};
 use hla::*;
@@ -129,6 +129,40 @@ fn build_single_step() {
     }
 
     build_func("single_step", input_setup)
+}
+
+fn build_single_step_split() {
+    fn input_setup(
+        mut alloc: Allocator,
+        mapping: &mut RegisterMapping,
+        phys_registers: &mut RegisterBank,
+        asm: &mut Assembler,
+    ) -> (
+        Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+        Vec<Reg<u64>>,
+    ) {
+        let a = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, i as u64));
+        let b =
+            array::from_fn(|i| input(&mut alloc, mapping, phys_registers, (a.len() + i) as u64));
+
+        let input_hw_registers_a: Vec<_> = a
+            .iter()
+            .filter_map(|reg| mapping.output_register(&reg))
+            .collect();
+
+        let input_hw_registers_b: Vec<_> = b
+            .iter()
+            .filter_map(|reg| mapping.output_register(&reg))
+            .collect();
+
+        let s = single_step_split(&mut alloc, asm, &a, &b);
+        (
+            vec![input_hw_registers_a, input_hw_registers_b],
+            Vec::from(s),
+        )
+    }
+
+    build_func("single_step_split", input_setup)
 }
 
 fn build_smul_add() {
@@ -469,6 +503,7 @@ fn main() {
     build_smul_add();
     build_schoolmethod();
     build_single_step();
+    build_single_step_split();
     build_u256_to_u260_shl2_simd();
     build_u260_to_u256_simd();
     build_vmultadd_noinit_simd();
@@ -480,12 +515,18 @@ fn main() {
 /* GENERATORS */
 
 // adds can be confusng as it has a similar shape to s
-pub fn carry_add(asm: &mut Assembler, s: [Reg<u64>; 2], add: &Reg<u64>) -> [Reg<u64>; 2] {
+pub fn carry_add(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    s: &[Reg<u64>; 2],
+    add: &Reg<u64>,
+) -> [Reg<u64>; 2] {
+    let ret = array::from_fn(|_| alloc.fresh());
     asm.append_instruction(vec![
-        adds_inst(&s[0], &s[0], add),
-        cinc_inst(&s[1], &s[1], "hs".to_string()),
+        adds_inst(&ret[0], &s[0], add),
+        cinc_inst(&ret[1], &s[1], "hs".to_string()),
     ]);
-    s
+    ret
 }
 
 pub fn carry_cmn(asm: &mut Assembler, s: [Reg<u64>; 2], add: &Reg<u64>) -> Reg<u64> {
@@ -509,7 +550,7 @@ pub fn smult(
     [t[0], t[1]] = mul_u128(alloc, asm, &a[0], &b);
     for i in 1..a.len() {
         let lohi = mul_u128(alloc, asm, &a[i], &b);
-        [t[i], t[i + 1]] = carry_add(asm, lohi, &t[i]);
+        [t[i], t[i + 1]] = carry_add(alloc, asm, &lohi, &t[i]);
     }
 
     t
@@ -522,19 +563,56 @@ pub fn smult_add(
     a: [Reg<u64>; 4],
     b: Reg<u64>,
 ) -> [Reg<u64>; 5] {
-    // Allocates unnecessary fresh registers
-
     let mut carry;
     // first multiplication of a carry chain doesn't have a carry to add,
     // but it does have a value already from a previous round
     let tmp = mul_u128(alloc, asm, &a[0], &b);
-    [t[0], carry] = carry_add(asm, tmp, &t[0]);
+    [t[0], carry] = carry_add(alloc, asm, &tmp, &t[0]);
     for i in 1..a.len() {
         let tmp = mul_u128(alloc, asm, &a[i], &b);
-        let tmp = carry_add(asm, tmp, &carry);
-        [t[i], carry] = carry_add(asm, tmp, &t[i]);
+        let tmp = carry_add(alloc, asm, &tmp, &carry);
+        [t[i], carry] = carry_add(alloc, asm, &tmp, &t[i]);
     }
     t[a.len()] = add(alloc, asm, &t[a.len()], &carry);
+
+    t
+}
+
+pub fn addv(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: [Reg<u64>; 5],
+    b: [Reg<u64>; 5],
+) -> [Reg<u64>; 5] {
+    let t: [Reg<u64>; 5] = array::from_fn(|_| alloc.fresh());
+    let n: usize = t.len();
+
+    let mut instructions = Vec::new();
+    instructions.push(adds_inst(&t[0], &a[0], &b[0]));
+    for i in 1..n - 1 {
+        instructions.push(adcs_inst(&t[i], &a[i], &b[i]));
+    }
+    instructions.push(adc_inst(&t[n - 1], &a[n - 1], &b[n - 1]));
+    asm.append_instruction(instructions);
+
+    t
+}
+
+pub fn addv_truncate(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: [Reg<u64>; 5],
+    b: [Reg<u64>; 5],
+) -> [Reg<u64>; 4] {
+    let t: [Reg<u64>; 4] = array::from_fn(|_| alloc.fresh());
+
+    let mut instructions = Vec::new();
+    instructions.push(cmn_inst(&a[0], &b[0]));
+    for i in 1..a.len() {
+        instructions.push(adcs_inst(&t[i - 1], &a[i], &b[i]));
+    }
+    instructions.push(adc_inst(&t[3], &a[4], &b[4]));
+    asm.append_instruction(instructions);
 
     t
 }
@@ -557,8 +635,8 @@ pub fn smult_add_truncate(
     let mut carry = carry_cmn(asm, tmp, &t[0]);
     for i in 1..a.len() {
         let tmp = mul_u128(alloc, asm, &a[i], &b);
-        let tmp = carry_add(asm, tmp, &carry);
-        [t[i], carry] = carry_add(asm, tmp, &t[i]);
+        let tmp = carry_add(alloc, asm, &tmp, &carry);
+        [t[i], carry] = carry_add(alloc, asm, &tmp, &t[i]);
     }
     t[a.len()] = add(alloc, asm, &t[a.len()], &carry);
 
@@ -579,7 +657,7 @@ pub fn school_method(
     [t[0], carry] = mul_u128(alloc, asm, &a[0], &b[0]);
     for i in 1..a.len() {
         let tmp = mul_u128(alloc, asm, &a[i], &b[0]);
-        [t[i], carry] = carry_add(asm, tmp, &carry);
+        [t[i], carry] = carry_add(alloc, asm, &tmp, &carry);
     }
     t[a.len()] = carry;
 
@@ -589,11 +667,11 @@ pub fn school_method(
         // first multiplication of a carry chain doesn't have a carry to add,
         // but it does have a value already from a previous round
         let tmp = mul_u128(alloc, asm, &a[0], &b[j]);
-        [t[j], carry] = carry_add(asm, tmp, &t[j]);
+        [t[j], carry] = carry_add(alloc, asm, &tmp, &t[j]);
         for i in 1..a.len() {
             let tmp = mul_u128(alloc, asm, &a[i], &b[j]);
-            let tmp = carry_add(asm, tmp, &carry);
-            [t[i + j], carry] = carry_add(asm, tmp, &t[i + j]);
+            let tmp = carry_add(alloc, asm, &tmp, &carry);
+            [t[i + j], carry] = carry_add(alloc, asm, &tmp, &t[i + j]);
         }
         t[j + a.len()] = carry;
     }
@@ -685,6 +763,39 @@ pub fn single_step(
     let r4 = smult_add_truncate(alloc, asm, r3, p, m);
 
     reduce(alloc, asm, r4)
+}
+
+pub fn single_step_split(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: &[Reg<u64>; 4],
+    b: &[Reg<u64>; 4],
+) -> [Reg<u64>; 4] {
+    let t = school_method(alloc, asm, a, b);
+    // let [t0, t1, t2, s @ ..] = t;
+    let [t0, t1, t2, s @ ..] = t;
+
+    let i3 = U64_I3.map(|val| load_const(alloc, asm, val));
+    let r1 = smult(alloc, asm, i3, t0);
+
+    let i2 = U64_I2.map(|val| load_const(alloc, asm, val));
+    let r2 = smult(alloc, asm, i2, t1);
+
+    let i1 = U64_I1.map(|val| load_const(alloc, asm, val));
+    let r3 = smult(alloc, asm, i1, t2);
+
+    let r4 = addv(alloc, asm, r1, r2);
+    let r5 = addv(alloc, asm, r4, r3);
+    let r6 = addv(alloc, asm, r5, s);
+
+    let mu0 = load_const(alloc, asm, U64_MU0);
+    let m = mul(alloc, asm, &mu0, &r6[0]);
+
+    let p = U64_P.map(|val| load_const(alloc, asm, val));
+    let r7 = smult(alloc, asm, p, m);
+    let r8 = addv_truncate(alloc, asm, r7, r6);
+
+    reduce(alloc, asm, r8)
 }
 
 pub fn mul_u128(
