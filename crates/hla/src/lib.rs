@@ -395,11 +395,29 @@ embed_asm!(add, "add", (a: u64, b: u64) -> u64);
 embed_asm!(and, "and", (a: u64, b: u64) -> u64);
 // TODO: These operations set flags and should only make their inst available
 embed_asm!(adds, "adds", (a: u64, b: u64) -> u64);
+embed_asm!(adcs, "adds", (a: u64, b: u64) -> u64);
+embed_asm!(adc, "adds", (a: u64, b: u64) -> u64);
 embed_asm!(subs, "subs", (a: u64, b: u64) -> u64);
 embed_asm!(sbcs, "sbcs", (a: u64, b: u64) -> u64);
 
-// Doesn't support immediates
-embed_asm!(mov16b, "mov.16b", (a: Simd<u64,2>) -> Simd<u64,2>);
+pub fn mov16b<T>(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: &Reg<Simd<T, 2>>,
+) -> Reg<Simd<T, 2>> {
+    let ret = alloc.fresh();
+    asm.append_instruction(vec![mov16b_inst(&ret, a)]);
+    ret
+}
+pub fn mov16b_inst<T>(dest: &Reg<Simd<T, 2>>, a: &Reg<Simd<T, 2>>) -> Instruction {
+    InstructionF {
+        opcode: "mov.16b".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![a.to_typed_register()],
+        modifiers: Mod::None,
+    }
+}
+
 embed_asm!(ucvtf2d, "ucvtf.2d", (a: Simd<u64,2>) -> Simd<f64,2>);
 embed_asm!(dup2d, "dup.2d", (a: u64) -> Simd<u64,2>);
 embed_asm!(ucvtf, "ucvtf", (a: u64) -> f64);
@@ -409,6 +427,25 @@ embed_asm!(add2d, "add.2d", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
 embed_asm!(sub2d, "sub.2d", (a: Simd<i64,2>, b: Simd<i64,2>) -> Simd<i64,2>);
 embed_asm!(fsub2d, "fsub.2d", (a: Simd<f64,2>, b: Simd<f64,2>) -> Simd<f64,2>);
 embed_asm!(orr16, "orr.16b", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
+
+pub fn sli2d(
+    _alloc: &mut Allocator,
+    asm: &mut Assembler,
+    dest: Reg<Simd<u64, 2>>,
+    source: &Reg<Simd<u64, 2>>,
+    shl: u8,
+) -> Reg<Simd<u64, 2>> {
+    asm.append_instruction(vec![sli2d_inst(&dest, source, shl)]);
+    dest
+}
+pub fn sli2d_inst(dest: &Reg<Simd<u64, 2>>, source: &Reg<Simd<u64, 2>>, shl: u8) -> Instruction {
+    InstructionF {
+        opcode: "sli.2d".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![source.to_typed_register()],
+        modifiers: Mod::LS(shl),
+    }
+}
 
 pub struct Reg<T> {
     reg: FreshRegister,
@@ -737,7 +774,10 @@ pub struct RegisterBank {
 impl RegisterBank {
     pub fn new() -> Self {
         Self {
-            x: BTreeSet::from_iter((0..=17).chain(19..29).map(HardwareRegister)),
+            // Exclude registers:
+            // - 18 Reserved by OS
+            // - 19 Reserved by LLVM
+            x: BTreeSet::from_iter((0..=17).chain(20..29).map(HardwareRegister)),
             v: BTreeSet::from_iter((0..=30).map(HardwareRegister)),
         }
     }
@@ -772,6 +812,10 @@ pub fn interleave<T>(lhs: Vec<T>, rhs: Vec<T>) -> Vec<T> {
     } else {
         (rhs, lhs)
     };
+
+    if shorter.is_empty() {
+        return longer;
+    }
 
     let mut result = Vec::with_capacity(shorter.len() + longer.len());
 

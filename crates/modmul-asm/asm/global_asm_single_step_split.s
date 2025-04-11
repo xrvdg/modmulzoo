@@ -1,11 +1,11 @@
 //in("x0") in0[0], in("x1") in0[1], in("x2") in0[2], in("x3") in0[3], in("x4") in1[0], in("x5") in1[1], in("x6") in1[2], in("x7") in1[3],
 //lateout("x0") out0[0], lateout("x1") out0[1], lateout("x2") out0[2], lateout("x3") out0[3],
-//lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _,
+//lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _, lateout("x15") _, lateout("x16") _, lateout("x17") _, lateout("x20") _, lateout("x21") _, lateout("x22") _, lateout("x23") _,
 //lateout("lr") _
-.global _single_step
+.global _single_step_split
 .align 4
 .text
-_single_step:
+_single_step_split:
   mul x8, x0, x4
   umulh x9, x0, x4
   mul x10, x1, x4
@@ -104,105 +104,93 @@ _single_step:
   movk x7, #11014, lsl 48
   mul x12, x4, x8
   umulh x4, x4, x8
-  adds x11, x12, x11
-  cinc x4, x4, hs
-  mul x12, x5, x8
+  mul x13, x5, x8
   umulh x5, x5, x8
-  adds x4, x12, x4
+  adds x4, x13, x4
   cinc x5, x5, hs
-  adds x0, x4, x0
-  cinc x4, x5, hs
-  mul x5, x6, x8
+  mul x13, x6, x8
   umulh x6, x6, x8
-  adds x4, x5, x4
-  cinc x5, x6, hs
-  adds x1, x4, x1
-  cinc x4, x5, hs
-  mul x5, x7, x8
-  umulh x6, x7, x8
-  adds x4, x5, x4
-  cinc x5, x6, hs
-  adds x2, x4, x2
-  cinc x4, x5, hs
-  add x3, x3, x4
-  mov x4, #56431
-  movk x4, #30457, lsl 16
-  movk x4, #30012, lsl 32
-  movk x4, #6382, lsl 48
-  mov x5, #59151
-  movk x5, #41769, lsl 16
-  movk x5, #32276, lsl 32
-  movk x5, #21677, lsl 48
-  mov x6, #34015
-  movk x6, #20342, lsl 16
-  movk x6, #13935, lsl 32
-  movk x6, #11030, lsl 48
-  mov x7, #13689
-  movk x7, #8159, lsl 16
-  movk x7, #215, lsl 32
-  movk x7, #4913, lsl 48
-  mul x8, x4, x9
-  umulh x4, x4, x9
+  adds x5, x13, x5
+  cinc x6, x6, hs
+  mul x13, x7, x8
+  umulh x7, x7, x8
+  adds x6, x13, x6
+  cinc x7, x7, hs
+  mov x8, #56431
+  movk x8, #30457, lsl 16
+  movk x8, #30012, lsl 32
+  movk x8, #6382, lsl 48
+  mov x13, #59151
+  movk x13, #41769, lsl 16
+  movk x13, #32276, lsl 32
+  movk x13, #21677, lsl 48
+  mov x14, #34015
+  movk x14, #20342, lsl 16
+  movk x14, #13935, lsl 32
+  movk x14, #11030, lsl 48
+  mov x15, #13689
+  movk x15, #8159, lsl 16
+  movk x15, #215, lsl 32
+  movk x15, #4913, lsl 48
+  mul x16, x8, x9
+  umulh x8, x8, x9
+  mul x17, x13, x9
+  umulh x13, x13, x9
+  adds x8, x17, x8
+  cinc x13, x13, hs
+  mul x17, x14, x9
+  umulh x14, x14, x9
+  adds x13, x17, x13
+  cinc x14, x14, hs
+  mul x17, x15, x9
+  umulh x9, x15, x9
+  adds x14, x17, x14
+  cinc x9, x9, hs
+  mov x15, #61005
+  movk x15, #58262, lsl 16
+  movk x15, #32851, lsl 32
+  movk x15, #11582, lsl 48
+  mov x17, #37581
+  movk x17, #43836, lsl 16
+  movk x17, #36286, lsl 32
+  movk x17, #51783, lsl 48
+  mov x20, #10899
+  movk x20, #30709, lsl 16
+  movk x20, #61551, lsl 32
+  movk x20, #45784, lsl 48
+  mov x21, #36612
+  movk x21, #63402, lsl 16
+  movk x21, #47623, lsl 32
+  movk x21, #9430, lsl 48
+  mul x22, x15, x10
+  umulh x15, x15, x10
+  mul x23, x17, x10
+  umulh x17, x17, x10
+  adds x15, x23, x15
+  cinc x17, x17, hs
+  mul x23, x20, x10
+  umulh x20, x20, x10
+  adds x17, x23, x17
+  cinc x20, x20, hs
+  mul x23, x21, x10
+  umulh x10, x21, x10
+  adds x20, x23, x20
+  cinc x10, x10, hs
+  adds x12, x12, x16
+  adds x4, x4, x8
+  adds x5, x5, x13
+  adds x6, x6, x14
+  adds x7, x7, x9
+  adds x8, x12, x22
+  adds x4, x4, x15
+  adds x5, x5, x17
+  adds x6, x6, x20
+  adds x7, x7, x10
   adds x8, x8, x11
-  cinc x4, x4, hs
-  mul x11, x5, x9
-  umulh x5, x5, x9
-  adds x4, x11, x4
-  cinc x5, x5, hs
   adds x0, x4, x0
-  cinc x4, x5, hs
-  mul x5, x6, x9
-  umulh x6, x6, x9
-  adds x4, x5, x4
-  cinc x5, x6, hs
-  adds x1, x4, x1
-  cinc x4, x5, hs
-  mul x5, x7, x9
-  umulh x6, x7, x9
-  adds x4, x5, x4
-  cinc x5, x6, hs
-  adds x2, x4, x2
-  cinc x4, x5, hs
-  add x3, x3, x4
-  mov x4, #61005
-  movk x4, #58262, lsl 16
-  movk x4, #32851, lsl 32
-  movk x4, #11582, lsl 48
-  mov x5, #37581
-  movk x5, #43836, lsl 16
-  movk x5, #36286, lsl 32
-  movk x5, #51783, lsl 48
-  mov x6, #10899
-  movk x6, #30709, lsl 16
-  movk x6, #61551, lsl 32
-  movk x6, #45784, lsl 48
-  mov x7, #36612
-  movk x7, #63402, lsl 16
-  movk x7, #47623, lsl 32
-  movk x7, #9430, lsl 48
-  mul x9, x4, x10
-  umulh x4, x4, x10
-  adds x8, x9, x8
-  cinc x4, x4, hs
-  mul x9, x5, x10
-  umulh x5, x5, x10
-  adds x4, x9, x4
-  cinc x5, x5, hs
-  adds x0, x4, x0
-  cinc x4, x5, hs
-  mul x5, x6, x10
-  umulh x6, x6, x10
-  adds x4, x5, x4
-  cinc x5, x6, hs
-  adds x1, x4, x1
-  cinc x4, x5, hs
-  mul x5, x7, x10
-  umulh x6, x7, x10
-  adds x4, x5, x4
-  cinc x5, x6, hs
-  adds x2, x4, x2
-  cinc x4, x5, hs
-  add x3, x3, x4
+  adds x1, x5, x1
+  adds x2, x6, x2
+  adds x3, x7, x3
   mov x4, #65535
   movk x4, #61439, lsl 16
   movk x4, #62867, lsl 32
@@ -226,35 +214,32 @@ _single_step:
   movk x9, #12388, lsl 48
   mul x10, x5, x4
   umulh x5, x5, x4
-  cmn x10, x8
-  cinc x5, x5, hs
-  mul x8, x6, x4
+  mul x11, x6, x4
   umulh x6, x6, x4
-  adds x5, x8, x5
+  adds x5, x11, x5
   cinc x6, x6, hs
-  adds x0, x5, x0
-  cinc x5, x6, hs
-  mul x6, x7, x4
+  mul x11, x7, x4
   umulh x7, x7, x4
-  adds x5, x6, x5
-  cinc x6, x7, hs
-  adds x1, x5, x1
-  cinc x5, x6, hs
-  mul x6, x9, x4
+  adds x6, x11, x6
+  cinc x7, x7, hs
+  mul x11, x9, x4
   umulh x4, x9, x4
-  adds x5, x6, x5
+  adds x7, x11, x7
   cinc x4, x4, hs
-  adds x2, x5, x2
-  cinc x4, x4, hs
-  add x3, x3, x4
-  mov x4, #2
-  movk x4, #57344, lsl 16
-  movk x4, #60199, lsl 32
-  movk x4, #34755, lsl 48
-  mov x5, #57634
-  movk x5, #62322, lsl 16
-  movk x5, #53392, lsl 32
-  movk x5, #20583, lsl 48
+  cmn x10, x8
+  adds x0, x5, x0
+  adds x1, x6, x1
+  adds x2, x7, x2
+  adds x5, x4, x3
+  adds x5, x4, x3
+  mov x3, #2
+  movk x3, #57344, lsl 16
+  movk x3, #60199, lsl 32
+  movk x3, #34755, lsl 48
+  mov x4, #57634
+  movk x4, #62322, lsl 16
+  movk x4, #53392, lsl 32
+  movk x4, #20583, lsl 48
   mov x6, #45242
   movk x6, #770, lsl 16
   movk x6, #35693, lsl 32
@@ -263,13 +248,13 @@ _single_step:
   movk x7, #49763, lsl 16
   movk x7, #40165, lsl 32
   movk x7, #24776, lsl 48
-  subs x4, x0, x4
-  sbcs x5, x1, x5
+  subs x3, x0, x3
+  sbcs x4, x1, x4
   sbcs x6, x2, x6
-  sbcs x7, x3, x7
-  tst x3, #9223372036854775808
-  csel x0, x4, x0, mi
-  csel x1, x5, x1, mi
+  sbcs x7, x5, x7
+  tst x5, #9223372036854775808
+  csel x0, x3, x0, mi
+  csel x1, x4, x1, mi
   csel x2, x6, x2, mi
-  csel x3, x7, x3, mi
+  csel x3, x7, x5, mi
 ret
