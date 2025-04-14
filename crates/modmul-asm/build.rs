@@ -1,5 +1,5 @@
 #![feature(iter_intersperse)]
-use std::{alloc::alloc, array};
+use std::array;
 
 use block_multiplier::{constants::*, make_initial};
 use hla::*;
@@ -11,56 +11,52 @@ use montgomery_reduction::{
 };
 
 /* BUILDERS */
-fn build_schoolmethod() {
-    fn setup(
-        mut alloc: Allocator,
-        mapping: &mut RegisterMapping,
-        phys_registers: &mut RegisterBank,
-        asm: &mut Assembler,
-    ) -> (
-        Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-        Vec<Reg<u64>>,
-    ) {
-        let a = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, i as u64));
-        let b =
-            array::from_fn(|i| input(&mut alloc, mapping, phys_registers, (a.len() + i) as u64));
 
-        let input_hw_registers_a = a
-            .iter()
-            .filter_map(|reg| mapping.output_register(reg))
-            .collect();
+fn setup_schoolmethod(
+    alloc: &mut Allocator,
+    mapping: &mut RegisterMapping,
+    phys_registers: &mut RegisterBank,
+    asm: &mut Assembler,
+) -> (
+    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Reg<u64>>,
+) {
+    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
+    let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (a.len() + i) as u64));
 
-        let input_hw_registers_b = b
-            .iter()
-            .filter_map(|reg| mapping.output_register(reg))
-            .collect();
+    let input_hw_registers_a = a
+        .iter()
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
 
-        let s = school_method(&mut alloc, asm, &a, &b);
+    let input_hw_registers_b = b
+        .iter()
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
 
-        (
-            vec![input_hw_registers_a, input_hw_registers_b],
-            Vec::from(s),
-        )
-    }
+    let s = school_method(alloc, asm, &a, &b);
 
-    build_func("school_method", setup);
+    (
+        vec![input_hw_registers_a, input_hw_registers_b],
+        Vec::from(s),
+    )
 }
 
 fn build_func<T: RegisterSource>(
     label: &str,
     f: fn(
-        alloc: Allocator,
+        alloc: &mut Allocator,
         mapping: &mut RegisterMapping,
         phys_registers: &mut RegisterBank,
         asm: &mut Assembler,
     ) -> (Vec<Vec<TypedSizedRegister<HardwareRegister>>>, Vec<Reg<T>>),
 ) {
-    let alloc = Allocator::new();
+    let mut alloc = Allocator::new();
     let mut mapping = RegisterMapping::new();
     let mut phys_registers = RegisterBank::new();
 
     let mut asm = Assembler::new();
-    let (input_hw_registers, s) = f(alloc, &mut mapping, &mut phys_registers, &mut asm);
+    let (input_hw_registers, s) = f(&mut alloc, &mut mapping, &mut phys_registers, &mut asm);
 
     let first: Vec<_> = asm.instructions.into_iter().flatten().collect();
 
@@ -97,287 +93,254 @@ fn build_func<T: RegisterSource>(
         .expect("Unable to write data to file");
 }
 
-fn build_single_step() {
-    fn input_setup(
-        mut alloc: Allocator,
-        mapping: &mut RegisterMapping,
-        phys_registers: &mut RegisterBank,
-        asm: &mut Assembler,
-    ) -> (
-        Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-        Vec<Reg<u64>>,
-    ) {
-        let a = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, i as u64));
-        let b =
-            array::from_fn(|i| input(&mut alloc, mapping, phys_registers, (a.len() + i) as u64));
+fn setup_single_step(
+    alloc: &mut Allocator,
+    mapping: &mut RegisterMapping,
+    phys_registers: &mut RegisterBank,
+    asm: &mut Assembler,
+) -> (
+    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Reg<u64>>,
+) {
+    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
+    let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (a.len() + i) as u64));
 
-        let input_hw_registers_a: Vec<_> = a
-            .iter()
-            .filter_map(|reg| mapping.output_register(&reg))
-            .collect();
+    let input_hw_registers_a: Vec<_> = a
+        .iter()
+        .filter_map(|reg| mapping.output_register(&reg))
+        .collect();
 
-        let input_hw_registers_b: Vec<_> = b
-            .iter()
-            .filter_map(|reg| mapping.output_register(&reg))
-            .collect();
+    let input_hw_registers_b: Vec<_> = b
+        .iter()
+        .filter_map(|reg| mapping.output_register(&reg))
+        .collect();
 
-        let s = single_step(&mut alloc, asm, &a, &b);
-        (
-            vec![input_hw_registers_a, input_hw_registers_b],
-            Vec::from(s),
-        )
-    }
+    let s = single_step(alloc, asm, &a, &b);
+    (
+        vec![input_hw_registers_a, input_hw_registers_b],
+        Vec::from(s),
+    )
+}
 
-    build_func("single_step", input_setup)
+fn setup_single_step_split(
+    alloc: &mut Allocator,
+    mapping: &mut RegisterMapping,
+    phys_registers: &mut RegisterBank,
+    asm: &mut Assembler,
+) -> (
+    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Reg<u64>>,
+) {
+    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
+    let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (a.len() + i) as u64));
+
+    let input_hw_registers_a: Vec<_> = a
+        .iter()
+        .filter_map(|reg| mapping.output_register(&reg))
+        .collect();
+
+    let input_hw_registers_b: Vec<_> = b
+        .iter()
+        .filter_map(|reg| mapping.output_register(&reg))
+        .collect();
+
+    let s = single_step_split(alloc, asm, &a, &b);
+    (
+        vec![input_hw_registers_a, input_hw_registers_b],
+        Vec::from(s),
+    )
 }
 
 fn build_single_step_split() {
-    fn input_setup(
-        mut alloc: Allocator,
-        mapping: &mut RegisterMapping,
-        phys_registers: &mut RegisterBank,
-        asm: &mut Assembler,
-    ) -> (
-        Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-        Vec<Reg<u64>>,
-    ) {
-        let a = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, i as u64));
-        let b =
-            array::from_fn(|i| input(&mut alloc, mapping, phys_registers, (a.len() + i) as u64));
-
-        let input_hw_registers_a: Vec<_> = a
-            .iter()
-            .filter_map(|reg| mapping.output_register(&reg))
-            .collect();
-
-        let input_hw_registers_b: Vec<_> = b
-            .iter()
-            .filter_map(|reg| mapping.output_register(&reg))
-            .collect();
-
-        let s = single_step_split(&mut alloc, asm, &a, &b);
-        (
-            vec![input_hw_registers_a, input_hw_registers_b],
-            Vec::from(s),
-        )
-    }
-
-    build_func("single_step_split", input_setup)
+    build_func("single_step_split", setup_single_step_split)
 }
 
-fn build_smul_add() {
-    fn input_setup(
-        mut alloc: Allocator,
-        mapping: &mut RegisterMapping,
-        phys_registers: &mut RegisterBank,
-        asm: &mut Assembler,
-    ) -> (
-        Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-        Vec<Reg<u64>>,
-    ) {
-        let add = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, i as u64));
-        let a =
-            array::from_fn(|i| input(&mut alloc, mapping, phys_registers, (add.len() + i) as u64));
-        let b = input(
-            &mut alloc,
+fn setup_smul_add(
+    alloc: &mut Allocator,
+    mapping: &mut RegisterMapping,
+    phys_registers: &mut RegisterBank,
+    asm: &mut Assembler,
+) -> (
+    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Reg<u64>>,
+) {
+    let add = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
+    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, (add.len() + i) as u64));
+    let b = input(alloc, mapping, phys_registers, (add.len() + a.len()) as u64);
+
+    let input_hw_registers_add: Vec<_> = add
+        .iter()
+        .filter_map(|reg| mapping.output_register(&reg))
+        .collect();
+
+    let input_hw_registers_a: Vec<_> = a
+        .iter()
+        .filter_map(|reg| mapping.output_register(&reg))
+        .collect();
+
+    let input_hw_registers_b: Vec<_> = vec![mapping.output_register(&b).unwrap()];
+
+    let s = smult_add(alloc, asm, add, a, b);
+
+    (
+        vec![
+            input_hw_registers_add,
+            input_hw_registers_a,
+            input_hw_registers_b,
+        ],
+        Vec::from(s),
+    )
+}
+
+fn setup_u256_to_u260_shl2_imd(
+    alloc: &mut Allocator,
+    mapping: &mut RegisterMapping,
+    phys_registers: &mut RegisterBank,
+    asm: &mut Assembler,
+) -> (
+    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Reg<Simd<u64, 2>>>,
+) {
+    let limbs = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
+
+    let input_hw_registers: Vec<_> = limbs
+        .iter()
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
+
+    let mask = mov(alloc, asm, MASK52);
+    let mask_simd = dup2d(alloc, asm, &mask);
+
+    let res = u256_to_u260_shl2_simd(alloc, asm, &mask_simd, limbs);
+
+    (vec![input_hw_registers], Vec::from(res))
+}
+
+fn setup_u260_to_u256_simd(
+    alloc: &mut Allocator,
+    mapping: &mut RegisterMapping,
+    phys_registers: &mut RegisterBank,
+    asm: &mut Assembler,
+) -> (
+    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Reg<Simd<u64, 2>>>,
+) {
+    let limbs = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
+
+    let input_hw_registers: Vec<_> = limbs
+        .iter()
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
+
+    let res = u260_to_u256_simd(alloc, asm, limbs);
+
+    (vec![input_hw_registers], Vec::from(res))
+}
+
+fn setup_vmultadd_noinit_simd(
+    alloc: &mut Allocator,
+    mapping: &mut RegisterMapping,
+    phys_registers: &mut RegisterBank,
+    asm: &mut Assembler,
+) -> (
+    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Reg<Simd<u64, 2>>>,
+) {
+    let t = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
+    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, (i + t.len()) as u64));
+    let b = array::from_fn(|i| {
+        input(
+            alloc,
             mapping,
             phys_registers,
-            (add.len() + a.len()) as u64,
-        );
-
-        let input_hw_registers_add: Vec<_> = add
-            .iter()
-            .filter_map(|reg| mapping.output_register(&reg))
-            .collect();
-
-        let input_hw_registers_a: Vec<_> = a
-            .iter()
-            .filter_map(|reg| mapping.output_register(&reg))
-            .collect();
-
-        let input_hw_registers_b: Vec<_> = vec![mapping.output_register(&b).unwrap()];
-
-        let s = smult_add(&mut alloc, asm, add, a, b);
-
-        (
-            vec![
-                input_hw_registers_add,
-                input_hw_registers_a,
-                input_hw_registers_b,
-            ],
-            Vec::from(s),
+            (i + t.len() + a.len()) as u64,
         )
-    }
-    build_func("smul_add", input_setup);
+    }); // Assuming b starts after a
+
+    let input_hw_registers_t: Vec<_> = t
+        .iter()
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
+    let input_hw_registers_a: Vec<_> = a
+        .iter()
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
+    let input_hw_registers_b: Vec<_> = b
+        .iter()
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
+
+    let c1 = mov(alloc, asm, C1.to_bits());
+    let c1 = dup2d(alloc, asm, &c1);
+
+    // Alternative is c2 = c1 + 1; This requires a change to add to support immediate
+    let c2 = load_const(alloc, asm, C2.to_bits());
+    let c2 = dup2d(alloc, asm, &c2);
+
+    let res = vmultadd_noinit_simd(alloc, asm, &c1, &c2, t, a, b);
+
+    (
+        vec![
+            input_hw_registers_t,
+            input_hw_registers_a,
+            input_hw_registers_b,
+        ],
+        Vec::from(res),
+    )
 }
 
-fn build_u256_to_u260_shl2_simd() {
-    fn input_setup(
-        mut alloc: Allocator,
-        mapping: &mut RegisterMapping,
-        phys_registers: &mut RegisterBank,
-        asm: &mut Assembler,
-    ) -> (
-        Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-        Vec<Reg<Simd<u64, 2>>>,
-    ) {
-        let limbs = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, i as u64));
+fn setup_single_step_simd(
+    alloc: &mut Allocator,
+    mapping: &mut RegisterMapping,
+    phys_registers: &mut RegisterBank,
+    asm: &mut Assembler,
+) -> (
+    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Reg<Simd<u64, 2>>>,
+) {
+    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
+    let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (i + a.len()) as u64)); // Assuming b starts after a
 
-        let input_hw_registers: Vec<_> = limbs
-            .iter()
-            .filter_map(|reg| mapping.output_register(reg))
-            .collect();
+    let input_hw_registers_a: Vec<_> = a
+        .iter()
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
 
-        let mask = mov(&mut alloc, asm, MASK52);
-        let mask_simd = dup2d(&mut alloc, asm, &mask);
+    let input_hw_registers_b: Vec<_> = b
+        .iter()
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
 
-        let res = u256_to_u260_shl2_simd(&mut alloc, asm, &mask_simd, limbs);
+    let res = single_step_simd(alloc, asm, a, b);
 
-        (vec![input_hw_registers], Vec::from(res))
-    }
-    build_func("u256_to_u260_shl2_simd", input_setup);
+    (
+        vec![input_hw_registers_a, input_hw_registers_b],
+        Vec::from(res),
+    )
 }
 
-fn build_u260_to_u256_simd() {
-    fn input_setup(
-        mut alloc: Allocator,
-        mapping: &mut RegisterMapping,
-        phys_registers: &mut RegisterBank,
-        asm: &mut Assembler,
-    ) -> (
-        Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-        Vec<Reg<Simd<u64, 2>>>,
-    ) {
-        let limbs = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, i as u64));
+fn setup_reduce_ct_simd(
+    alloc: &mut Allocator,
+    mapping: &mut RegisterMapping,
+    phys_registers: &mut RegisterBank,
+    asm: &mut Assembler,
+) -> (
+    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Reg<Simd<u64, 2>>>,
+) {
+    let red = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
 
-        let input_hw_registers: Vec<_> = limbs
-            .iter()
-            .filter_map(|reg| mapping.output_register(reg))
-            .collect();
+    let input_hw_registers: Vec<_> = red
+        .iter()
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
 
-        let res = u260_to_u256_simd(&mut alloc, asm, limbs);
+    let mask = mov(alloc, asm, MASK52);
+    let mask52 = dup2d(alloc, asm, &mask);
 
-        (vec![input_hw_registers], Vec::from(res))
-    }
-    build_func("u260_to_u256_simd", input_setup);
-}
+    let res = reduce_ct_simd(alloc, asm, red).map(|reg| and16(alloc, asm, &reg, &mask52));
 
-fn build_vmultadd_noinit_simd() {
-    fn input_setup(
-        mut alloc: Allocator,
-        mapping: &mut RegisterMapping,
-        phys_registers: &mut RegisterBank,
-        asm: &mut Assembler,
-    ) -> (
-        Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-        Vec<Reg<Simd<u64, 2>>>,
-    ) {
-        let t = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, i as u64));
-        let a =
-            array::from_fn(|i| input(&mut alloc, mapping, phys_registers, (i + t.len()) as u64));
-        let b = array::from_fn(|i| {
-            input(
-                &mut alloc,
-                mapping,
-                phys_registers,
-                (i + t.len() + a.len()) as u64,
-            )
-        }); // Assuming b starts after a
-
-        let input_hw_registers_t: Vec<_> = t
-            .iter()
-            .filter_map(|reg| mapping.output_register(reg))
-            .collect();
-        let input_hw_registers_a: Vec<_> = a
-            .iter()
-            .filter_map(|reg| mapping.output_register(reg))
-            .collect();
-        let input_hw_registers_b: Vec<_> = b
-            .iter()
-            .filter_map(|reg| mapping.output_register(reg))
-            .collect();
-
-        let c1 = mov(&mut alloc, asm, C1.to_bits());
-        let c1 = dup2d(&mut alloc, asm, &c1);
-
-        // Alternative is c2 = c1 + 1; This requires a change to add to support immediate
-        let c2 = load_const(&mut alloc, asm, C2.to_bits());
-        let c2 = dup2d(&mut alloc, asm, &c2);
-
-        let res = vmultadd_noinit_simd(&mut alloc, asm, &c1, &c2, t, a, b);
-
-        (
-            vec![
-                input_hw_registers_t,
-                input_hw_registers_a,
-                input_hw_registers_b,
-            ],
-            Vec::from(res),
-        )
-    }
-    build_func("vmultadd_noinit_simd", input_setup);
-}
-
-fn build_single_step_simd() {
-    fn input_setup(
-        mut alloc: Allocator,
-        mapping: &mut RegisterMapping,
-        phys_registers: &mut RegisterBank,
-        asm: &mut Assembler,
-    ) -> (
-        Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-        Vec<Reg<Simd<u64, 2>>>,
-    ) {
-        let a = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, i as u64));
-        let b =
-            array::from_fn(|i| input(&mut alloc, mapping, phys_registers, (i + a.len()) as u64)); // Assuming b starts after a
-
-        let input_hw_registers_a: Vec<_> = a
-            .iter()
-            .filter_map(|reg| mapping.output_register(reg))
-            .collect();
-
-        let input_hw_registers_b: Vec<_> = b
-            .iter()
-            .filter_map(|reg| mapping.output_register(reg))
-            .collect();
-
-        let res = single_step_simd(&mut alloc, asm, a, b);
-
-        (
-            vec![input_hw_registers_a, input_hw_registers_b],
-            Vec::from(res),
-        )
-    }
-    build_func("single_step_simd", input_setup);
-}
-
-fn build_reduce_ct_simd() {
-    fn input_setup(
-        mut alloc: Allocator,
-        mapping: &mut RegisterMapping,
-        phys_registers: &mut RegisterBank,
-        asm: &mut Assembler,
-    ) -> (
-        Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-        Vec<Reg<Simd<u64, 2>>>,
-    ) {
-        let red = array::from_fn(|i| input(&mut alloc, mapping, phys_registers, i as u64));
-
-        let input_hw_registers: Vec<_> = red
-            .iter()
-            .filter_map(|reg| mapping.output_register(reg))
-            .collect();
-
-        let mask = mov(&mut alloc, asm, MASK52);
-        let mask52 = dup2d(&mut alloc, asm, &mask);
-
-        let res =
-            reduce_ct_simd(&mut alloc, asm, red).map(|reg| and16(&mut alloc, asm, &reg, &mask52));
-
-        (vec![input_hw_registers], Vec::from(res))
-    }
-    build_func("reduce_ct_simd", input_setup);
+    (vec![input_hw_registers], Vec::from(res))
 }
 
 fn build_interleaved(label: &str) {
@@ -386,64 +349,13 @@ fn build_interleaved(label: &str) {
     let mut phys_registers = RegisterBank::new();
 
     let mut fst_asm = Assembler::new();
-    let (fst_input_hw_registers, fst_regs) = {
-        let a = array::from_fn(|i| input(&mut alloc, &mut mapping, &mut phys_registers, i as u64));
-        let b = array::from_fn(|i| {
-            input(
-                &mut alloc,
-                &mut mapping,
-                &mut phys_registers,
-                (a.len() + i) as u64,
-            )
-        });
-
-        let input_hw_registers_a: Vec<_> = a
-            .iter()
-            .filter_map(|reg| mapping.output_register(&reg))
-            .collect();
-
-        let input_hw_registers_b: Vec<_> = b
-            .iter()
-            .filter_map(|reg| mapping.output_register(&reg))
-            .collect();
-
-        let s = single_step(&mut alloc, &mut fst_asm, &a, &b);
-        (
-            vec![input_hw_registers_a, input_hw_registers_b],
-            Vec::from(s),
-        )
-    };
+    let (fst_input_hw_registers, fst_regs) =
+        setup_single_step(&mut alloc, &mut mapping, &mut phys_registers, &mut fst_asm);
 
     let mut snd_asm = Assembler::new();
 
-    let (snd_input_hw_registers, snd_regs) = {
-        let a = array::from_fn(|i| input(&mut alloc, &mut mapping, &mut phys_registers, i as u64));
-        let b = array::from_fn(|i| {
-            input(
-                &mut alloc,
-                &mut mapping,
-                &mut phys_registers,
-                (i + a.len()) as u64,
-            )
-        });
-
-        let input_hw_registers_a: Vec<_> = a
-            .iter()
-            .filter_map(|reg| mapping.output_register(&reg))
-            .collect();
-
-        let input_hw_registers_b: Vec<_> = b
-            .iter()
-            .filter_map(|reg| mapping.output_register(&reg))
-            .collect();
-
-        let res = single_step_simd(&mut alloc, &mut snd_asm, a, b);
-
-        (
-            vec![input_hw_registers_a, input_hw_registers_b],
-            Vec::from(res),
-        )
-    };
+    let (snd_input_hw_registers, snd_regs) =
+        setup_single_step_simd(&mut alloc, &mut mapping, &mut phys_registers, &mut snd_asm);
 
     let mixed: Vec<_> = interleave(fst_asm.instructions, snd_asm.instructions)
         .into_iter()
@@ -500,15 +412,15 @@ fn build_interleaved(label: &str) {
 }
 
 fn main() {
-    build_smul_add();
-    build_schoolmethod();
-    build_single_step();
-    build_single_step_split();
-    build_u256_to_u260_shl2_simd();
-    build_u260_to_u256_simd();
-    build_vmultadd_noinit_simd();
-    build_single_step_simd();
-    build_reduce_ct_simd();
+    build_func("smul_add", setup_smul_add);
+    build_func("school_method", setup_schoolmethod);
+    build_func("single_step", setup_single_step);
+    build_func("single_step_split", setup_single_step_split);
+    build_func("u256_to_u260_shl2_simd", setup_u256_to_u260_shl2_imd);
+    build_func("u260_to_u256_simd", setup_u260_to_u256_simd);
+    build_func("vmultadd_noinit_simd", setup_vmultadd_noinit_simd);
+    build_func("single_step_simd", setup_single_step_simd);
+    build_func("reduce_ct_simd", setup_reduce_ct_simd);
     build_interleaved("single_step_interleaved");
 }
 
