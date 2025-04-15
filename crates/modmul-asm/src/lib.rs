@@ -241,8 +241,8 @@ fn call_u256_to_u260_shl2_simd(a: [Simd<u64, 2>; 4]) -> [Simd<u64, 2>; 5] {
     unsafe {
         asm!("bl _u256_to_u260_shl2_simd",
         in("v0") a[0], in("v1") a[1], in("v2") a[2], in("v3") a[3],
-        lateout("v0") out0[0], lateout("v1") out0[1], lateout("v2") out0[2], lateout("v5") out0[3], lateout("v4") out0[4],
-        lateout("x0") _, lateout("v3") _, lateout("v6") _, lateout("v7") _, lateout("v8") _,
+        lateout("v0") out0[0], lateout("v1") out0[1], lateout("v2") out0[2], lateout("v3") out0[3], lateout("v4") out0[4],
+        lateout("x0") _, lateout("v5") _, lateout("v6") _, lateout("v7") _, lateout("v8") _,
         lateout("lr") _)
     }
     out0

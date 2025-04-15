@@ -13,36 +13,36 @@ _single_step_interleaved:
   shl.2d v10, v2, #26
   shl.2d v11, v3, #38
   umulh x10, x0, x4
+  ushr.2d v3, v3, #14
   shl.2d v12, v0, #2
   usra.2d v9, v0, #50
-  usra.2d v10, v1, #38
   mul x11, x1, x4
+  usra.2d v10, v1, #38
   usra.2d v11, v2, #26
-  and.16b v0, v12, v8
   umulh x12, x1, x4
+  and.16b v0, v12, v8
   and.16b v1, v9, v8
   and.16b v2, v10, v8
-  and.16b v9, v11, v8
   adds x10, x11, x10
   cinc x11, x12, hs
-  ushr.2d v3, v3, #14
+  and.16b v9, v11, v8
   shl.2d v10, v5, #14
   shl.2d v11, v6, #26
   mul x12, x2, x4
   shl.2d v12, v7, #38
-  shl.2d v13, v4, #2
+  ushr.2d v7, v7, #14
   umulh x13, x2, x4
+  shl.2d v13, v4, #2
   usra.2d v10, v4, #50
   usra.2d v11, v5, #38
-  usra.2d v12, v6, #26
   adds x11, x12, x11
   cinc x12, x13, hs
+  usra.2d v12, v6, #26
   and.16b v4, v13, v8
   and.16b v5, v10, v8
-  and.16b v6, v11, v8
   mul x13, x3, x4
+  and.16b v6, v11, v8
   and.16b v10, v12, v8
-  ushr.2d v7, v7, #14
   mov x14, #13605374474286268416
   umulh x4, x3, x4
   dup.2d v11, x14

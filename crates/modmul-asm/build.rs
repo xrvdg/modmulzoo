@@ -775,6 +775,9 @@ fn u256_to_u260_shl2_simd(
     let shifted_l1 = shl2d(alloc, asm, &l1, 14);
     let shifted_l2 = shl2d(alloc, asm, &l2, 26);
     let shifted_l3 = shl2d(alloc, asm, &l3, 38);
+    // The input and output interface share the same registers. By moving this operation to somewhere in the beginning
+    // we can free up the hardware register tied to l3.
+    let last = ushr2d(alloc, asm, &l3, 14);
 
     let shifted_ol0 = shl2d(alloc, asm, &l0, 2);
     let shifted_ol1 = usra2d(alloc, asm, shifted_l1, &l0, 50);
@@ -786,7 +789,7 @@ fn u256_to_u260_shl2_simd(
         and16(alloc, asm, &shifted_ol1, &mask52),
         and16(alloc, asm, &shifted_ol2, &mask52),
         and16(alloc, asm, &shifted_ol3, &mask52),
-        ushr2d(alloc, asm, &l3, 14),
+        last,
     ]
 }
 
