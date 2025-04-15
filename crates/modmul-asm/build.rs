@@ -67,9 +67,15 @@ fn build_func<T: RegisterSource>(
         seen.output_interface(r);
     });
 
-    let releases = liveness_analysis(&mut seen, &first);
+    let (releases, lifetimes) = liveness_analysis(&mut seen, &first, alloc.fresh as usize);
 
-    let out = hardware_register_allocation(&mut mapping, &mut phys_registers, first, releases);
+    let out = hardware_register_allocation(
+        &mut mapping,
+        &mut phys_registers,
+        first,
+        releases,
+        lifetimes,
+    );
 
     let output_hw_registers: Vec<_> = s
         .iter()
@@ -372,9 +378,15 @@ fn build_interleaved(label: &str) {
         seen.output_interface(r);
     });
 
-    let releases = liveness_analysis(&mut seen, &mixed);
+    let (releases, lifetimes) = liveness_analysis(&mut seen, &mixed, alloc.fresh as usize);
 
-    let out = hardware_register_allocation(&mut mapping, &mut phys_registers, mixed, releases);
+    let out = hardware_register_allocation(
+        &mut mapping,
+        &mut phys_registers,
+        mixed,
+        releases,
+        lifetimes,
+    );
 
     let fst_output_hw_registers: Vec<_> = fst_regs
         .iter()

@@ -583,7 +583,8 @@ pub struct Allocator {
     // It's about unique counters so we use the counter for both
     // q and v registers
     // this makes it easier to read the assembly
-    fresh: u64,
+    // Temporary to make it work with lifeness analysis
+    pub fresh: u64,
 }
 
 impl Allocator {
@@ -994,7 +995,10 @@ impl RegisterMapping {
 pub fn liveness_analysis(
     seen_registers: &mut Seen,
     instructions: &[Instruction],
-) -> VecDeque<HashSet<FreshRegister>> {
+    nr_fresh_registers: usize,
+) -> (VecDeque<HashSet<FreshRegister>>, Vec<(usize, usize)>) {
+    // Keep track of the last line the free register is used for
+    let mut lifetimes = vec![(0, usize::MAX); nr_fresh_registers];
     let mut commands = VecDeque::new();
     for (line, instruction) in instructions.iter().enumerate().rev() {
         // Add check whether the source is released here.
@@ -1004,6 +1008,11 @@ pub fn liveness_analysis(
             .extract_registers()
             .map(|tr| *tr.as_fresh())
             .collect();
+
+        registers.iter().for_each(|reg| {
+            let (_b, e) = lifetimes[reg.0 as usize];
+            lifetimes[reg.0 as usize] = (line, e);
+        });
         // The difference could be mutable
         let release: HashSet<_> = registers.difference(&seen_registers.0).copied().collect();
 
@@ -1017,11 +1026,13 @@ pub fn liveness_analysis(
         }
 
         release.iter().for_each(|reg| {
+            let (b, _e) = lifetimes[reg.0 as usize];
+            lifetimes[reg.0 as usize] = (b, line);
             seen_registers.0.insert(*reg);
         });
         commands.push_front(release);
     }
-    commands
+    (commands, lifetimes)
 }
 
 pub fn hardware_register_allocation(
@@ -1030,6 +1041,7 @@ pub fn hardware_register_allocation(
     instructions: Vec<Instruction>,
     // Change this into a Seen, and then rename Seen?
     releases: VecDeque<HashSet<FreshRegister>>,
+    _lifetimes: Vec<(usize, usize)>,
 ) -> Vec<InstructionF<HardwareRegister>> {
     assert_eq!(
         instructions.len(),
