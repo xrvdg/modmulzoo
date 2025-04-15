@@ -646,7 +646,54 @@ impl Pool {
     }
 }
 
-type RegisterPool = BTreeSet<HardwareRegister>;
+#[derive(Debug)]
+struct RegisterPool {
+    pool: BTreeSet<HardwareRegister>,
+    availability: Vec<usize>,
+}
+
+impl RegisterPool {
+    fn new<T>(registers: T) -> Self
+    where
+        T: Iterator<Item = u64> + Clone,
+    {
+        let len = registers
+            .clone()
+            .max()
+            .expect("Can't have a zero sized register pool");
+        RegisterPool {
+            pool: BTreeSet::from_iter(registers.map(HardwareRegister)),
+            availability: vec![usize::MAX; len as usize],
+        }
+    }
+
+    fn pop_first(&mut self, end_lifetime: usize) -> Option<HardwareRegister> {
+        // Find the first register that satisfies the condition
+        let reg = self
+            .pool
+            .iter()
+            .find(|&hardware_register| {
+                // Check if end_lifetime <= availability[hardware_register.0]
+                end_lifetime <= self.availability[hardware_register.0 as usize]
+            })
+            .copied();
+
+        // Remove the register from the pool if found
+        if let Some(hardware_register) = reg {
+            self.pool.remove(&hardware_register);
+        }
+
+        reg
+    }
+
+    fn insert(&mut self, register: HardwareRegister) -> bool {
+        self.pool.insert(register)
+    }
+
+    fn remove(&mut self, register: &HardwareRegister) -> bool {
+        self.pool.remove(register)
+    }
+}
 
 // TODO different name than RegisterSource
 pub trait RegisterSource {
@@ -778,8 +825,8 @@ impl RegisterBank {
             // Exclude registers:
             // - 18 Reserved by OS
             // - 19 Reserved by LLVM
-            x: BTreeSet::from_iter((0..=17).chain(20..29).map(HardwareRegister)),
-            v: BTreeSet::from_iter((0..=30).map(HardwareRegister)),
+            x: RegisterPool::new((0..=17).chain(20..29)),
+            v: RegisterPool::new(0..=30),
         }
     }
 
@@ -790,8 +837,8 @@ impl RegisterBank {
         }
     }
 
-    fn pop_first(&mut self, addr: Addressing) -> Option<HardwareRegister> {
-        self.get_register_pool(addr).pop_first()
+    fn pop_first(&mut self, addr: Addressing, end_lifetime: usize) -> Option<HardwareRegister> {
+        self.get_register_pool(addr).pop_first(end_lifetime)
     }
 
     fn remove(&mut self, register: HardwareRegister, addr: Addressing) -> bool {
@@ -912,13 +959,16 @@ impl RegisterMapping {
         &mut self,
         register_bank: &mut RegisterBank,
         typed_register: TypedSizedRegister<FreshRegister>,
+        end_lifetime: usize,
     ) -> TypedSizedRegister<HardwareRegister> {
         // Possible to do a mutable reference here
         let entry = self.index_mut(*typed_register.as_fresh());
         let hw_reg = match *entry {
             RegisterState::Unassigned => {
                 let addr = typed_register.addressing;
-                let hw_reg = register_bank.pop_first(addr).expect("ran out of registers");
+                let hw_reg = register_bank
+                    .pop_first(addr, end_lifetime)
+                    .expect("ran out of registers");
 
                 *entry = RegisterState::Assigned(addr.to_pool(hw_reg));
                 hw_reg
@@ -1009,20 +1059,21 @@ pub fn liveness_analysis(
             .map(|tr| *tr.as_fresh())
             .collect();
 
-        registers.iter().for_each(|reg| {
-            let (_b, e) = lifetimes[reg.0 as usize];
-            lifetimes[reg.0 as usize] = (line, e);
-        });
         // The difference could be mutable
         let release: HashSet<_> = registers.difference(&seen_registers.0).copied().collect();
 
         if let Some(dest) = instruction.dest {
-            if release.contains(dest.as_fresh()) {
+            let dest = dest.as_fresh();
+
+            if release.contains(dest) {
                 // Better way to give feedback? Now the user doesn't know where it comes from
                 // We view an unused instruction as a problem
                 print_instructions(&instructions);
                 panic!("{line}: {instruction:?} does not use the destination")
             }; // The union could be mutable
+
+            let (_b, e) = lifetimes[dest.0 as usize];
+            lifetimes[dest.0 as usize] = (line, e);
         }
 
         release.iter().for_each(|reg| {
@@ -1041,7 +1092,7 @@ pub fn hardware_register_allocation(
     instructions: Vec<Instruction>,
     // Change this into a Seen, and then rename Seen?
     releases: VecDeque<HashSet<FreshRegister>>,
-    _lifetimes: Vec<(usize, usize)>,
+    lifetimes: Vec<(usize, usize)>,
 ) -> Vec<InstructionF<HardwareRegister>> {
     assert_eq!(
         instructions.len(),
@@ -1066,9 +1117,10 @@ pub fn hardware_register_allocation(
         release.into_iter().for_each(|fresh| {
             mapping.free_register(register_bank, fresh);
         });
-        let dest = instruction
-            .dest
-            .map(|d| mapping.get_or_allocate_register(register_bank, d));
+        let dest = instruction.dest.map(|d| {
+            let idx = d.as_fresh().0;
+            mapping.get_or_allocate_register(register_bank, d, lifetimes[idx as usize].1)
+        });
         InstructionF {
             opcode: instruction.opcode,
             dest,
