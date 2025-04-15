@@ -649,7 +649,7 @@ impl Pool {
 #[derive(Debug)]
 struct RegisterPool {
     pool: BTreeSet<HardwareRegister>,
-    availability: Vec<Option<(TypedSizedRegister<FreshRegister>, usize)>>,
+    availability: Vec<Option<(FreshRegister, usize)>>,
 }
 
 impl RegisterPool {
@@ -667,28 +667,25 @@ impl RegisterPool {
         }
     }
 
-    fn pop_first(
-        &mut self,
-        reg: TypedSizedRegister<FreshRegister>,
-        end_lifetime: usize,
-    ) -> Option<HardwareRegister> {
+    fn pop_first(&mut self, reg: FreshRegister, end_lifetime: usize) -> Option<HardwareRegister> {
         // Find the first register that satisfies the condition
         let reg = self
             .pool
             .iter()
-            .find(|&hardware_register| {
-                // Check if end_lifetime <= availability[hardware_register.0]
-                match self.availability[hardware_register.0 as usize] {
-                    Some((tp, lifetime)) => {
-                        if reg.addressing == tp.addressing && reg.reg == tp.reg {
-                            true
-                        } else {
-                            end_lifetime <= lifetime
-                        }
-                    }
+            .find(
+                // Check if the hardware register has been preassigned assigned to this fresh registers
+                // Check if the hardware register can be used before it's preassigned moment
+                //
+                |&hardware_register| match self.availability[hardware_register.0 as usize] {
+                    Some((tp, _lifetime)) if reg == tp => true,
+                    Some((_tp, lifetime)) if end_lifetime <= lifetime => true,
+                    // Hardware register has not been preassigned
                     None => true,
-                }
-            })
+                    // Hardware register was preassigned to a different fresh register and it's ownership overlaps
+                    // with the lifetime of reg
+                    _ => false,
+                },
+            )
             .copied();
 
         // Remove the register from the pool if found
@@ -699,12 +696,7 @@ impl RegisterPool {
         reg
     }
 
-    fn set_availability(
-        &mut self,
-        tp: TypedSizedRegister<FreshRegister>,
-        register: HardwareRegister,
-        lifetime: usize,
-    ) {
+    fn set_availability(&mut self, tp: FreshRegister, register: HardwareRegister, lifetime: usize) {
         self.availability[register.0 as usize] = Some((tp, lifetime));
     }
 
@@ -885,7 +877,7 @@ impl RegisterBank {
         end_lifetime: usize,
     ) -> Option<HardwareRegister> {
         self.get_register_pool(tp.addressing)
-            .pop_first(tp, end_lifetime)
+            .pop_first(tp.reg, end_lifetime)
     }
 
     fn remove(&mut self, register: HardwareRegister, addr: Addressing) -> bool {
@@ -899,7 +891,7 @@ impl RegisterBank {
         lifetime: usize,
     ) {
         self.get_register_pool(tp.addressing)
-            .set_availability(tp, register, lifetime);
+            .set_availability(tp.reg, register, lifetime);
     }
 
     /// Return the hardware register back into the register pool
