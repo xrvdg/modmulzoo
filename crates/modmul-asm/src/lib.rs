@@ -336,10 +336,8 @@ pub fn call_single_step_interleaved(
         in("v0") va[0], in("v1") va[1], in("v2") va[2], in("v3") va[3],
         in("v4") vb[0], in("v5") vb[1], in("v6") vb[2], in("v7") vb[3],
 
-        lateout("x0") out0[0], lateout("x1") out0[1], lateout("x2") out0[2], lateout("x3") out0[3], lateout("v0") out1[0], lateout("v5") out1[1], lateout("v6") out1[2], lateout("v7") out1[3],
-        lateout("v1") _, lateout("v2") _, lateout("v3") _, lateout("x4") _, lateout("v4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("v8") _, lateout("x9") _, lateout("v9") _, lateout("x10") _, lateout("v10") _, lateout("x11") _, lateout("v11") _, lateout("x12") _, lateout("v12") _, lateout("x13") _, lateout("v13") _, lateout("x14") _, lateout("v14") _, lateout("x15") _, lateout("v15") _, lateout("x16") _, lateout("v16") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("v20") _, lateout("v21") _, lateout("v22") _, lateout("v23") _, lateout("v24") _,
-
-
+        lateout("x0") out0[0], lateout("x1") out0[1], lateout("x2") out0[2], lateout("x3") out0[3], lateout("v0") out1[0], lateout("v1") out1[1], lateout("v2") out1[2], lateout("v3") out1[3],
+        lateout("x4") _, lateout("v4") _, lateout("x5") _, lateout("v5") _, lateout("x6") _, lateout("v6") _, lateout("x7") _, lateout("v7") _, lateout("x8") _, lateout("v8") _, lateout("x9") _, lateout("v9") _, lateout("x10") _, lateout("v10") _, lateout("x11") _, lateout("v11") _, lateout("x12") _, lateout("v12") _, lateout("x13") _, lateout("v13") _, lateout("x14") _, lateout("v14") _, lateout("x15") _, lateout("v15") _, lateout("x16") _, lateout("v16") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("v20") _, lateout("v21") _, lateout("v22") _, lateout("v23") _, lateout("v24") _,
 
         lateout("lr") _
 

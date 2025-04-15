@@ -697,7 +697,12 @@ impl RegisterPool {
     }
 
     fn set_availability(&mut self, tp: FreshRegister, register: HardwareRegister, lifetime: usize) {
-        self.availability[register.0 as usize] = Some((tp, lifetime));
+        let av = &mut self.availability[register.0 as usize];
+
+        match av {
+            Some(_) => panic!("Availability of hardware register {register} already set"),
+            None => *av = Some((tp, lifetime)),
+        }
     }
 
     fn insert(&mut self, register: HardwareRegister) -> bool {
