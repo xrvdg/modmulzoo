@@ -1,6 +1,6 @@
 //in("v0") in0[0], in("v1") in0[1], in("v2") in0[2], in("v3") in0[3],
-//lateout("v0") out0[0], lateout("v1") out0[1], lateout("v2") out0[2], lateout("v4") out0[3], lateout("v3") out0[4],
-//lateout("x0") _, lateout("v5") _, lateout("v6") _, lateout("v7") _, lateout("v8") _,
+//lateout("v0") out0[0], lateout("v1") out0[1], lateout("v2") out0[2], lateout("v5") out0[3], lateout("v4") out0[4],
+//lateout("x0") _, lateout("v3") _, lateout("v6") _, lateout("v7") _, lateout("v8") _,
 //lateout("lr") _
 .global _u256_to_u260_shl2_simd
 .align 4
@@ -18,6 +18,6 @@ _u256_to_u260_shl2_simd:
   and.16b v0, v8, v4
   and.16b v1, v5, v4
   and.16b v2, v6, v4
-  and.16b v4, v7, v4
-  ushr.2d v3, v3, #14
+  and.16b v5, v7, v4
+  ushr.2d v4, v3, #14
 ret

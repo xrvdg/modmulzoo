@@ -69,6 +69,10 @@ fn build_func<T: RegisterSource>(
 
     let (releases, lifetimes) = liveness_analysis(&mut seen, &first, alloc.fresh as usize);
 
+    s.iter().enumerate().for_each(|(idx, r)| {
+        pin_register(&mut mapping, &mut phys_registers, &lifetimes, r, idx as u64);
+    });
+
     let out = hardware_register_allocation(
         &mut mapping,
         &mut phys_registers,

@@ -649,7 +649,7 @@ impl Pool {
 #[derive(Debug)]
 struct RegisterPool {
     pool: BTreeSet<HardwareRegister>,
-    availability: Vec<usize>,
+    availability: Vec<Option<(TypedSizedRegister<FreshRegister>, usize)>>,
 }
 
 impl RegisterPool {
@@ -663,18 +663,31 @@ impl RegisterPool {
             .expect("Can't have a zero sized register pool");
         RegisterPool {
             pool: BTreeSet::from_iter(registers.map(HardwareRegister)),
-            availability: vec![usize::MAX; len as usize],
+            availability: vec![None; len as usize],
         }
     }
 
-    fn pop_first(&mut self, end_lifetime: usize) -> Option<HardwareRegister> {
+    fn pop_first(
+        &mut self,
+        reg: TypedSizedRegister<FreshRegister>,
+        end_lifetime: usize,
+    ) -> Option<HardwareRegister> {
         // Find the first register that satisfies the condition
         let reg = self
             .pool
             .iter()
             .find(|&hardware_register| {
                 // Check if end_lifetime <= availability[hardware_register.0]
-                end_lifetime <= self.availability[hardware_register.0 as usize]
+                match self.availability[hardware_register.0 as usize] {
+                    Some((tp, lifetime)) => {
+                        if reg.addressing == tp.addressing && reg.reg == tp.reg {
+                            true
+                        } else {
+                            end_lifetime <= lifetime
+                        }
+                    }
+                    None => true,
+                }
             })
             .copied();
 
@@ -684,6 +697,15 @@ impl RegisterPool {
         }
 
         reg
+    }
+
+    fn set_availability(
+        &mut self,
+        tp: TypedSizedRegister<FreshRegister>,
+        register: HardwareRegister,
+        lifetime: usize,
+    ) {
+        self.availability[register.0 as usize] = Some((tp, lifetime));
     }
 
     fn insert(&mut self, register: HardwareRegister) -> bool {
@@ -797,6 +819,26 @@ where
     fresh
 }
 
+pub fn pin_register<T>(
+    _mapping: &mut RegisterMapping,
+    register_bank: &mut RegisterBank,
+    lifetimes: &Vec<(usize, usize)>,
+    fresh: &Reg<T>,
+    hardware_register: u64,
+) where
+    T: RegisterSource,
+{
+    let hardware_register = HardwareRegister(hardware_register);
+    let tp = fresh.to_typed_register();
+
+    // Now that we use it for both input and outputs at the beginning
+    // if !register_bank.remove(hw_reg, tp.addressing) {
+    //     panic!("{:?} is already in use", phys)
+    // }
+
+    register_bank.set_availability(hardware_register, tp, lifetimes[fresh.reg.0 as usize].0);
+}
+
 pub struct Seen(HashSet<FreshRegister>);
 
 impl Seen {
@@ -837,12 +879,27 @@ impl RegisterBank {
         }
     }
 
-    fn pop_first(&mut self, addr: Addressing, end_lifetime: usize) -> Option<HardwareRegister> {
-        self.get_register_pool(addr).pop_first(end_lifetime)
+    fn pop_first(
+        &mut self,
+        tp: TypedSizedRegister<FreshRegister>,
+        end_lifetime: usize,
+    ) -> Option<HardwareRegister> {
+        self.get_register_pool(tp.addressing)
+            .pop_first(tp, end_lifetime)
     }
 
     fn remove(&mut self, register: HardwareRegister, addr: Addressing) -> bool {
         self.get_register_pool(addr).remove(&register)
+    }
+
+    fn set_availability(
+        &mut self,
+        register: HardwareRegister,
+        tp: TypedSizedRegister<FreshRegister>,
+        lifetime: usize,
+    ) {
+        self.get_register_pool(tp.addressing)
+            .set_availability(tp, register, lifetime);
     }
 
     /// Return the hardware register back into the register pool
@@ -967,7 +1024,7 @@ impl RegisterMapping {
             RegisterState::Unassigned => {
                 let addr = typed_register.addressing;
                 let hw_reg = register_bank
-                    .pop_first(addr, end_lifetime)
+                    .pop_first(typed_register, end_lifetime)
                     .expect("ran out of registers");
 
                 *entry = RegisterState::Assigned(addr.to_pool(hw_reg));
