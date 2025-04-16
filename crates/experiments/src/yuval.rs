@@ -188,6 +188,11 @@ pub fn parallel_reduce(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
 }
 
 #[inline(always)]
+pub fn parallel_reduce_ct(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
+    reduce_ct(parallel(a, b))
+}
+
+#[inline(always)]
 pub fn reduce_ct(a: [u64; 4]) -> [u64; 4] {
     let msb = (a[3] >> 63) & 1;
     let b = [[0; 4], U64_2P];

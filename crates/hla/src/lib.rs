@@ -181,12 +181,12 @@ pub fn tst_inst(a: &Reg<u64>, imm: u64) -> Instruction {
     }
 }
 
-pub fn csel_inst(dest: &Reg<u64>, a: &Reg<u64>, b: &Reg<u64>, cond: String) -> Instruction {
+pub fn csel_inst(dest: &Reg<u64>, a: &Reg<u64>, b: &Reg<u64>, cond: &str) -> Instruction {
     InstructionF {
         opcode: "csel".to_string(),
         dest: Some(dest.to_typed_register()),
         src: vec![a.to_typed_register(), b.to_typed_register()],
-        modifiers: Mod::Cond(cond),
+        modifiers: Mod::Cond(cond.to_string()),
     }
 }
 
