@@ -583,7 +583,6 @@ pub struct Allocator {
     // It's about unique counters so we use the counter for both
     // q and v registers
     // this makes it easier to read the assembly
-    // Temporary to make it work with lifeness analysis
     pub fresh: u64,
 }
 
@@ -817,7 +816,6 @@ where
 }
 
 pub fn pin_register<T>(
-    _mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
     lifetimes: &Vec<(usize, usize)>,
     fresh: &Reg<T>,
@@ -827,11 +825,6 @@ pub fn pin_register<T>(
 {
     let hardware_register = HardwareRegister(hardware_register);
     let tp = fresh.to_typed_register();
-
-    // Now that we use it for both input and outputs at the beginning
-    // if !register_bank.remove(hw_reg, tp.addressing) {
-    //     panic!("{:?} is already in use", phys)
-    // }
 
     register_bank.set_availability(hardware_register, tp, lifetimes[fresh.reg.0 as usize].0);
 }

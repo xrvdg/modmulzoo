@@ -70,7 +70,7 @@ fn build_func<T: RegisterSource>(
     let (releases, lifetimes) = liveness_analysis(&mut seen, &first, alloc.fresh as usize);
 
     s.iter().enumerate().for_each(|(idx, r)| {
-        pin_register(&mut mapping, &mut phys_registers, &lifetimes, r, idx as u64);
+        pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
     });
 
     let out = hardware_register_allocation(
@@ -385,10 +385,10 @@ fn build_interleaved(label: &str) {
     let (releases, lifetimes) = liveness_analysis(&mut seen, &mixed, alloc.fresh as usize);
 
     snd_regs.iter().enumerate().for_each(|(idx, r)| {
-        pin_register(&mut mapping, &mut phys_registers, &lifetimes, r, idx as u64);
+        pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
     });
     fst_regs.iter().enumerate().for_each(|(idx, r)| {
-        pin_register(&mut mapping, &mut phys_registers, &lifetimes, r, idx as u64);
+        pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
     });
 
     let out = hardware_register_allocation(
