@@ -660,9 +660,11 @@ impl RegisterPool {
             .clone()
             .max()
             .expect("Can't have a zero sized register pool");
+
         RegisterPool {
             pool: BTreeSet::from_iter(registers.map(HardwareRegister)),
-            availability: vec![None; len as usize],
+            // Registers start from 0 so highest count + 1
+            availability: vec![None; (len + 1) as usize],
         }
     }
 
