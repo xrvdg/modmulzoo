@@ -1,6 +1,6 @@
 //in("v0") in0[0], in("v1") in0[1], in("v2") in0[2], in("v3") in0[3], in("v4") in1[0], in("v5") in1[1], in("v6") in1[2], in("v7") in1[3],
-//lateout("v0") out0[0], lateout("v5") out0[1], lateout("v6") out0[2], lateout("v7") out0[3],
-//lateout("x0") _, lateout("x1") _, lateout("v1") _, lateout("x2") _, lateout("v2") _, lateout("x3") _, lateout("v3") _, lateout("v4") _, lateout("v8") _, lateout("v9") _, lateout("v10") _, lateout("v11") _, lateout("v12") _, lateout("v13") _, lateout("v14") _, lateout("v15") _, lateout("v16") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("v20") _, lateout("v21") _, lateout("v22") _, lateout("v23") _, lateout("v24") _,
+//lateout("v0") out0[0], lateout("v1") out0[1], lateout("v2") out0[2], lateout("v3") out0[3],
+//lateout("x0") _, lateout("x1") _, lateout("x2") _, lateout("x3") _, lateout("v4") _, lateout("v5") _, lateout("v6") _, lateout("v7") _, lateout("v8") _, lateout("v9") _, lateout("v10") _, lateout("v11") _, lateout("v12") _, lateout("v13") _, lateout("v14") _, lateout("v15") _, lateout("v16") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("v20") _, lateout("v21") _, lateout("v22") _, lateout("v23") _, lateout("v24") _,
 //lateout("lr") _
 .global _single_step_simd
 .align 4
@@ -11,6 +11,7 @@ _single_step_simd:
   shl.2d v9, v1, #14
   shl.2d v10, v2, #26
   shl.2d v11, v3, #38
+  ushr.2d v3, v3, #14
   shl.2d v12, v0, #2
   usra.2d v9, v0, #50
   usra.2d v10, v1, #38
@@ -19,10 +20,10 @@ _single_step_simd:
   and.16b v1, v9, v8
   and.16b v2, v10, v8
   and.16b v9, v11, v8
-  ushr.2d v3, v3, #14
   shl.2d v10, v5, #14
   shl.2d v11, v6, #26
   shl.2d v12, v7, #38
+  ushr.2d v7, v7, #14
   shl.2d v13, v4, #2
   usra.2d v10, v4, #50
   usra.2d v11, v5, #38
@@ -31,7 +32,6 @@ _single_step_simd:
   and.16b v5, v10, v8
   and.16b v6, v11, v8
   and.16b v10, v12, v8
-  ushr.2d v7, v7, #14
   mov x1, #13605374474286268416
   dup.2d v11, x1
   mov x1, #6440147467139809280
@@ -551,19 +551,19 @@ _single_step_simd:
   bic.16b v6, v11, v6
   sub.2d v0, v0, v7
   ssra.2d v0, v4, #52
-  sub.2d v1, v1, v8
-  ssra.2d v1, v0, #52
-  sub.2d v2, v2, v9
-  ssra.2d v2, v1, #52
-  sub.2d v4, v5, v10
-  ssra.2d v4, v2, #52
-  sub.2d v3, v3, v6
-  ssra.2d v3, v4, #52
-  ushr.2d v5, v1, #12
-  ushr.2d v6, v2, #24
-  ushr.2d v7, v4, #36
-  sli.2d v0, v1, #52
-  sli.2d v5, v2, #40
-  sli.2d v6, v4, #28
-  sli.2d v7, v3, #16
+  sub.2d v4, v1, v8
+  ssra.2d v4, v0, #52
+  sub.2d v7, v2, v9
+  ssra.2d v7, v4, #52
+  sub.2d v5, v5, v10
+  ssra.2d v5, v7, #52
+  sub.2d v6, v3, v6
+  ssra.2d v6, v5, #52
+  ushr.2d v1, v4, #12
+  ushr.2d v2, v7, #24
+  ushr.2d v3, v5, #36
+  sli.2d v0, v4, #52
+  sli.2d v1, v7, #40
+  sli.2d v2, v5, #28
+  sli.2d v3, v6, #16
 ret

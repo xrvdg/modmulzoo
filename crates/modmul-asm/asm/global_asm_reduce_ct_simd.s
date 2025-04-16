@@ -1,5 +1,5 @@
 //in("v0") in0[0], in("v1") in0[1], in("v2") in0[2], in("v3") in0[3], in("v4") in0[4], in("v5") in0[5],
-//lateout("v1") out0[0], lateout("v0") out0[1], lateout("v2") out0[2], lateout("v3") out0[3], lateout("v4") out0[4],
+//lateout("v0") out0[0], lateout("v1") out0[1], lateout("v2") out0[2], lateout("v3") out0[3], lateout("v4") out0[4],
 //lateout("x0") _, lateout("v5") _, lateout("v6") _, lateout("v7") _, lateout("v8") _, lateout("v9") _, lateout("v10") _, lateout("v11") _, lateout("v12") _,
 //lateout("lr") _
 .global _reduce_ct_simd
@@ -43,17 +43,17 @@ _reduce_ct_simd:
   bic.16b v7, v12, v7
   sub.2d v1, v1, v8
   ssra.2d v1, v0, #52
-  sub.2d v0, v2, v9
-  ssra.2d v0, v1, #52
-  sub.2d v2, v3, v10
-  ssra.2d v2, v0, #52
-  sub.2d v3, v4, v11
+  sub.2d v2, v2, v9
+  ssra.2d v2, v1, #52
+  sub.2d v3, v3, v10
   ssra.2d v3, v2, #52
-  sub.2d v4, v5, v7
+  sub.2d v4, v4, v11
   ssra.2d v4, v3, #52
-  and.16b v1, v1, v6
-  and.16b v0, v0, v6
-  and.16b v2, v2, v6
-  and.16b v3, v3, v6
-  and.16b v4, v4, v6
+  sub.2d v5, v5, v7
+  ssra.2d v5, v4, #52
+  and.16b v0, v1, v6
+  and.16b v1, v2, v6
+  and.16b v2, v3, v6
+  and.16b v3, v4, v6
+  and.16b v4, v5, v6
 ret

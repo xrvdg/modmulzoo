@@ -583,7 +583,7 @@ pub struct Allocator {
     // It's about unique counters so we use the counter for both
     // q and v registers
     // this makes it easier to read the assembly
-    fresh: u64,
+    pub fresh: u64,
 }
 
 impl Allocator {
@@ -645,7 +645,73 @@ impl Pool {
     }
 }
 
-type RegisterPool = BTreeSet<HardwareRegister>;
+#[derive(Debug)]
+struct RegisterPool {
+    pool: BTreeSet<HardwareRegister>,
+    availability: Vec<Option<(FreshRegister, usize)>>,
+}
+
+impl RegisterPool {
+    fn new<T>(registers: T) -> Self
+    where
+        T: Iterator<Item = u64> + Clone,
+    {
+        let len = registers
+            .clone()
+            .max()
+            .expect("Can't have a zero sized register pool");
+        RegisterPool {
+            pool: BTreeSet::from_iter(registers.map(HardwareRegister)),
+            availability: vec![None; len as usize],
+        }
+    }
+
+    fn pop_first(&mut self, reg: FreshRegister, end_lifetime: usize) -> Option<HardwareRegister> {
+        // Find the first register that satisfies the condition
+        let reg = self
+            .pool
+            .iter()
+            .find(
+                // Check if the hardware register has been preassigned assigned to this fresh registers
+                // Check if the hardware register can be used before it's preassigned moment
+                //
+                |&hardware_register| match self.availability[hardware_register.0 as usize] {
+                    Some((tp, _lifetime)) if reg == tp => true,
+                    Some((_tp, lifetime)) if end_lifetime <= lifetime => true,
+                    // Hardware register has not been preassigned
+                    None => true,
+                    // Hardware register was preassigned to a different fresh register and it's ownership overlaps
+                    // with the lifetime of reg
+                    _ => false,
+                },
+            )
+            .copied();
+
+        // Remove the register from the pool if found
+        if let Some(hardware_register) = reg {
+            self.pool.remove(&hardware_register);
+        }
+
+        reg
+    }
+
+    fn set_availability(&mut self, tp: FreshRegister, register: HardwareRegister, lifetime: usize) {
+        let av = &mut self.availability[register.0 as usize];
+
+        match av {
+            Some(_) => panic!("Availability of hardware register {register} already set"),
+            None => *av = Some((tp, lifetime)),
+        }
+    }
+
+    fn insert(&mut self, register: HardwareRegister) -> bool {
+        self.pool.insert(register)
+    }
+
+    fn remove(&mut self, register: &HardwareRegister) -> bool {
+        self.pool.remove(register)
+    }
+}
 
 // TODO different name than RegisterSource
 pub trait RegisterSource {
@@ -749,6 +815,20 @@ where
     fresh
 }
 
+pub fn pin_register<T>(
+    register_bank: &mut RegisterBank,
+    lifetimes: &Vec<(usize, usize)>,
+    fresh: &Reg<T>,
+    hardware_register: u64,
+) where
+    T: RegisterSource,
+{
+    let hardware_register = HardwareRegister(hardware_register);
+    let tp = fresh.to_typed_register();
+
+    register_bank.set_availability(hardware_register, tp, lifetimes[fresh.reg.0 as usize].0);
+}
+
 pub struct Seen(HashSet<FreshRegister>);
 
 impl Seen {
@@ -777,8 +857,8 @@ impl RegisterBank {
             // Exclude registers:
             // - 18 Reserved by OS
             // - 19 Reserved by LLVM
-            x: BTreeSet::from_iter((0..=17).chain(20..29).map(HardwareRegister)),
-            v: BTreeSet::from_iter((0..=30).map(HardwareRegister)),
+            x: RegisterPool::new((0..=17).chain(20..29)),
+            v: RegisterPool::new(0..=30),
         }
     }
 
@@ -789,12 +869,27 @@ impl RegisterBank {
         }
     }
 
-    fn pop_first(&mut self, addr: Addressing) -> Option<HardwareRegister> {
-        self.get_register_pool(addr).pop_first()
+    fn pop_first(
+        &mut self,
+        tp: TypedSizedRegister<FreshRegister>,
+        end_lifetime: usize,
+    ) -> Option<HardwareRegister> {
+        self.get_register_pool(tp.addressing)
+            .pop_first(tp.reg, end_lifetime)
     }
 
     fn remove(&mut self, register: HardwareRegister, addr: Addressing) -> bool {
         self.get_register_pool(addr).remove(&register)
+    }
+
+    fn set_availability(
+        &mut self,
+        register: HardwareRegister,
+        tp: TypedSizedRegister<FreshRegister>,
+        lifetime: usize,
+    ) {
+        self.get_register_pool(tp.addressing)
+            .set_availability(tp.reg, register, lifetime);
     }
 
     /// Return the hardware register back into the register pool
@@ -911,13 +1006,16 @@ impl RegisterMapping {
         &mut self,
         register_bank: &mut RegisterBank,
         typed_register: TypedSizedRegister<FreshRegister>,
+        end_lifetime: usize,
     ) -> TypedSizedRegister<HardwareRegister> {
         // Possible to do a mutable reference here
         let entry = self.index_mut(*typed_register.as_fresh());
         let hw_reg = match *entry {
             RegisterState::Unassigned => {
                 let addr = typed_register.addressing;
-                let hw_reg = register_bank.pop_first(addr).expect("ran out of registers");
+                let hw_reg = register_bank
+                    .pop_first(typed_register, end_lifetime)
+                    .expect("ran out of registers");
 
                 *entry = RegisterState::Assigned(addr.to_pool(hw_reg));
                 hw_reg
@@ -994,7 +1092,10 @@ impl RegisterMapping {
 pub fn liveness_analysis(
     seen_registers: &mut Seen,
     instructions: &[Instruction],
-) -> VecDeque<HashSet<FreshRegister>> {
+    nr_fresh_registers: usize,
+) -> (VecDeque<HashSet<FreshRegister>>, Vec<(usize, usize)>) {
+    // Keep track of the last line the free register is used for
+    let mut lifetimes = vec![(0, usize::MAX); nr_fresh_registers];
     let mut commands = VecDeque::new();
     for (line, instruction) in instructions.iter().enumerate().rev() {
         // Add check whether the source is released here.
@@ -1004,24 +1105,32 @@ pub fn liveness_analysis(
             .extract_registers()
             .map(|tr| *tr.as_fresh())
             .collect();
+
         // The difference could be mutable
         let release: HashSet<_> = registers.difference(&seen_registers.0).copied().collect();
 
         if let Some(dest) = instruction.dest {
-            if release.contains(dest.as_fresh()) {
+            let dest = dest.as_fresh();
+
+            if release.contains(dest) {
                 // Better way to give feedback? Now the user doesn't know where it comes from
                 // We view an unused instruction as a problem
                 print_instructions(&instructions);
                 panic!("{line}: {instruction:?} does not use the destination")
             }; // The union could be mutable
+
+            let (_b, e) = lifetimes[dest.0 as usize];
+            lifetimes[dest.0 as usize] = (line, e);
         }
 
         release.iter().for_each(|reg| {
+            let (b, _e) = lifetimes[reg.0 as usize];
+            lifetimes[reg.0 as usize] = (b, line);
             seen_registers.0.insert(*reg);
         });
         commands.push_front(release);
     }
-    commands
+    (commands, lifetimes)
 }
 
 pub fn hardware_register_allocation(
@@ -1030,6 +1139,7 @@ pub fn hardware_register_allocation(
     instructions: Vec<Instruction>,
     // Change this into a Seen, and then rename Seen?
     releases: VecDeque<HashSet<FreshRegister>>,
+    lifetimes: Vec<(usize, usize)>,
 ) -> Vec<InstructionF<HardwareRegister>> {
     assert_eq!(
         instructions.len(),
@@ -1054,9 +1164,10 @@ pub fn hardware_register_allocation(
         release.into_iter().for_each(|fresh| {
             mapping.free_register(register_bank, fresh);
         });
-        let dest = instruction
-            .dest
-            .map(|d| mapping.get_or_allocate_register(register_bank, d));
+        let dest = instruction.dest.map(|d| {
+            let idx = d.as_fresh().0;
+            mapping.get_or_allocate_register(register_bank, d, lifetimes[idx as usize].1)
+        });
         InstructionF {
             opcode: instruction.opcode,
             dest,
