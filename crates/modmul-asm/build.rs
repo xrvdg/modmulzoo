@@ -144,14 +144,10 @@ fn setup_single_step_load(
     Vec<Reg<u64>>,
 ) {
     let a = input_preg(alloc, mapping, phys_registers, 0);
-    let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (base + 1 + i) as u64));
+    let b = input_preg(alloc, mapping, phys_registers, 1);
 
     let input_hw_registers_a: Vec<_> = vec![mapping.output_register(&a).unwrap()];
-
-    let input_hw_registers_b: Vec<_> = b
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
+    let input_hw_registers_b: Vec<_> = vec![mapping.output_register(&b).unwrap()];
 
     let s = single_step_load(alloc, asm, &a, &b);
     (
@@ -771,33 +767,36 @@ pub fn school_method_load(
     alloc: &mut Allocator,
     asm: &mut Assembler,
     a: &PReg<[u64; 4]>,
-    b: &[Reg<u64>; 4],
+    b: &PReg<[u64; 4]>,
 ) -> [Reg<u64>; 8] {
     let mut t: [Reg<u64>; 8] = array::from_fn(|_| alloc.fresh());
     let mut carry;
     // The first carry chain is separated out as t doesn't have any values to add
     // first multiplication of a carry chain doesn't not have a carry to add
     let mut a_load: [Reg<u64>; 4] = array::from_fn(|_| alloc.fresh());
+    let mut b_load: [Reg<u64>; 4] = array::from_fn(|_| alloc.fresh());
 
     a_load[0] = ldr(alloc, asm, &a.get(0));
+    b_load[0] = ldr(alloc, asm, &b.get(0));
 
-    [t[0], carry] = mul_u128(alloc, asm, &a_load[0], &b[0]);
+    [t[0], carry] = mul_u128(alloc, asm, &a_load[0], &b_load[0]);
     for i in 1..a_load.len() {
         a_load[i] = ldr(alloc, asm, &a.get(i));
-        let tmp = mul_u128(alloc, asm, &a_load[i], &b[0]);
+        let tmp = mul_u128(alloc, asm, &a_load[i], &b_load[0]);
         [t[i], carry] = carry_add(alloc, asm, &tmp, &carry);
     }
     t[a_load.len()] = carry;
 
     // 2nd and later carry chain
-    for j in 1..b.len() {
+    for j in 1..b_load.len() {
+        b_load[j] = ldr(alloc, asm, &b.get(j));
         let mut carry;
         // first multiplication of a carry chain doesn't have a carry to add,
         // but it does have a value already from a previous round
-        let tmp = mul_u128(alloc, asm, &a_load[0], &b[j]);
+        let tmp = mul_u128(alloc, asm, &a_load[0], &b_load[j]);
         [t[j], carry] = carry_add(alloc, asm, &tmp, &t[j]);
         for i in 1..a_load.len() {
-            let tmp = mul_u128(alloc, asm, &a_load[i], &b[j]);
+            let tmp = mul_u128(alloc, asm, &a_load[i], &b_load[j]);
             let tmp = carry_add(alloc, asm, &tmp, &carry);
             [t[i + j], carry] = carry_add(alloc, asm, &tmp, &t[i + j]);
         }
@@ -897,7 +896,7 @@ pub fn single_step_load(
     alloc: &mut Allocator,
     asm: &mut Assembler,
     a: &PReg<[u64; 4]>,
-    b: &[Reg<u64>; 4],
+    b: &PReg<[u64; 4]>,
 ) -> [Reg<u64>; 4] {
     let t = school_method_load(alloc, asm, a, b);
     // let [t0, t1, t2, s @ ..] = t;

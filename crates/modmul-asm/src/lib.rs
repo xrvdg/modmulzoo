@@ -11,6 +11,7 @@ global_asm!(include_str!("../asm/mulu128.s"));
 global_asm!(include_str!("../asm/global_asm_smul.s"));
 global_asm!(include_str!("../asm/global_asm_smul_add.s"));
 global_asm!(include_str!("../asm/global_asm_single_step.s"));
+global_asm!(include_str!("../asm/global_asm_single_step_load.s"));
 global_asm!(include_str!("../asm/global_asm_u256_to_u260_shl2_simd.s"));
 global_asm!(include_str!("../asm/global_asm_u260_to_u256_simd.s"));
 global_asm!(include_str!("../asm/global_asm_vmultadd_noinit_simd.s"));
@@ -38,6 +39,20 @@ pub fn call_single_step(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
             // single step clobbers the following registers
             lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _,
             lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _,
+            lateout("lr") _
+        )
+    };
+    out0
+}
+
+pub fn call_single_step_load(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
+    let mut out0 = [0; 4];
+    unsafe {
+        asm!(
+            "bl _single_step_load",
+            in("x0") &a[0], in("x1") &b[0],
+            lateout("x0") out0[0], lateout("x1") out0[1], lateout("x2") out0[2], lateout("x3") out0[3],
+            lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _,
             lateout("lr") _
         )
     };
@@ -387,8 +402,9 @@ mod tests {
 
     use crate::{
         call_reduce_ct_simd, call_schoolmethod, call_single_step, call_single_step_interleaved,
-        call_single_step_interleaved_seq_scalar, call_single_step_simd, call_single_step_split,
-        call_u256_to_u260_shl2_simd, call_u260_to_u256_simd, call_vmultadd_noinit_simd,
+        call_single_step_interleaved_seq_scalar, call_single_step_load, call_single_step_simd,
+        call_single_step_split, call_u256_to_u260_shl2_simd, call_u260_to_u256_simd,
+        call_vmultadd_noinit_simd,
     };
     use crate::{call_smul, call_smul_add};
 
@@ -415,6 +431,11 @@ mod tests {
     #[quickcheck]
     fn single_step(a: U256b64, b: U256b64) -> bool {
         yuval::parallel_reduce(b.0, a.0) == call_single_step(a.0, b.0)
+    }
+
+    #[quickcheck]
+    fn single_step_load(a: U256b64, b: U256b64) -> bool {
+        yuval::parallel_reduce(b.0, a.0) == call_single_step_load(a.0, b.0)
     }
 
     #[quickcheck]

@@ -475,6 +475,8 @@ pub struct PReg<T> {
     _marker: PhantomData<T>,
 }
 
+// Come into existing because of output mapping
+// That could potentially be simplified
 trait RegisterType {
     fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>;
     fn reg(&self) -> FreshRegister;
