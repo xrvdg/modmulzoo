@@ -48,6 +48,7 @@ pub fn call_single_step(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     out0
 }
 
+#[inline(never)]
 pub fn call_single_step_load(mut a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     let mut ptr = a.as_mut_ptr();
     unsafe {
@@ -60,6 +61,8 @@ pub fn call_single_step_load(mut a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     };
     a
 }
+
+#[inline(never)]
 pub fn call_single_step_5(
     _rtz: &RTZ,
     mut a: [u64; 4],
