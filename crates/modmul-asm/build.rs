@@ -42,7 +42,7 @@ fn setup_schoolmethod(
     )
 }
 
-fn build_func<T: RegisterSource>(
+fn build_func<T>(
     label: &str,
     f: fn(
         alloc: &mut Allocator,
@@ -50,7 +50,9 @@ fn build_func<T: RegisterSource>(
         phys_registers: &mut RegisterBank,
         asm: &mut Assembler,
     ) -> (Vec<Vec<TypedSizedRegister<HardwareRegister>>>, Vec<Reg<T>>),
-) {
+) where
+    hla::Reg<T>: hla::RegisterSource,
+{
     let mut alloc = Allocator::new();
     let mut mapping = RegisterMapping::new();
     let mut phys_registers = RegisterBank::new();

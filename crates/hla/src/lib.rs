@@ -228,7 +228,7 @@ pub fn movk_inst(dest: &Reg<u64>, imm: u16, shift: u8) -> Instruction {
 
 pub trait SIMD {}
 
-impl<T, const N: usize> SIMD for Simd<T, N> {}
+impl<T, const N: usize> SIMD for Reg<Simd<T, N>> {}
 impl<T: SIMD, const I: u8> SIMD for Idx<T, I> {}
 
 // Create a new type for b that takes into account the index
@@ -237,7 +237,7 @@ pub fn fmla2d<S: SIMD + RegisterSource>(
     asm: &mut Assembler,
     add: Reg<Simd<f64, 2>>,
     a: &Reg<Simd<f64, 2>>,
-    b: &Reg<S>, // Trait bound a bit too loose, but for now don't want to add the complexity necessary
+    b: &S, // Trait bound a bit too loose, but for now don't want to add the complexity necessary
 ) -> Reg<Simd<f64, 2>> {
     asm.append_instruction(vec![fmla2d_inst(&add, a, b)]);
     add
@@ -246,7 +246,7 @@ pub fn fmla2d<S: SIMD + RegisterSource>(
 pub fn fmla2d_inst<S: SIMD + RegisterSource>(
     dest_add: &Reg<Simd<f64, 2>>,
     a: &Reg<Simd<f64, 2>>,
-    b: &Reg<S>,
+    b: &S,
 ) -> Instruction {
     InstructionF {
         opcode: "fmla.2d".to_string(),
@@ -257,8 +257,8 @@ pub fn fmla2d_inst<S: SIMD + RegisterSource>(
 }
 
 // Could add ins that returns consumes and returns the register
-pub fn ins_inst<const L: u8, const I: u8>(
-    dest: &Reg<IdxSized<Simd<u64, 2>, L, I>>,
+pub fn ins_inst<const I: u8>(
+    dest: &SizedIdx<Reg<Simd<u64, 2>>, D, I>,
     a: &Reg<u64>,
 ) -> Instruction {
     InstructionF {
@@ -349,18 +349,18 @@ pub fn ssra2d_inst(dest: &Reg<Simd<i64, 2>>, a: &Reg<Simd<i64, 2>>, imm: u8) -> 
     }
 }
 
-pub fn umov<const Lanes: u8, const I: u8>(
+pub fn umov<const I: u8>(
     alloc: &mut Allocator,
     asm: &mut Assembler,
-    a: &Reg<IdxSized<Simd<u64, 2>, Lanes, I>>,
+    a: &SizedIdx<Reg<Simd<u64, 2>>, D, I>,
 ) -> Reg<u64> {
     let ret = alloc.fresh();
     asm.append_instruction(vec![umov_inst(&ret, a)]);
     ret
 }
-pub fn umov_inst<const Lanes: u8, const I: u8>(
+pub fn umov_inst<const I: u8>(
     dest: &Reg<u64>,
-    a: &Reg<IdxSized<Simd<u64, 2>, Lanes, I>>,
+    a: &SizedIdx<Reg<Simd<u64, 2>>, D, I>,
 ) -> Instruction {
     InstructionF {
         opcode: "umov".to_string(),
@@ -479,7 +479,6 @@ pub struct PReg<T> {
 // That could potentially be simplified
 trait RegisterType {
     fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>;
-    fn reg(&self) -> FreshRegister;
 }
 
 impl<T> PReg<T> {
@@ -509,10 +508,13 @@ pub struct Simd<T, const N: usize>(PhantomData<T>);
 // IDX has to go with SIMD but sized is an optional
 // So if ordered it would be Sized<Idx<
 // but maybe it's better to mix it in somehow
-pub struct Idx<T, const I: u8>(PhantomData<T>);
+pub struct Idx<T, const I: u8>(T);
 // TODO better separated into Sized and Idx
-pub struct IdxSized<T, const LANES: u8, const I: u8>(PhantomData<T>);
+pub struct Sized<T, const LANES: u8>(T);
 
+type SizedIdx<T, const L: u8, const I: u8> = Sized<Idx<T, I>, L>;
+
+const D: u8 = 2;
 pub trait Reg64Bit {}
 impl Reg64Bit for u64 {}
 impl Reg64Bit for f64 {}
@@ -594,24 +596,7 @@ impl<T> Reg<T> {
     }
 }
 
-// This needs to be simplified
-impl<T: RegisterSource> RegisterType for Reg<T> {
-    // (temporary?) indirection to bring the typing under the type itself
-    // or could I use something like auto deref?
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        T::to_typed_register(self.reg)
-    }
-
-    fn reg(&self) -> FreshRegister {
-        self.reg
-    }
-}
-
-impl<T> RegisterType for PReg<T> {
-    fn reg(&self) -> FreshRegister {
-        self.reg
-    }
-
+impl<T> RegisterSource for PReg<T> {
     fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
         TypedSizedRegister {
             reg: self.reg,
@@ -636,19 +621,19 @@ impl<T> Reg<Simd<T, 2>> {
         unsafe { std::mem::transmute(self) }
     }
 
-    pub fn _0(&self) -> &Reg<Idx<Simd<T, 2>, 0>> {
+    pub fn _0(&self) -> &Idx<Reg<Simd<T, 2>>, 0> {
         unsafe { std::mem::transmute(self) }
     }
 
-    pub fn _1(&self) -> &Reg<Idx<Simd<T, 2>, 1>> {
+    pub fn _1(&self) -> &Idx<Reg<Simd<T, 2>>, 1> {
         unsafe { std::mem::transmute(self) }
     }
 
-    pub fn _d0(&self) -> &Reg<IdxSized<Simd<T, 2>, 2, 0>> {
+    pub fn _d0(&self) -> &SizedIdx<Reg<Simd<T, 2>>, D, 0> {
         unsafe { std::mem::transmute(self) }
     }
 
-    pub fn _d1(&self) -> &Reg<IdxSized<Simd<T, 2>, 2, 1>> {
+    pub fn _d1(&self) -> &SizedIdx<Reg<Simd<T, 2>>, D, 1> {
         unsafe { std::mem::transmute(self) }
     }
 }
@@ -798,52 +783,52 @@ impl RegisterPool {
 
 // TODO different name than RegisterSource
 pub trait RegisterSource {
-    fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R>;
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>;
 }
 
-impl RegisterSource for u64 {
-    fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
+impl RegisterSource for Reg<u64> {
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
         TypedSizedRegister {
-            reg,
+            reg: self.reg,
             addressing: Addressing::X,
             idx: Index::None,
         }
     }
 }
 
-impl RegisterSource for f64 {
-    fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
+impl RegisterSource for Reg<f64> {
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
         TypedSizedRegister {
-            reg,
+            reg: self.reg,
             addressing: Addressing::D,
             idx: Index::None,
         }
     }
 }
 
-impl<T> RegisterSource for Simd<T, 2> {
-    fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
+impl<T> RegisterSource for Reg<Simd<T, 2>> {
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
         TypedSizedRegister {
-            reg,
+            reg: self.reg,
             addressing: Addressing::V,
             idx: Index::None,
         }
     }
 }
 
-impl<T: RegisterSource, const I: u8> RegisterSource for Idx<T, I> {
-    fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
-        let mut tp = T::to_typed_register(reg);
+impl<T, const I: u8> RegisterSource for Idx<Reg<Simd<T, 2>>, I> {
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
+        let mut tp = self.0.to_typed_register();
         tp.idx = Index::Lane(I);
         tp
     }
 }
 
-impl<T: RegisterSource, const I: u8, const Lanes: u8> RegisterSource for IdxSized<T, Lanes, I> {
-    fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
-        let mut tp = T::to_typed_register(reg);
+impl<T, const L: u8, const I: u8> RegisterSource for Sized<Idx<Reg<Simd<T, 2>>, I>, L> {
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
+        let mut tp = self.0.to_typed_register();
 
-        let sizes = match Lanes {
+        let sizes = match L {
             2 => LaneSizes::D,
             4 => LaneSizes::S,
             _ => panic!("invalid lane size"),
@@ -861,7 +846,7 @@ pub fn input<T>(
     phys: u64,
 ) -> Reg<T>
 where
-    T: RegisterSource,
+    Reg<T>: RegisterSource,
 {
     let fresh = asm.fresh();
 
@@ -882,10 +867,7 @@ pub fn input_preg<T, const N: usize>(
     mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
     phys: u64,
-) -> PReg<[T; N]>
-where
-    T: RegisterSource,
-{
+) -> PReg<[T; N]> {
     let fresh = asm.fresh_preg();
 
     let hw_reg = HardwareRegister(phys);
@@ -906,7 +888,7 @@ pub fn pin_register<T>(
     fresh: &Reg<T>,
     hardware_register: u64,
 ) where
-    T: RegisterSource,
+    Reg<T>: RegisterSource,
 {
     let hardware_register = HardwareRegister(hardware_register);
     let tp = fresh.to_typed_register();
@@ -921,7 +903,7 @@ impl Seen {
         Self(HashSet::new())
     }
 
-    pub fn output_interface<T: RegisterSource>(&mut self, fresh: &Reg<T>) -> bool {
+    pub fn output_interface<T>(&mut self, fresh: &Reg<T>) -> bool {
         self.seen(fresh.reg)
     }
 
@@ -1141,24 +1123,23 @@ impl RegisterMapping {
 
     // Integrate with seen?
     // This output only should output
-    // TypedSizedRegsiter is used here, but we don't care about indexing
-    // so this should be simplified into something else. So we only use it to get the
-    // type mapping that is in the struct
-    pub fn output_register<RT: RegisterType>(
+    // Two reasons we convert it to to_typed_register
+    // - have access to reg without having to introduce a reg on the trait
+    // - to only have the addressing defined in a single place namely RegisterSource
+    // Whether we should keep it as Typed Sized Register is another question
+    // The index is not of interested here and needs to be set to None explicitly
+    pub fn output_register<R: RegisterSource>(
         &self,
-        reg: &RT,
+        reg: &R,
     ) -> Option<TypedSizedRegister<HardwareRegister>> {
-        // Todo this could go from Reg to index instead of to_type_registers
-        match self.index(reg.reg()) {
+        let tp = reg.to_typed_register();
+        match self.index(tp.reg) {
             RegisterState::Unassigned => None,
-            RegisterState::Assigned(hw_reg) => {
-                let tp = reg.to_typed_register();
-                Some(TypedSizedRegister {
-                    reg: hw_reg.reg(),
-                    addressing: tp.addressing,
-                    idx: Index::None,
-                })
-            }
+            RegisterState::Assigned(hw_reg) => Some(TypedSizedRegister {
+                reg: hw_reg.reg(),
+                addressing: tp.addressing,
+                idx: Index::None,
+            }),
             RegisterState::Dropped => None,
         }
     }
