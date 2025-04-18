@@ -35,7 +35,12 @@ pub type Instruction = InstructionF<FreshRegister>;
 #[derive(Debug, PartialEq)]
 pub struct InstructionF<R> {
     opcode: String,
-    dest: Option<TypedSizedRegister<R>>,
+    // Reasons for destination being a vector
+    // - Some operations have no destination or no allocatable destination
+    //   - CMN only affects flags
+    //   - STR in the sense that we can't allocate the destination for it
+    // - LDP has 2 destinations
+    dest: Vec<TypedSizedRegister<R>>,
     src: Vec<TypedSizedRegister<R>>,
     modifiers: Mod,
 }
@@ -144,7 +149,7 @@ macro_rules! embed_asm {
             pub fn [<$name _inst>](dest: &Reg<$ret_ty>, $($arg: &Reg<$arg_ty>),*) -> Instruction {
                 InstructionF {
                     opcode: $opcode.to_string(),
-                    dest: Some(dest.to_typed_register()),
+                    dest: vec![dest.to_typed_register()],
                     src: vec![$($arg.to_typed_register()),*],
                     modifiers: Mod::None,
                 }
@@ -165,7 +170,7 @@ pub fn mov(alloc: &mut Allocator, asm: &mut Assembler, imm: u64) -> Reg<u64> {
 pub fn mov_inst(dest: &Reg<u64>, imm: u64) -> Instruction {
     InstructionF {
         opcode: "mov".to_string(),
-        dest: Some(dest.to_typed_register()),
+        dest: vec![dest.to_typed_register()],
         src: vec![],
         modifiers: Mod::Imm(imm),
     }
@@ -176,7 +181,7 @@ pub fn mov_inst(dest: &Reg<u64>, imm: u64) -> Instruction {
 pub fn tst_inst(a: &Reg<u64>, imm: u64) -> Instruction {
     InstructionF {
         opcode: "tst".to_string(),
-        dest: None,
+        dest: vec![],
         src: vec![a.to_typed_register()],
         modifiers: Mod::Imm(imm),
     }
@@ -185,7 +190,7 @@ pub fn tst_inst(a: &Reg<u64>, imm: u64) -> Instruction {
 pub fn csel_inst(dest: &Reg<u64>, a: &Reg<u64>, b: &Reg<u64>, cond: &str) -> Instruction {
     InstructionF {
         opcode: "csel".to_string(),
-        dest: Some(dest.to_typed_register()),
+        dest: vec![dest.to_typed_register()],
         src: vec![a.to_typed_register(), b.to_typed_register()],
         modifiers: Mod::Cond(cond.to_string()),
     }
@@ -194,7 +199,7 @@ pub fn csel_inst(dest: &Reg<u64>, a: &Reg<u64>, b: &Reg<u64>, cond: &str) -> Ins
 pub fn cmn_inst(a: &Reg<u64>, b: &Reg<u64>) -> Instruction {
     InstructionF {
         opcode: "cmn".to_string(),
-        dest: None,
+        dest: vec![],
         src: vec![a.to_typed_register(), b.to_typed_register()],
         modifiers: Mod::None,
     }
@@ -203,7 +208,7 @@ pub fn cmn_inst(a: &Reg<u64>, b: &Reg<u64>) -> Instruction {
 pub fn cinc_inst(dest: &Reg<u64>, a: &Reg<u64>, cond: String) -> Instruction {
     InstructionF {
         opcode: "cinc".to_string(),
-        dest: Some(dest.to_typed_register()),
+        dest: vec![dest.to_typed_register()],
         src: vec![a.to_typed_register()],
         modifiers: Mod::Cond(cond),
     }
@@ -220,7 +225,7 @@ pub fn movk(alloc: &mut Allocator, asm: &mut Assembler, imm: u16, shift: u8) -> 
 pub fn movk_inst(dest: &Reg<u64>, imm: u16, shift: u8) -> Instruction {
     InstructionF {
         opcode: "movk".to_string(),
-        dest: Some(dest.to_typed_register()),
+        dest: vec![dest.to_typed_register()],
         src: vec![],
         modifiers: Mod::ImmLSL(imm, shift),
     }
@@ -250,7 +255,7 @@ pub fn fmla2d_inst<S: SIMD + RegisterSource>(
 ) -> Instruction {
     InstructionF {
         opcode: "fmla.2d".to_string(),
-        dest: Some(dest_add.to_typed_register()),
+        dest: vec![dest_add.to_typed_register()],
         src: vec![a.to_typed_register(), b.to_typed_register()],
         modifiers: Mod::None,
     }
@@ -263,7 +268,7 @@ pub fn ins_inst<const I: u8>(
 ) -> Instruction {
     InstructionF {
         opcode: "ins".to_string(),
-        dest: Some(dest.to_typed_register()),
+        dest: vec![dest.to_typed_register()],
         src: vec![a.to_typed_register()],
         modifiers: Mod::None,
     }
@@ -283,7 +288,7 @@ pub fn shl2d(
 pub fn shl2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> Instruction {
     InstructionF {
         opcode: "shl.2d".to_string(),
-        dest: Some(dest.to_typed_register()),
+        dest: vec![dest.to_typed_register()],
         src: vec![a.to_typed_register()],
         modifiers: Mod::LS(imm),
     }
@@ -303,7 +308,7 @@ pub fn ushr2d(
 pub fn ushr2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> Instruction {
     InstructionF {
         opcode: "ushr.2d".to_string(),
-        dest: Some(dest.to_typed_register()),
+        dest: vec![dest.to_typed_register()],
         src: vec![a.to_typed_register()],
         modifiers: Mod::LS(imm),
     }
@@ -323,7 +328,7 @@ pub fn usra2d(
 pub fn usra2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> Instruction {
     InstructionF {
         opcode: "usra.2d".to_string(),
-        dest: Some(dest.to_typed_register()),
+        dest: vec![dest.to_typed_register()],
         src: vec![a.to_typed_register()],
         modifiers: Mod::LS(imm),
     }
@@ -343,7 +348,7 @@ pub fn ssra2d(
 pub fn ssra2d_inst(dest: &Reg<Simd<i64, 2>>, a: &Reg<Simd<i64, 2>>, imm: u8) -> Instruction {
     InstructionF {
         opcode: "ssra.2d".to_string(),
-        dest: Some(dest.to_typed_register()),
+        dest: vec![dest.to_typed_register()],
         src: vec![a.to_typed_register()],
         modifiers: Mod::LS(imm),
     }
@@ -364,7 +369,7 @@ pub fn umov_inst<const I: u8>(
 ) -> Instruction {
     InstructionF {
         opcode: "umov".to_string(),
-        dest: Some(dest.to_typed_register()),
+        dest: vec![dest.to_typed_register()],
         src: vec![a.to_typed_register()],
         modifiers: Mod::None,
     }
@@ -383,12 +388,13 @@ pub fn cmeq2d(
 pub fn cmeq2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u64) -> Instruction {
     InstructionF {
         opcode: "cmeq.2d".to_string(),
-        dest: Some(dest.to_typed_register()),
+        dest: vec![dest.to_typed_register()],
         src: vec![a.to_typed_register()],
         modifiers: Mod::Imm(imm),
     }
 }
 
+// Needs to have a vector version as well
 pub fn ldr(alloc: &mut Allocator, asm: &mut Assembler, ptr: &PReg<u64>) -> Reg<u64> {
     let ret = alloc.fresh();
     asm.append_instruction(vec![ldr_inst(&ret, ptr)]);
@@ -398,7 +404,23 @@ pub fn ldr(alloc: &mut Allocator, asm: &mut Assembler, ptr: &PReg<u64>) -> Reg<u
 pub fn ldr_inst(dest: &Reg<u64>, ptr: &PReg<u64>) -> Instruction {
     InstructionF {
         opcode: "ldr".to_string(),
-        dest: Some(dest.to_typed_register()),
+        dest: vec![dest.to_typed_register()],
+        src: vec![ptr.to_typed_register()],
+        modifiers: Mod::None,
+    }
+}
+
+pub fn ldp(alloc: &mut Allocator, asm: &mut Assembler, ptr: &PReg<u64>) -> (Reg<u64>, Reg<u64>) {
+    let ret0 = alloc.fresh();
+    let ret1 = alloc.fresh();
+    asm.append_instruction(vec![ldp_inst(&ret0, &ret1, ptr)]);
+    (ret0, ret1)
+}
+
+pub fn ldp_inst(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PReg<u64>) -> Instruction {
+    InstructionF {
+        opcode: "ldp".to_string(),
+        dest: vec![dest.to_typed_register(), dest2.to_typed_register()],
         src: vec![ptr.to_typed_register()],
         modifiers: Mod::None,
     }
@@ -428,7 +450,7 @@ pub fn mov16b<T>(
 pub fn mov16b_inst<T>(dest: &Reg<Simd<T, 2>>, a: &Reg<Simd<T, 2>>) -> Instruction {
     InstructionF {
         opcode: "mov.16b".to_string(),
-        dest: Some(dest.to_typed_register()),
+        dest: vec![dest.to_typed_register()],
         src: vec![a.to_typed_register()],
         modifiers: Mod::None,
     }
@@ -457,7 +479,7 @@ pub fn sli2d(
 pub fn sli2d_inst(dest: &Reg<Simd<u64, 2>>, source: &Reg<Simd<u64, 2>>, shl: u8) -> Instruction {
     InstructionF {
         opcode: "sli.2d".to_string(),
-        dest: Some(dest.to_typed_register()),
+        dest: vec![dest.to_typed_register()],
         src: vec![source.to_typed_register()],
         modifiers: Mod::LS(shl),
     }
@@ -1178,7 +1200,7 @@ pub fn liveness_analysis(
         // The difference could be mutable
         let release: HashSet<_> = registers.difference(&seen_registers.0).copied().collect();
 
-        if let Some(dest) = instruction.dest {
+        instruction.dest.iter().for_each(|dest| {
             let dest = dest.as_fresh();
 
             if release.contains(dest) {
@@ -1190,7 +1212,7 @@ pub fn liveness_analysis(
 
             let (_b, e) = lifetimes[dest.0 as usize];
             lifetimes[dest.0 as usize] = (line, e);
-        }
+        });
 
         release.iter().for_each(|reg| {
             let (b, _e) = lifetimes[reg.0 as usize];
@@ -1233,10 +1255,16 @@ pub fn hardware_register_allocation(
         release.into_iter().for_each(|fresh| {
             mapping.free_register(register_bank, fresh);
         });
-        let dest = instruction.dest.map(|d| {
-            let idx = d.as_fresh().0;
-            mapping.get_or_allocate_register(register_bank, d, lifetimes[idx as usize].1)
-        });
+
+        let dest = instruction
+            .dest
+            .into_iter()
+            .map(|d| {
+                let idx = d.as_fresh().0;
+                mapping.get_or_allocate_register(register_bank, d, lifetimes[idx as usize].1)
+            })
+            .collect();
+
         InstructionF {
             opcode: instruction.opcode,
             dest,
