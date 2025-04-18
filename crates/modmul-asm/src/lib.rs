@@ -50,7 +50,7 @@ pub fn call_single_step_load(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     unsafe {
         asm!(
             "bl _single_step_load",
-            in("x0") &a[0], in("x1") &b[0],
+            in("x0") a.as_ptr(), in("x1") b.as_ptr(),
             lateout("x0") out0[0], lateout("x1") out0[1], lateout("x2") out0[2], lateout("x3") out0[3],
             lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _,
             lateout("lr") _
