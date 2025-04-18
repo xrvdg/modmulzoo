@@ -58,8 +58,8 @@ impl<R: std::fmt::Display> std::fmt::Display for TypedSizedRegister<R> {
         let reg = &self.reg;
         let addr = self.addressing;
         match self.idx {
-            Index::Lane(idx) => write!(f, "{addr}{reg}[{idx}]"),
             Index::None => write!(f, "{addr}{reg}"),
+            Index::Lane(idx) => write!(f, "{addr}{reg}[{idx}]"),
             Index::LaneSized(lane_sizes, idx) => write!(f, "{addr}{reg}.{lane_sizes}[{idx}]"),
             Index::Pointer(offset) => write!(f, "[{addr}{reg}, #{offset}]"),
         }
@@ -569,6 +569,8 @@ enum LaneSizes {
 #[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
 enum Index {
     None,
+    // Some instructions require the size (.d, .s, etc) in combination with
+    // a lane and others do not
     Lane(u8),
     LaneSized(LaneSizes, u8),
     // offset in bytes
@@ -605,42 +607,16 @@ impl<T: RegisterSource> RegisterType for Reg<T> {
     }
 }
 
-impl<T: RegisterSource, const N: usize> RegisterType for PReg<[T; N]> {
+impl<T> RegisterType for PReg<T> {
     fn reg(&self) -> FreshRegister {
         self.reg
     }
 
     fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        let tp = T::to_typed_register(self.reg);
-
-        match tp.idx {
-            Index::None => TypedSizedRegister {
-                reg: tp.reg,
-                addressing: tp.addressing,
-                idx: Index::Pointer(self.offset as usize),
-            },
-            // TODO: narrow the type constraint to prevent this from happening
-            _ => panic!("can't use pointer offsets on indexed register"),
-        }
-    }
-}
-
-impl<T: RegisterSource> RegisterType for PReg<T> {
-    fn reg(&self) -> FreshRegister {
-        self.reg
-    }
-
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        let tp = T::to_typed_register(self.reg);
-
-        match tp.idx {
-            Index::None => TypedSizedRegister {
-                reg: tp.reg,
-                addressing: tp.addressing,
-                idx: Index::Pointer(self.offset as usize),
-            },
-            // TODO: narrow the type constraint to prevent this from happening
-            _ => panic!("can't use pointer offsets on indexed register"),
+        TypedSizedRegister {
+            reg: self.reg,
+            addressing: Addressing::X,
+            idx: Index::Pointer(self.offset as usize),
         }
     }
 }
