@@ -504,8 +504,9 @@ fn build_interleaved_triple_scalar(label: &str) {
 
     let mut snd_asm = Assembler::new();
 
-    let (snd_input_hw_registers, snd_regs) : (Vec<_>, Vec<Reg<Simd<u64,2>>>)= (vec![],vec![])
-        /* setup_single_step_simd(&mut alloc, &mut mapping, &mut phys_registers, &mut snd_asm)*/;
+    // let (snd_input_hw_registers, snd_regs) : (Vec<_>, Vec<Reg<Simd<u64,2>>>)= (vec![],vec![])
+    let (snd_input_hw_registers, snd_regs): (Vec<_>, Vec<Reg<Simd<u64, 2>>>) =
+        setup_single_step_simd(&mut alloc, &mut mapping, &mut phys_registers, &mut snd_asm);
 
     let len_fst = fst_input_hw_registers.iter().map(|v| v.len()).sum();
 
@@ -519,14 +520,14 @@ fn build_interleaved_triple_scalar(label: &str) {
 
     let len_thrd: usize = thrd_input_hw_registers.iter().map(|v| v.len()).sum();
 
-    let (fourth_input_hw_registers, fourth_regs): (Vec<_>, Vec<Reg<u64>>) = (vec![], vec![]);
-    // let (fourth_input_hw_registers, fourth_regs): (Vec<_>, Vec<Reg<u64>>) = setup_single_step_load(
-    //     &mut alloc,
-    //     &mut mapping,
-    //     &mut phys_registers,
-    //     &mut fst_asm,
-    //     len_fst + len_thrd,
-    // );
+    // let (fourth_input_hw_registers, fourth_regs): (Vec<_>, Vec<Reg<u64>>) = (vec![], vec![]);
+    let (fourth_input_hw_registers, fourth_regs): (Vec<_>, Vec<_>) = setup_single_step_load(
+        &mut alloc,
+        &mut mapping,
+        &mut phys_registers,
+        &mut fst_asm,
+        len_fst + len_thrd,
+    );
 
     let mixed: Vec<_> = interleave(fst_asm.instructions, snd_asm.instructions)
         .into_iter()
@@ -737,8 +738,8 @@ fn main() {
     build_func("single_step_simd", setup_single_step_simd);
     build_func("reduce_ct_simd", setup_reduce_ct_simd);
     build_interleaved("single_step_interleaved");
-    // build_interleaved_seq_scalar("single_step_interleaved_seq_scalar");
-    // build_interleaved_triple_scalar("single_step_interleaved_triple_scalar");
+    build_interleaved_seq_scalar("single_step_interleaved_seq_scalar");
+    build_interleaved_triple_scalar("single_step_interleaved_triple_scalar");
 }
 
 /* GENERATORS */

@@ -1078,7 +1078,7 @@ impl RegisterMapping {
         // get_or_allocate_register needs to deal with the resizing
         Self(
             std::iter::repeat_with(|| RegisterState::Unassigned)
-                .take(1000)
+                .take(2000)
                 .collect::<Vec<_>>(),
         )
     }
