@@ -395,13 +395,13 @@ pub fn cmeq2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u64) ->
 }
 
 // Needs to have a vector version as well
-pub fn ldr(alloc: &mut Allocator, asm: &mut Assembler, ptr: &PReg<u64>) -> Reg<u64> {
+pub fn ldr<T>(alloc: &mut Allocator, asm: &mut Assembler, ptr: &PReg<T>) -> Reg<u64> {
     let ret = alloc.fresh();
     asm.append_instruction(vec![ldr_inst(&ret, ptr)]);
     ret
 }
 
-pub fn ldr_inst(dest: &Reg<u64>, ptr: &PReg<u64>) -> Instruction {
+pub fn ldr_inst<T>(dest: &Reg<u64>, ptr: &PReg<T>) -> Instruction {
     InstructionF {
         opcode: "ldr".to_string(),
         dest: vec![dest.to_typed_register()],
@@ -410,14 +410,15 @@ pub fn ldr_inst(dest: &Reg<u64>, ptr: &PReg<u64>) -> Instruction {
     }
 }
 
-pub fn ldp(alloc: &mut Allocator, asm: &mut Assembler, ptr: &PReg<u64>) -> (Reg<u64>, Reg<u64>) {
+// TODO: better type than just everything?
+pub fn ldp<T>(alloc: &mut Allocator, asm: &mut Assembler, ptr: &PReg<T>) -> (Reg<u64>, Reg<u64>) {
     let ret0 = alloc.fresh();
     let ret1 = alloc.fresh();
     asm.append_instruction(vec![ldp_inst(&ret0, &ret1, ptr)]);
     (ret0, ret1)
 }
 
-pub fn ldp_inst(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PReg<u64>) -> Instruction {
+pub fn ldp_inst<T>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PReg<T>) -> Instruction {
     InstructionF {
         opcode: "ldp".to_string(),
         dest: vec![dest.to_typed_register(), dest2.to_typed_register()],

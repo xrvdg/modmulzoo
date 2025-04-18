@@ -145,8 +145,8 @@ fn setup_single_step_load(
     Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
     Vec<Reg<u64>>,
 ) {
-    let a = input_preg(alloc, mapping, phys_registers, 0);
-    let b = input_preg(alloc, mapping, phys_registers, 1);
+    let a = input_preg(alloc, mapping, phys_registers, (base + 0) as u64);
+    let b = input_preg(alloc, mapping, phys_registers, (base + 1) as u64);
 
     let input_hw_registers_a: Vec<_> = vec![mapping.output_register(&a).unwrap()];
     let input_hw_registers_b: Vec<_> = vec![mapping.output_register(&b).unwrap()];
@@ -897,32 +897,22 @@ pub fn single_step(
     reduce(alloc, asm, r4)
 }
 
+fn load_vector(alloc: &mut Allocator, asm: &mut Assembler, a: &PReg<[u64; 4]>) -> [Reg<u64>; 4] {
+    let (l0, l1) = ldp(alloc, asm, a);
+    let (l2, l3) = ldp(alloc, asm, &a.get(2));
+    [l0, l1, l2, l3]
+}
+
 pub fn single_step_load(
     alloc: &mut Allocator,
     asm: &mut Assembler,
     a: &PReg<[u64; 4]>,
     b: &PReg<[u64; 4]>,
 ) -> [Reg<u64>; 4] {
-    let t = school_method_load(alloc, asm, a, b);
-    // let [t0, t1, t2, s @ ..] = t;
-    let [t0, t1, t2, s @ ..] = t;
+    let a = load_vector(alloc, asm, a);
+    let b = load_vector(alloc, asm, b);
 
-    let i3 = U64_I3.map(|val| load_const(alloc, asm, val));
-    let r1 = smult_add(alloc, asm, s, &i3, &t0);
-
-    let i2 = U64_I2.map(|val| load_const(alloc, asm, val));
-    let r2 = smult_add(alloc, asm, r1, &i2, &t1);
-
-    let i1 = U64_I1.map(|val| load_const(alloc, asm, val));
-    let r3 = smult_add(alloc, asm, r2, &i1, &t2);
-
-    let mu0 = load_const(alloc, asm, U64_MU0);
-    let m = mul(alloc, asm, &mu0, &r3[0]);
-
-    let p = U64_P.map(|val| load_const(alloc, asm, val));
-    let r4 = smult_add_truncate(alloc, asm, r3, &p, &m);
-
-    reduce(alloc, asm, r4)
+    single_step(alloc, asm, &a, &b)
 }
 
 pub fn single_step_split(
