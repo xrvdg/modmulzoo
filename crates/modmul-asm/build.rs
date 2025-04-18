@@ -49,9 +49,9 @@ fn build_func<T>(
         mapping: &mut RegisterMapping,
         phys_registers: &mut RegisterBank,
         asm: &mut Assembler,
-    ) -> (Vec<Vec<TypedSizedRegister<HardwareRegister>>>, Vec<Reg<T>>),
+    ) -> (Vec<Vec<TypedSizedRegister<HardwareRegister>>>, Vec<T>),
 ) where
-    hla::Reg<T>: hla::RegisterSource,
+    T: hla::RegisterSource,
 {
     let mut alloc = Allocator::new();
     let mut mapping = RegisterMapping::new();
@@ -143,19 +143,17 @@ fn setup_single_step_load(
     base: usize,
 ) -> (
     Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<Reg<u64>>,
+    Vec<PReg<[u64; 4]>>,
 ) {
-    let a = input_preg(alloc, mapping, phys_registers, (base + 0) as u64);
+    let mut a = input_preg(alloc, mapping, phys_registers, (base + 0) as u64);
     let b = input_preg(alloc, mapping, phys_registers, (base + 1) as u64);
 
     let input_hw_registers_a: Vec<_> = vec![mapping.output_register(&a).unwrap()];
     let input_hw_registers_b: Vec<_> = vec![mapping.output_register(&b).unwrap()];
 
-    let s = single_step_load(alloc, asm, &a, &b);
-    (
-        vec![input_hw_registers_a, input_hw_registers_b],
-        Vec::from(s),
-    )
+    single_step_load(alloc, asm, &mut a, &b);
+
+    (vec![input_hw_registers_a, input_hw_registers_b], vec![a])
 }
 
 fn setup_single_step_split(
@@ -739,8 +737,8 @@ fn main() {
     build_func("single_step_simd", setup_single_step_simd);
     build_func("reduce_ct_simd", setup_reduce_ct_simd);
     build_interleaved("single_step_interleaved");
-    build_interleaved_seq_scalar("single_step_interleaved_seq_scalar");
-    build_interleaved_triple_scalar("single_step_interleaved_triple_scalar");
+    // build_interleaved_seq_scalar("single_step_interleaved_seq_scalar");
+    // build_interleaved_triple_scalar("single_step_interleaved_triple_scalar");
 }
 
 /* GENERATORS */
@@ -1050,16 +1048,29 @@ fn load_vector(alloc: &mut Allocator, asm: &mut Assembler, a: &PReg<[u64; 4]>) -
     [l0, l1, l2, l3]
 }
 
-pub fn single_step_load(
+fn store_vector(
     alloc: &mut Allocator,
     asm: &mut Assembler,
-    a: &PReg<[u64; 4]>,
+    a: &[Reg<u64>; 4],
+    str: &mut PReg<[u64; 4]>,
+) {
+    let [a0, a1, a2, a3] = a;
+    stp(alloc, asm, a0, a1, &str.get(0));
+    stp(alloc, asm, a2, a3, &str.get(2));
+}
+
+pub fn single_step_load<'a>(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: &mut PReg<[u64; 4]>,
     b: &PReg<[u64; 4]>,
-) -> [Reg<u64>; 4] {
-    let a = load_vector(alloc, asm, a);
+) {
+    let load_a = load_vector(alloc, asm, a);
     let b = load_vector(alloc, asm, b);
 
-    single_step(alloc, asm, &a, &b)
+    let res = single_step(alloc, asm, &load_a, &b);
+
+    store_vector(alloc, asm, &res, a);
 }
 
 pub fn single_step_split(

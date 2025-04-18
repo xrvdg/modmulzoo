@@ -426,6 +426,28 @@ pub fn ldp_inst<T>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PReg<T>) -> Instruct
         modifiers: Mod::None,
     }
 }
+pub fn stp<T>(
+    _alloc: &mut Allocator,
+    asm: &mut Assembler,
+    str0: &Reg<u64>,
+    str1: &Reg<u64>,
+    ptr: &PReg<T>,
+) {
+    asm.append_instruction(vec![stp_inst(&str0, &str1, ptr)]);
+}
+
+pub fn stp_inst<T>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PReg<T>) -> Instruction {
+    InstructionF {
+        opcode: "stp".to_string(),
+        dest: vec![],
+        src: vec![
+            dest.to_typed_register(),
+            dest2.to_typed_register(),
+            ptr.to_typed_register(),
+        ],
+        modifiers: Mod::None,
+    }
+}
 
 embed_asm!(mul, "mul", (a: u64, b: u64) -> u64);
 embed_asm!(umulh, "umulh", (a: u64, b: u64) -> u64);
@@ -496,12 +518,6 @@ pub struct PReg<T> {
     // x and w without having to recalculate the offset
     offset: usize,
     _marker: PhantomData<T>,
-}
-
-// Come into existing because of output mapping
-// That could potentially be simplified
-trait RegisterType {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>;
 }
 
 impl<T> PReg<T> {
@@ -905,18 +921,18 @@ pub fn input_preg<T, const N: usize>(
     fresh
 }
 
-pub fn pin_register<T>(
+pub fn pin_register<T: RegisterSource>(
     register_bank: &mut RegisterBank,
     lifetimes: &Vec<(usize, usize)>,
-    fresh: &Reg<T>,
+    fresh: &T,
     hardware_register: u64,
 ) where
-    Reg<T>: RegisterSource,
+    T: RegisterSource,
 {
     let hardware_register = HardwareRegister(hardware_register);
     let tp = fresh.to_typed_register();
 
-    register_bank.set_availability(hardware_register, tp, lifetimes[fresh.reg.0 as usize].0);
+    register_bank.set_availability(hardware_register, tp, lifetimes[tp.reg.0 as usize].0);
 }
 
 pub struct Seen(HashSet<FreshRegister>);
@@ -926,8 +942,8 @@ impl Seen {
         Self(HashSet::new())
     }
 
-    pub fn output_interface<T>(&mut self, fresh: &Reg<T>) -> bool {
-        self.seen(fresh.reg)
+    pub fn output_interface<T: RegisterSource>(&mut self, fresh: &T) -> bool {
+        self.seen(fresh.to_typed_register().reg)
     }
 
     fn seen(&mut self, fresh: FreshRegister) -> bool {

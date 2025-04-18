@@ -45,18 +45,17 @@ pub fn call_single_step(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
     out0
 }
 
-pub fn call_single_step_load(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
-    let mut out0 = [0; 4];
+pub fn call_single_step_load(mut a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
+    let mut ptr = a.as_mut_ptr();
     unsafe {
         asm!(
             "bl _single_step_load",
-            in("x0") a.as_ptr(), in("x1") b.as_ptr(),
-            lateout("x0") out0[0], lateout("x1") out0[1], lateout("x2") out0[2], lateout("x3") out0[3],
-            lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _,
+            inout("x0") ptr, in("x1") b.as_ptr(),
+            lateout("x1") _, lateout("x2") _, lateout("x3") _, lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _, lateout("x15") _,
             lateout("lr") _
         )
     };
-    out0
+    a
 }
 
 #[inline(never)]
