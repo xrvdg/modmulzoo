@@ -776,6 +776,9 @@ pub fn school_method_load(
     let mut a_load: [Reg<u64>; 4] = array::from_fn(|_| alloc.fresh());
     let mut b_load: [Reg<u64>; 4] = array::from_fn(|_| alloc.fresh());
 
+    // TODO loading it one-by-one doesn't have an added benefit as it doesn't
+    // reduce the maximum number registers that are used over time.
+    // So this could be done with ldp
     a_load[0] = ldr(alloc, asm, &a.get(0));
     b_load[0] = ldr(alloc, asm, &b.get(0));
 

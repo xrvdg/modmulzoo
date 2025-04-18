@@ -1165,6 +1165,9 @@ impl RegisterMapping {
 
     // Integrate with seen?
     // This output only should output
+    // TypedSizedRegsiter is used here, but we don't care about indexing
+    // so this should be simplified into something else. So we only use it to get the
+    // type mapping that is in the struct
     pub fn output_register<RT: RegisterType>(
         &self,
         reg: &RT,
@@ -1177,7 +1180,7 @@ impl RegisterMapping {
                 Some(TypedSizedRegister {
                     reg: hw_reg.reg(),
                     addressing: tp.addressing,
-                    idx: tp.idx,
+                    idx: Index::None,
                 })
             }
             RegisterState::Dropped => None,
