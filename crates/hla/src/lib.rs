@@ -61,6 +61,7 @@ impl<R: std::fmt::Display> std::fmt::Display for TypedSizedRegister<R> {
             Index::Lane(idx) => write!(f, "{addr}{reg}[{idx}]"),
             Index::None => write!(f, "{addr}{reg}"),
             Index::LaneSized(lane_sizes, idx) => write!(f, "{addr}{reg}.{lane_sizes}[{idx}]"),
+            Index::Pointer(offset) => write!(f, "[{addr}{reg}, #{offset}]"),
         }
     }
 }
@@ -388,6 +389,21 @@ pub fn cmeq2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u64) ->
     }
 }
 
+pub fn ldr(alloc: &mut Allocator, asm: &mut Assembler, ptr: &Reg<(&u64, u8)>) -> Reg<u64> {
+    let ret = alloc.fresh();
+    asm.append_instruction(vec![ldr_inst(&ret, ptr)]);
+    ret
+}
+
+pub fn ldr_inst(dest: &Reg<u64>, ptr: &Reg<(&u64, u8)>) -> Instruction {
+    InstructionF {
+        opcode: "ldr".to_string(),
+        dest: Some(dest.to_typed_register()),
+        src: vec![ptr.to_typed_register()],
+        modifiers: Mod::None,
+    }
+}
+
 embed_asm!(mul, "mul", (a: u64, b: u64) -> u64);
 embed_asm!(umulh, "umulh", (a: u64, b: u64) -> u64);
 
@@ -519,6 +535,7 @@ enum Index {
     None,
     Lane(u8),
     LaneSized(LaneSizes, u8),
+    Pointer(u8),
 }
 
 /// The result of the liveness analysis and it gives commands to the
@@ -717,15 +734,10 @@ impl RegisterPool {
 
 // TODO different name than RegisterSource
 pub trait RegisterSource {
-    fn get_register_pool(pools: &mut RegisterBank) -> &mut RegisterPool;
     fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R>;
 }
 
 impl RegisterSource for u64 {
-    fn get_register_pool(pools: &mut RegisterBank) -> &mut RegisterPool {
-        &mut pools.x
-    }
-
     fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
         TypedSizedRegister {
             reg,
@@ -735,11 +747,13 @@ impl RegisterSource for u64 {
     }
 }
 
-impl RegisterSource for f64 {
-    fn get_register_pool(pools: &mut RegisterBank) -> &mut RegisterPool {
-        &mut pools.v
+impl<T> RegisterSource for (&T, u8) {
+    fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
+        todo!()
     }
+}
 
+impl RegisterSource for f64 {
     fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
         TypedSizedRegister {
             reg,
@@ -750,10 +764,6 @@ impl RegisterSource for f64 {
 }
 
 impl<T> RegisterSource for Simd<T, 2> {
-    fn get_register_pool(pools: &mut RegisterBank) -> &mut RegisterPool {
-        &mut pools.v
-    }
-
     fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
         TypedSizedRegister {
             reg,
@@ -764,10 +774,6 @@ impl<T> RegisterSource for Simd<T, 2> {
 }
 
 impl<T: RegisterSource, const I: u8> RegisterSource for Idx<T, I> {
-    fn get_register_pool(pools: &mut RegisterBank) -> &mut RegisterPool {
-        &mut pools.v
-    }
-
     fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
         let mut tp = T::to_typed_register(reg);
         tp.idx = Index::Lane(I);
@@ -776,10 +782,6 @@ impl<T: RegisterSource, const I: u8> RegisterSource for Idx<T, I> {
 }
 
 impl<T: RegisterSource, const I: u8, const Lanes: u8> RegisterSource for IdxSized<T, Lanes, I> {
-    fn get_register_pool(pools: &mut RegisterBank) -> &mut RegisterPool {
-        &mut pools.v
-    }
-
     fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
         let mut tp = T::to_typed_register(reg);
 
