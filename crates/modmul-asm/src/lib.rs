@@ -11,12 +11,19 @@ global_asm!(include_str!("../asm/mulu128.s"));
 global_asm!(include_str!("../asm/global_asm_smul.s"));
 global_asm!(include_str!("../asm/global_asm_smul_add.s"));
 global_asm!(include_str!("../asm/global_asm_single_step.s"));
+global_asm!(include_str!("../asm/global_asm_single_step_load.s"));
 global_asm!(include_str!("../asm/global_asm_u256_to_u260_shl2_simd.s"));
 global_asm!(include_str!("../asm/global_asm_u260_to_u256_simd.s"));
 global_asm!(include_str!("../asm/global_asm_vmultadd_noinit_simd.s"));
 global_asm!(include_str!("../asm/global_asm_reduce_ct_simd.s"));
 global_asm!(include_str!("../asm/global_asm_single_step_simd.s"));
 global_asm!(include_str!("../asm/global_asm_single_step_interleaved.s"));
+global_asm!(include_str!(
+    "../asm/global_asm_single_step_interleaved_seq_scalar.s"
+));
+global_asm!(include_str!(
+    "../asm/global_asm_single_step_interleaved_triple_scalar.s"
+));
 
 #[inline(never)]
 // If this function gets moved/inlined the linker won't be able to find the assembly.
@@ -39,6 +46,48 @@ pub fn call_single_step(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
         )
     };
     out0
+}
+
+#[inline(never)]
+pub fn call_single_step_load(mut a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
+    let mut ptr = a.as_mut_ptr();
+    unsafe {
+        asm!(
+            "bl _single_step_load",
+            inout("x0") ptr, in("x1") b.as_ptr(),
+            lateout("x1") _, lateout("x2") _, lateout("x3") _, lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _, lateout("x15") _,
+            lateout("lr") _
+        )
+    };
+    a
+}
+
+#[inline(never)]
+pub fn call_single_step_5(
+    _rtz: &RTZ,
+    mut a: [u64; 4],
+    b: [u64; 4],
+    mut c: [u64; 4],
+    d: [u64; 4],
+    mut e: [u64; 4],
+    f: [u64; 4],
+    va: [Simd<u64, 2>; 4],
+    vb: [Simd<u64, 2>; 4],
+) -> ([u64; 4], [u64; 4], [u64; 4], [Simd<u64, 2>; 4]) {
+    let mut a_ptr = a.as_mut_ptr();
+    let mut c_ptr = c.as_mut_ptr();
+    let mut e_ptr = e.as_mut_ptr();
+    let mut out1 = [Simd::splat(0); 4];
+    unsafe {
+        asm!(
+            "bl _single_step_interleaved_triple_scalar",
+            inout("x0") a_ptr, in("x1") b.as_ptr(), in("v0") va[0], in("v1") va[1], in("v2") va[2], in("v3") va[3], in("v4") vb[0], in("v5") vb[1], in("v6") vb[2], in("v7") vb[3], inout("x2") c_ptr, in("x3") d.as_ptr(), inout("x4") e_ptr, in("x5") d.as_ptr(),
+            lateout("v0") out1[0], lateout("v1") out1[1], lateout("v2") out1[2], lateout("v3") out1[3],
+            lateout("x1") _, lateout("x3") _, lateout("v4") _, lateout("x5") _, lateout("v5") _, lateout("x6") _, lateout("v6") _, lateout("x7") _, lateout("v7") _, lateout("x8") _, lateout("v8") _, lateout("x9") _, lateout("v9") _, lateout("x10") _, lateout("v10") _, lateout("x11") _, lateout("v11") _, lateout("x12") _, lateout("v12") _, lateout("x13") _, lateout("v13") _, lateout("x14") _, lateout("v14") _, lateout("x15") _, lateout("v15") _, lateout("x16") _, lateout("v16") _, lateout("x17") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("x20") _, lateout("v20") _, lateout("x21") _, lateout("v21") _, lateout("x22") _, lateout("v22") _, lateout("x23") _, lateout("v23") _, lateout("v24") _,
+            lateout("lr") _
+        )
+    };
+    (a, c, e, out1)
 }
 
 #[inline(never)]
@@ -346,6 +395,33 @@ pub fn call_single_step_interleaved(
     (out0, out1)
 }
 
+pub fn call_single_step_interleaved_seq_scalar(
+    _rtz: &RTZ,
+    a: [u64; 4],
+    b: [u64; 4],
+    c: [u64; 4],
+    d: [u64; 4],
+    va: [Simd<u64, 2>; 4],
+    vb: [Simd<u64, 2>; 4],
+) -> ([u64; 4], [u64; 4], [Simd<u64, 2>; 4]) {
+    let mut out0 = [0; 4];
+    let mut out1 = [Simd::splat(0); 4];
+    let mut out2 = [0; 4];
+    let vb = vb;
+    unsafe {
+        asm!(
+            "bl _single_step_interleaved_seq_scalar",
+            in("x0") a[0], in("x1") a[1], in("x2") a[2], in("x3") a[3], in("x4") b[0], in("x5") b[1], in("x6") b[2], in("x7") b[3],
+            in("v0") va[0], in("v1") va[1], in("v2") va[2], in("v3") va[3], in("v4") vb[0], in("v5") vb[1], in("v6") vb[2], in("v7") vb[3],
+            in("x8") c[0], in("x9") c[1], in("x10") c[2], in("x11") c[3], in("x12") d[0], in("x13") d[1], in("x14") d[2], in("x15") d[3],
+            lateout("x0") out0[0], lateout("x1") out0[1], lateout("x2") out0[2], lateout("x3") out0[3], lateout("v0") out1[0], lateout("v1") out1[1], lateout("v2") out1[2], lateout("v3") out1[3], lateout("x4") out2[0], lateout("x5") out2[1], lateout("x6") out2[2], lateout("x7") out2[3],
+            lateout("v4") _, lateout("v5") _, lateout("v6") _, lateout("v7") _, lateout("x8") _, lateout("v8") _, lateout("x9") _, lateout("v9") _, lateout("x10") _, lateout("v10") _, lateout("x11") _, lateout("v11") _, lateout("x12") _, lateout("v12") _, lateout("x13") _, lateout("v13") _, lateout("x14") _, lateout("v14") _, lateout("x15") _, lateout("v15") _, lateout("x16") _, lateout("v16") _, lateout("x17") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("x20") _, lateout("v20") _, lateout("x21") _, lateout("v21") _, lateout("x22") _, lateout("v22") _, lateout("x23") _, lateout("v23") _, lateout("x24") _, lateout("v24") _, lateout("x25") _, lateout("x26") _,
+            lateout("lr") _
+        )
+    }
+    (out0, out2, out1)
+}
+
 #[cfg(test)]
 mod tests {
     use std::simd::Simd;
@@ -356,9 +432,10 @@ mod tests {
     use quickcheck_macros::quickcheck;
 
     use crate::{
-        call_reduce_ct_simd, call_schoolmethod, call_single_step, call_single_step_interleaved,
-        call_single_step_simd, call_single_step_split, call_u256_to_u260_shl2_simd,
-        call_u260_to_u256_simd, call_vmultadd_noinit_simd,
+        call_reduce_ct_simd, call_schoolmethod, call_single_step, call_single_step_5,
+        call_single_step_interleaved, call_single_step_interleaved_seq_scalar,
+        call_single_step_load, call_single_step_simd, call_single_step_split,
+        call_u256_to_u260_shl2_simd, call_u260_to_u256_simd, call_vmultadd_noinit_simd,
     };
     use crate::{call_smul, call_smul_add};
 
@@ -385,6 +462,11 @@ mod tests {
     #[quickcheck]
     fn single_step(a: U256b64, b: U256b64) -> bool {
         yuval::parallel_reduce(b.0, a.0) == call_single_step(a.0, b.0)
+    }
+
+    #[quickcheck]
+    fn single_step_load(a: U256b64, b: U256b64) -> bool {
+        yuval::parallel_reduce(b.0, a.0) == call_single_step_load(a.0, b.0)
     }
 
     #[quickcheck]
@@ -452,5 +534,31 @@ mod tests {
         let (scalar, vector) = call_single_step_interleaved(&rtz, a.0, b.0, ac, bd);
         assert_eq!(domb::parallel_sub_simd_r256_no_trans(&rtz, ac, bd), vector);
         assert_eq!(yuval::parallel_reduce(a.0, b.0), scalar);
+    }
+    #[quickcheck]
+    fn single_step_interleaved_seq_scalar(a: U256b64, b: U256b64, c: U256b64, d: U256b64) {
+        let ac = zip_with(a.0, c.0, |fst, snd| Simd::from_array([fst, snd]));
+        let bd = zip_with(b.0, d.0, |fst, snd| Simd::from_array([fst, snd]));
+
+        let rtz = RTZ::set().unwrap();
+        let (scalar, scalar2, vector) =
+            call_single_step_interleaved_seq_scalar(&rtz, a.0, b.0, c.0, d.0, ac, bd);
+        assert_eq!(domb::parallel_sub_simd_r256_no_trans(&rtz, ac, bd), vector);
+        assert_eq!(yuval::parallel_reduce(a.0, b.0), scalar);
+        assert_eq!(yuval::parallel_reduce(c.0, d.0), scalar2);
+    }
+
+    #[quickcheck]
+    fn single_step_5(a: U256b64, b: U256b64, c: U256b64, d: U256b64) {
+        let ac = zip_with(a.0, c.0, |fst, snd| Simd::from_array([fst, snd]));
+        let bd = zip_with(b.0, d.0, |fst, snd| Simd::from_array([fst, snd]));
+
+        let rtz = RTZ::set().unwrap();
+        let (scalar, scalar2, scalar3, vector) =
+            call_single_step_5(&rtz, a.0, b.0, c.0, d.0, a.0, d.0, ac, bd);
+        assert_eq!(domb::parallel_sub_simd_r256_no_trans(&rtz, ac, bd), vector);
+        assert_eq!(yuval::parallel_reduce(a.0, b.0), scalar);
+        assert_eq!(yuval::parallel_reduce(c.0, d.0), scalar2);
+        assert_eq!(yuval::parallel_reduce(a.0, d.0), scalar3);
     }
 }
