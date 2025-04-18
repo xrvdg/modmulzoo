@@ -118,15 +118,42 @@ fn setup_single_step(
 
     let input_hw_registers_a: Vec<_> = a
         .iter()
-        .filter_map(|reg| mapping.output_register(&reg))
+        .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
     let input_hw_registers_b: Vec<_> = b
         .iter()
-        .filter_map(|reg| mapping.output_register(&reg))
+        .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
     let s = single_step(alloc, asm, &a, &b);
+    (
+        vec![input_hw_registers_a, input_hw_registers_b],
+        Vec::from(s),
+    )
+}
+
+fn setup_single_step_load(
+    alloc: &mut Allocator,
+    mapping: &mut RegisterMapping,
+    phys_registers: &mut RegisterBank,
+    asm: &mut Assembler,
+    base: usize,
+) -> (
+    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Reg<u64>>,
+) {
+    let a = input_preg(alloc, mapping, phys_registers, 0);
+    let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (base + 1 + i) as u64));
+
+    let input_hw_registers_a: Vec<_> = vec![mapping.output_register(&a).unwrap()];
+
+    let input_hw_registers_b: Vec<_> = b
+        .iter()
+        .filter_map(|reg| mapping.output_register(reg))
+        .collect();
+
+    let s = single_step_load(alloc, asm, &a, &b);
     (
         vec![input_hw_registers_a, input_hw_registers_b],
         Vec::from(s),
@@ -147,12 +174,12 @@ fn setup_single_step_split(
 
     let input_hw_registers_a: Vec<_> = a
         .iter()
-        .filter_map(|reg| mapping.output_register(&reg))
+        .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
     let input_hw_registers_b: Vec<_> = b
         .iter()
-        .filter_map(|reg| mapping.output_register(&reg))
+        .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
     let s = single_step_split(alloc, asm, &a, &b);
@@ -177,12 +204,12 @@ fn setup_smul_add(
 
     let input_hw_registers_add: Vec<_> = add
         .iter()
-        .filter_map(|reg| mapping.output_register(&reg))
+        .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
     let input_hw_registers_a: Vec<_> = a
         .iter()
-        .filter_map(|reg| mapping.output_register(&reg))
+        .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
     let input_hw_registers_b: Vec<_> = vec![mapping.output_register(&b).unwrap()];
@@ -558,6 +585,9 @@ fn main() {
     build_func("single_step", |alloc, mapping, bank, asm| {
         setup_single_step(alloc, mapping, bank, asm, 0)
     });
+    build_func("single_step_load", |alloc, mapping, bank, asm| {
+        setup_single_step_load(alloc, mapping, bank, asm, 0)
+    });
     build_func("single_step_split", setup_single_step_split);
     build_func("u256_to_u260_shl2_simd", setup_u256_to_u260_shl2_imd);
     build_func("u260_to_u256_simd", setup_u260_to_u256_simd);
@@ -700,6 +730,7 @@ pub fn smult_add_truncate(
     out
 }
 
+// TODO better name
 pub fn school_method(
     alloc: &mut Allocator,
     asm: &mut Assembler,
@@ -730,6 +761,47 @@ pub fn school_method(
             [t[i + j], carry] = carry_add(alloc, asm, &tmp, &t[i + j]);
         }
         t[j + a.len()] = carry;
+    }
+
+    t
+}
+
+// TODO better name
+pub fn school_method_load(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: &PReg<[u64; 4]>,
+    b: &[Reg<u64>; 4],
+) -> [Reg<u64>; 8] {
+    let mut t: [Reg<u64>; 8] = array::from_fn(|_| alloc.fresh());
+    let mut carry;
+    // The first carry chain is separated out as t doesn't have any values to add
+    // first multiplication of a carry chain doesn't not have a carry to add
+    let mut a_load: [Reg<u64>; 4] = array::from_fn(|_| alloc.fresh());
+
+    a_load[0] = ldr(alloc, asm, &a.get(0));
+
+    [t[0], carry] = mul_u128(alloc, asm, &a_load[0], &b[0]);
+    for i in 1..a_load.len() {
+        a_load[i] = ldr(alloc, asm, &a.get(i));
+        let tmp = mul_u128(alloc, asm, &a_load[i], &b[0]);
+        [t[i], carry] = carry_add(alloc, asm, &tmp, &carry);
+    }
+    t[a_load.len()] = carry;
+
+    // 2nd and later carry chain
+    for j in 1..b.len() {
+        let mut carry;
+        // first multiplication of a carry chain doesn't have a carry to add,
+        // but it does have a value already from a previous round
+        let tmp = mul_u128(alloc, asm, &a_load[0], &b[j]);
+        [t[j], carry] = carry_add(alloc, asm, &tmp, &t[j]);
+        for i in 1..a_load.len() {
+            let tmp = mul_u128(alloc, asm, &a_load[i], &b[j]);
+            let tmp = carry_add(alloc, asm, &tmp, &carry);
+            [t[i + j], carry] = carry_add(alloc, asm, &tmp, &t[i + j]);
+        }
+        t[j + a_load.len()] = carry;
     }
 
     t
@@ -800,6 +872,34 @@ pub fn single_step(
     b: &[Reg<u64>; 4],
 ) -> [Reg<u64>; 4] {
     let t = school_method(alloc, asm, a, b);
+    // let [t0, t1, t2, s @ ..] = t;
+    let [t0, t1, t2, s @ ..] = t;
+
+    let i3 = U64_I3.map(|val| load_const(alloc, asm, val));
+    let r1 = smult_add(alloc, asm, s, &i3, &t0);
+
+    let i2 = U64_I2.map(|val| load_const(alloc, asm, val));
+    let r2 = smult_add(alloc, asm, r1, &i2, &t1);
+
+    let i1 = U64_I1.map(|val| load_const(alloc, asm, val));
+    let r3 = smult_add(alloc, asm, r2, &i1, &t2);
+
+    let mu0 = load_const(alloc, asm, U64_MU0);
+    let m = mul(alloc, asm, &mu0, &r3[0]);
+
+    let p = U64_P.map(|val| load_const(alloc, asm, val));
+    let r4 = smult_add_truncate(alloc, asm, r3, &p, &m);
+
+    reduce(alloc, asm, r4)
+}
+
+pub fn single_step_load(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: &PReg<[u64; 4]>,
+    b: &[Reg<u64>; 4],
+) -> [Reg<u64>; 4] {
+    let t = school_method_load(alloc, asm, a, b);
     // let [t0, t1, t2, s @ ..] = t;
     let [t0, t1, t2, s @ ..] = t;
 

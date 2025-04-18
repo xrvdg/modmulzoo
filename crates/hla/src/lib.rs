@@ -389,13 +389,13 @@ pub fn cmeq2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u64) ->
     }
 }
 
-pub fn ldr(alloc: &mut Allocator, asm: &mut Assembler, ptr: &Reg<(&u64, u8)>) -> Reg<u64> {
+pub fn ldr(alloc: &mut Allocator, asm: &mut Assembler, ptr: &PReg<u64>) -> Reg<u64> {
     let ret = alloc.fresh();
     asm.append_instruction(vec![ldr_inst(&ret, ptr)]);
     ret
 }
 
-pub fn ldr_inst(dest: &Reg<u64>, ptr: &Reg<(&u64, u8)>) -> Instruction {
+pub fn ldr_inst(dest: &Reg<u64>, ptr: &PReg<u64>) -> Instruction {
     InstructionF {
         opcode: "ldr".to_string(),
         dest: Some(dest.to_typed_register()),
@@ -467,6 +467,40 @@ pub struct Reg<T> {
     reg: FreshRegister,
     _marker: PhantomData<T>,
 }
+pub struct PReg<T> {
+    reg: FreshRegister,
+    // offset in bytes as that allows for conversions between
+    // x and w without having to recalculate the offset
+    offset: usize,
+    _marker: PhantomData<T>,
+}
+
+trait RegisterType {
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>;
+    fn reg(&self) -> FreshRegister;
+}
+
+impl<T> PReg<T> {
+    pub fn new(reg: u64) -> Self {
+        Self {
+            reg: FreshRegister(reg),
+            offset: 0,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T, const N: usize> PReg<[T; N]> {
+    pub fn get(&self, index: usize) -> PReg<T> {
+        assert!(index < N, "out-of-bounds access");
+
+        PReg {
+            reg: self.reg,
+            offset: mem::size_of::<T>() * index,
+            _marker: PhantomData,
+        }
+    }
+}
 
 /// Define the struct ourself as to not have to import it
 pub struct Simd<T, const N: usize>(PhantomData<T>);
@@ -475,7 +509,7 @@ pub struct Simd<T, const N: usize>(PhantomData<T>);
 // but maybe it's better to mix it in somehow
 pub struct Idx<T, const I: u8>(PhantomData<T>);
 // TODO better separated into Sized and Idx
-pub struct IdxSized<T, const Lanes: u8, const I: u8>(PhantomData<T>);
+pub struct IdxSized<T, const LANES: u8, const I: u8>(PhantomData<T>);
 
 pub trait Reg64Bit {}
 impl Reg64Bit for u64 {}
@@ -535,7 +569,8 @@ enum Index {
     None,
     Lane(u8),
     LaneSized(LaneSizes, u8),
-    Pointer(u8),
+    // offset in bytes
+    Pointer(usize),
 }
 
 /// The result of the liveness analysis and it gives commands to the
@@ -553,13 +588,58 @@ impl<T> Reg<T> {
             _marker: Default::default(),
         }
     }
+}
 
+// This needs to be simplified
+impl<T: RegisterSource> RegisterType for Reg<T> {
     // (temporary?) indirection to bring the typing under the type itself
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>
-    where
-        T: RegisterSource,
-    {
+    // or could I use something like auto deref?
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
         T::to_typed_register(self.reg)
+    }
+
+    fn reg(&self) -> FreshRegister {
+        self.reg
+    }
+}
+
+impl<T: RegisterSource, const N: usize> RegisterType for PReg<[T; N]> {
+    fn reg(&self) -> FreshRegister {
+        self.reg
+    }
+
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
+        let tp = T::to_typed_register(self.reg);
+
+        match tp.idx {
+            Index::None => TypedSizedRegister {
+                reg: tp.reg,
+                addressing: tp.addressing,
+                idx: Index::Pointer(self.offset as usize),
+            },
+            // TODO: narrow the type constraint to prevent this from happening
+            _ => panic!("can't use pointer offsets on indexed register"),
+        }
+    }
+}
+
+impl<T: RegisterSource> RegisterType for PReg<T> {
+    fn reg(&self) -> FreshRegister {
+        self.reg
+    }
+
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
+        let tp = T::to_typed_register(self.reg);
+
+        match tp.idx {
+            Index::None => TypedSizedRegister {
+                reg: tp.reg,
+                addressing: tp.addressing,
+                idx: Index::Pointer(self.offset as usize),
+            },
+            // TODO: narrow the type constraint to prevent this from happening
+            _ => panic!("can't use pointer offsets on indexed register"),
+        }
     }
 }
 
@@ -608,6 +688,12 @@ impl Allocator {
         let x = self.fresh;
         self.fresh += 1;
         Reg::new(x)
+    }
+
+    pub fn fresh_preg<T>(&mut self) -> PReg<T> {
+        let x = self.fresh;
+        self.fresh += 1;
+        PReg::new(x)
     }
 
     pub fn new() -> Self {
@@ -747,12 +833,6 @@ impl RegisterSource for u64 {
     }
 }
 
-impl<T> RegisterSource for (&T, u8) {
-    fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
-        todo!()
-    }
-}
-
 impl RegisterSource for f64 {
     fn to_typed_register<R>(reg: R) -> TypedSizedRegister<R> {
         TypedSizedRegister {
@@ -809,6 +889,29 @@ where
 
     let hw_reg = HardwareRegister(phys);
     let tp = fresh.to_typed_register();
+
+    if !register_bank.remove(hw_reg, tp.addressing) {
+        panic!("{:?} is already in use", phys)
+    }
+
+    *mapping.index_mut(fresh.reg) = RegisterState::Assigned(tp.addressing.to_pool(hw_reg));
+
+    fresh
+}
+
+pub fn input_preg<T, const N: usize>(
+    asm: &mut Allocator,
+    mapping: &mut RegisterMapping,
+    register_bank: &mut RegisterBank,
+    phys: u64,
+) -> PReg<[T; N]>
+where
+    T: RegisterSource,
+{
+    let fresh = asm.fresh_preg();
+
+    let hw_reg = HardwareRegister(phys);
+    let tp = fresh.get(0).to_typed_register();
 
     if !register_bank.remove(hw_reg, tp.addressing) {
         panic!("{:?} is already in use", phys)
@@ -1060,12 +1163,12 @@ impl RegisterMapping {
 
     // Integrate with seen?
     // This output only should output
-    pub fn output_register<T: RegisterSource>(
+    pub fn output_register<RT: RegisterType>(
         &self,
-        reg: &Reg<T>,
+        reg: &RT,
     ) -> Option<TypedSizedRegister<HardwareRegister>> {
         // Todo this could go from Reg to index instead of to_type_registers
-        match self.index(reg.reg) {
+        match self.index(reg.reg()) {
             RegisterState::Unassigned => None,
             RegisterState::Assigned(hw_reg) => {
                 let tp = reg.to_typed_register();
