@@ -2,6 +2,7 @@
 use std::array;
 
 use block_multiplier::{constants::*, make_initial};
+use hla::instructions::*;
 use hla::*;
 // TODO don't rely on montgomery_reduction for anything other than tests
 // Possible not even then
