@@ -26,14 +26,14 @@
 //! - Flag-based operations should only be used through their `_inst` variants to prevent
 //!   interleaving issues that could result in invalid code
 
+pub use load_store::*;
+pub use scalar::*;
+pub use simd::*;
+
 use crate::{
     Allocator, Assembler, D, Instruction, InstructionF, Mod, PReg, Reg, RegisterSource, SIMD, Simd,
     SizedIdx,
 };
-
-pub use load_store::*;
-pub use scalar::*;
-pub use simd::*;
 
 use paste::paste;
 macro_rules! embed_asm {
@@ -56,8 +56,8 @@ macro_rules! embed_asm_inst {
             pub fn [<$name _inst>](dest: &Reg<$ret_ty>, $($arg: &Reg<$arg_ty>),*) -> Instruction {
                 InstructionF {
                     opcode: $opcode.to_string(),
-                    dest: vec![dest.to_typed_register()],
-                    src: vec![$($arg.to_typed_register()),*],
+                    results: vec![dest.to_typed_register()],
+                    operands: vec![$($arg.to_typed_register()),*],
                     modifiers: Mod::None,
                 }
             }
@@ -76,8 +76,8 @@ pub mod scalar {
     pub fn mov_inst(dest: &Reg<u64>, imm: u64) -> Instruction {
         InstructionF {
             opcode: "mov".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![],
+            results: vec![dest.to_typed_register()],
+            operands: vec![],
             modifiers: Mod::Imm(imm),
         }
     }
@@ -88,8 +88,8 @@ pub mod scalar {
     pub fn tst_inst(a: &Reg<u64>, imm: u64) -> Instruction {
         InstructionF {
             opcode: "tst".to_string(),
-            dest: vec![],
-            src: vec![a.to_typed_register()],
+            results: vec![],
+            operands: vec![a.to_typed_register()],
             modifiers: Mod::Imm(imm),
         }
     }
@@ -97,8 +97,8 @@ pub mod scalar {
     pub fn csel_inst(dest: &Reg<u64>, a: &Reg<u64>, b: &Reg<u64>, cond: &str) -> Instruction {
         InstructionF {
             opcode: "csel".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![a.to_typed_register(), b.to_typed_register()],
+            results: vec![dest.to_typed_register()],
+            operands: vec![a.to_typed_register(), b.to_typed_register()],
             modifiers: Mod::Cond(cond.to_string()),
         }
     }
@@ -106,8 +106,8 @@ pub mod scalar {
     pub fn cmn_inst(a: &Reg<u64>, b: &Reg<u64>) -> Instruction {
         InstructionF {
             opcode: "cmn".to_string(),
-            dest: vec![],
-            src: vec![a.to_typed_register(), b.to_typed_register()],
+            results: vec![],
+            operands: vec![a.to_typed_register(), b.to_typed_register()],
             modifiers: Mod::None,
         }
     }
@@ -115,8 +115,8 @@ pub mod scalar {
     pub fn cinc_inst(dest: &Reg<u64>, a: &Reg<u64>, cond: String) -> Instruction {
         InstructionF {
             opcode: "cinc".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![a.to_typed_register()],
+            results: vec![dest.to_typed_register()],
+            operands: vec![a.to_typed_register()],
             modifiers: Mod::Cond(cond),
         }
     }
@@ -138,8 +138,8 @@ pub mod scalar {
     pub fn movk_inst(dest: &Reg<u64>, imm: u16, shift: u8) -> Instruction {
         InstructionF {
             opcode: "movk".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![],
+            results: vec![dest.to_typed_register()],
+            operands: vec![],
             modifiers: Mod::ImmLSL(imm, shift),
         }
     }
@@ -162,8 +162,8 @@ pub mod load_store {
     pub fn ldr_inst<T>(dest: &Reg<u64>, ptr: &PReg<T>) -> Instruction {
         InstructionF {
             opcode: "ldr".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![ptr.to_typed_register()],
+            results: vec![dest.to_typed_register()],
+            operands: vec![ptr.to_typed_register()],
             modifiers: Mod::None,
         }
     }
@@ -182,8 +182,8 @@ pub mod load_store {
     pub fn ldp_inst<T>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PReg<T>) -> Instruction {
         InstructionF {
             opcode: "ldp".to_string(),
-            dest: vec![dest.to_typed_register(), dest2.to_typed_register()],
-            src: vec![ptr.to_typed_register()],
+            results: vec![dest.to_typed_register(), dest2.to_typed_register()],
+            operands: vec![ptr.to_typed_register()],
             modifiers: Mod::None,
         }
     }
@@ -200,8 +200,8 @@ pub mod load_store {
     pub fn stp_inst<T>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PReg<T>) -> Instruction {
         InstructionF {
             opcode: "stp".to_string(),
-            dest: vec![],
-            src: vec![
+            results: vec![],
+            operands: vec![
                 dest.to_typed_register(),
                 dest2.to_typed_register(),
                 ptr.to_typed_register(),
@@ -230,8 +230,8 @@ pub mod simd {
     ) -> Instruction {
         InstructionF {
             opcode: "ins".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![a.to_typed_register()],
+            results: vec![dest.to_typed_register()],
+            operands: vec![a.to_typed_register()],
             modifiers: Mod::None,
         }
     }
@@ -251,8 +251,8 @@ pub mod simd {
     ) -> Instruction {
         InstructionF {
             opcode: "umov".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![a.to_typed_register()],
+            results: vec![dest.to_typed_register()],
+            operands: vec![a.to_typed_register()],
             modifiers: Mod::None,
         }
     }
@@ -270,8 +270,8 @@ pub mod simd {
     pub fn cmeq2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u64) -> Instruction {
         InstructionF {
             opcode: "cmeq.2d".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![a.to_typed_register()],
+            results: vec![dest.to_typed_register()],
+            operands: vec![a.to_typed_register()],
             modifiers: Mod::Imm(imm),
         }
     }
@@ -288,8 +288,8 @@ pub mod simd {
     pub fn mov16b_inst<T>(dest: &Reg<Simd<T, 2>>, a: &Reg<Simd<T, 2>>) -> Instruction {
         InstructionF {
             opcode: "mov.16b".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![a.to_typed_register()],
+            results: vec![dest.to_typed_register()],
+            operands: vec![a.to_typed_register()],
             modifiers: Mod::None,
         }
     }
@@ -311,9 +311,9 @@ pub mod simd {
     ) -> Instruction {
         Instruction {
             opcode: "sli.2d".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![source.to_typed_register()],
-            modifiers: Mod::LS(shl),
+            results: vec![dest.to_typed_register()],
+            operands: vec![source.to_typed_register()],
+            modifiers: Mod::LSL(shl),
         }
     }
 
@@ -335,8 +335,8 @@ pub mod simd {
     ) -> Instruction {
         InstructionF {
             opcode: "fmla.2d".to_string(),
-            dest: vec![dest_add.to_typed_register()],
-            src: vec![a.to_typed_register(), b.to_typed_register()],
+            results: vec![dest_add.to_typed_register()],
+            operands: vec![a.to_typed_register(), b.to_typed_register()],
             modifiers: Mod::None,
         }
     }
@@ -355,9 +355,9 @@ pub mod simd {
     pub fn shl2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> Instruction {
         InstructionF {
             opcode: "shl.2d".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![a.to_typed_register()],
-            modifiers: Mod::LS(imm),
+            results: vec![dest.to_typed_register()],
+            operands: vec![a.to_typed_register()],
+            modifiers: Mod::LSL(imm),
         }
     }
 
@@ -375,9 +375,9 @@ pub mod simd {
     pub fn ushr2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> Instruction {
         InstructionF {
             opcode: "ushr.2d".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![a.to_typed_register()],
-            modifiers: Mod::LS(imm),
+            results: vec![dest.to_typed_register()],
+            operands: vec![a.to_typed_register()],
+            modifiers: Mod::LSL(imm),
         }
     }
 
@@ -395,9 +395,9 @@ pub mod simd {
     pub fn usra2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> Instruction {
         InstructionF {
             opcode: "usra.2d".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![a.to_typed_register()],
-            modifiers: Mod::LS(imm),
+            results: vec![dest.to_typed_register()],
+            operands: vec![a.to_typed_register()],
+            modifiers: Mod::LSL(imm),
         }
     }
 
@@ -415,9 +415,9 @@ pub mod simd {
     pub fn ssra2d_inst(dest: &Reg<Simd<i64, 2>>, a: &Reg<Simd<i64, 2>>, imm: u8) -> Instruction {
         InstructionF {
             opcode: "ssra.2d".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![a.to_typed_register()],
-            modifiers: Mod::LS(imm),
+            results: vec![dest.to_typed_register()],
+            operands: vec![a.to_typed_register()],
+            modifiers: Mod::LSL(imm),
         }
     }
 }

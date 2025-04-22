@@ -8,56 +8,38 @@ use std::{
 pub mod instructions;
 
 impl TypedSizedRegister<FreshRegister> {
-    // Should only be seen by RegisterMapping
-    // Could have been used for HardwareRegister, but it's better to convert types
-    // Only for 'internal' use
     fn as_fresh(&self) -> &FreshRegister {
         &self.reg
     }
 }
 
-// Vec<BlockInstr> - mixing -> Vec<Instr> -> Vec<InstrDrop> -> Vec<PhysInstr>
 pub type AtomicInstruction = Vec<InstructionF<FreshRegister>>;
 pub type Instruction = InstructionF<FreshRegister>;
 
 // This instruction models both aliases and regular instructions
-// The option on destination can be removed, but that would require
-// implementing the aliases such CMP, CMN ourselves.
-// This would require introducing
-// Destination{
-// XZR
-// TR(TypeSizedRegister<R>)
-// }
-// for dest.
-// and then write the aliases as instruction as the current design.
-// It requires more changes if we want the user to be able to use XZR.
-// The best way to do that would likely be a trait and a zero sized type for XZR
 #[derive(Debug, PartialEq)]
 pub struct InstructionF<R> {
     opcode: String,
     // Reasons for destination being a vector
-    // - Some operations have no destination or no allocatable destination
+    // - Some operations have do not write results to a register
     //   - CMN only affects flags
-    //   - STR in the sense that we can't allocate the destination for it
+    //   - STR writes to a destination stored in an operand
     // - LDP has 2 destinations
-    dest: Vec<TypedSizedRegister<R>>,
-    src: Vec<TypedSizedRegister<R>>,
+    results: Vec<TypedSizedRegister<R>>,
+    operands: Vec<TypedSizedRegister<R>>,
     modifiers: Mod,
 }
 
-// Proper name for this
 #[derive(Debug, PartialEq)]
 enum Mod {
     None,
     Imm(u64),
     ImmLSL(u16, u8),
-    // LS could be combined with Imm and let the compiler backend deal with it.
-    LS(u8),
+    // Logical shift left
+    LSL(u8),
     Cond(String),
 }
 
-// TODO This could benefit from having really different types for FreshRegister and
-// Hardware Register. The output could be made different for this
 impl<R: std::fmt::Display> std::fmt::Display for TypedSizedRegister<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let reg = &self.reg;
@@ -104,14 +86,14 @@ impl<R: std::fmt::Display + Copy> InstructionF<R> {
             Mod::Imm(imm) => format!(", #{imm}"),
             Mod::Cond(cond) => format!(", {cond}"),
             Mod::ImmLSL(imm, shift) => format!(", #{imm}, lsl {shift}"),
-            Mod::LS(imm) => format!(", #{imm}"),
+            Mod::LSL(imm) => format!(", #{imm}"),
         };
         let inst = &self.opcode;
         format!("{inst} {regs}{extra}")
     }
 
     fn extract_registers(&self) -> impl Iterator<Item = &TypedSizedRegister<R>> {
-        self.dest.iter().chain(&self.src)
+        self.results.iter().chain(&self.operands)
     }
 }
 
@@ -851,7 +833,7 @@ pub fn liveness_analysis(
         // The difference could be mutable
         let release: HashSet<_> = registers.difference(&seen_registers.0).copied().collect();
 
-        instruction.dest.iter().for_each(|dest| {
+        instruction.results.iter().for_each(|dest| {
             let dest = dest.as_fresh();
 
             if release.contains(dest) {
@@ -898,7 +880,7 @@ pub fn hardware_register_allocation(
         // std::io::stdout().flush().unwrap();
 
         let src = instruction
-            .src
+            .operands
             .into_iter()
             .map(|s| mapping.get_register(s))
             .collect();
@@ -908,7 +890,7 @@ pub fn hardware_register_allocation(
         });
 
         let dest = instruction
-            .dest
+            .results
             .into_iter()
             .map(|d| {
                 let idx = d.as_fresh().0;
@@ -918,8 +900,8 @@ pub fn hardware_register_allocation(
 
         InstructionF {
             opcode: instruction.opcode,
-            dest,
-            src,
+            results: dest,
+            operands: src,
             modifiers: instruction.modifiers,
         }
     };
