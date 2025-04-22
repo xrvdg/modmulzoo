@@ -31,10 +31,8 @@ pub use load_store::*;
 pub use scalar::*;
 pub use simd::*;
 
-use crate::{
-    Allocator, Assembler, D, Instruction, InstructionF, Mod, PointerReg, Reg, RegisterSource, SIMD,
-    Simd, SizedIdx,
-};
+use crate::frontend::{D, PointerReg, Reg, SIMD, Simd, SizedIdx};
+use crate::{Allocator, Assembler, Instruction, InstructionF, Mod, RegisterSource};
 
 use paste::paste;
 macro_rules! embed_asm {
