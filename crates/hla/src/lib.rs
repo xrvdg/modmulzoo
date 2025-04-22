@@ -7,12 +7,6 @@ use std::{
 
 pub mod instructions;
 
-impl TypedSizedRegister<FreshRegister> {
-    fn as_fresh(&self) -> &FreshRegister {
-        &self.reg
-    }
-}
-
 pub type AtomicInstruction = Vec<InstructionF<FreshRegister>>;
 pub type Instruction = InstructionF<FreshRegister>;
 
@@ -711,7 +705,7 @@ impl RegisterMapping {
         &self,
         fresh: TypedSizedRegister<FreshRegister>,
     ) -> TypedSizedRegister<HardwareRegister> {
-        match *self.index(*fresh.as_fresh()) {
+        match *self.index(fresh.reg) {
             RegisterState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
 
             RegisterState::Assigned(reg) => TypedSizedRegister {
@@ -731,7 +725,7 @@ impl RegisterMapping {
         end_lifetime: usize,
     ) -> TypedSizedRegister<HardwareRegister> {
         // Possible to do a mutable reference here
-        let entry = self.index_mut(*typed_register.as_fresh());
+        let entry = self.index_mut(typed_register.reg);
         let hw_reg = match *entry {
             RegisterState::Unassigned => {
                 let addr = typed_register.addressing;
@@ -825,18 +819,15 @@ pub fn liveness_analysis(
         // Add check whether the source is released here.
         // If we don't want to check for that later it is required that the instruction is filtered out here
         // otherwise we need a special structure that checks for both
-        let registers: HashSet<_> = instruction
-            .extract_registers()
-            .map(|tr| *tr.as_fresh())
-            .collect();
+        let registers: HashSet<_> = instruction.extract_registers().map(|tr| tr.reg).collect();
 
         // The difference could be mutable
         let release: HashSet<_> = registers.difference(&seen_registers.0).copied().collect();
 
         instruction.results.iter().for_each(|dest| {
-            let dest = dest.as_fresh();
+            let dest = dest.reg;
 
-            if release.contains(dest) {
+            if release.contains(&dest) {
                 // Better way to give feedback? Now the user doesn't know where it comes from
                 // We view an unused instruction as a problem
                 print_instructions(&instructions);
@@ -893,7 +884,7 @@ pub fn hardware_register_allocation(
             .results
             .into_iter()
             .map(|d| {
-                let idx = d.as_fresh().0;
+                let idx = d.reg.0;
                 mapping.get_or_allocate_register(register_bank, d, lifetimes[idx as usize].1)
             })
             .collect();
