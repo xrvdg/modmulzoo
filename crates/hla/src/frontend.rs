@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, mem};
 
-use crate::{FreshRegister, RegisterSource};
+use crate::{FreshRegister, ReifyRegister};
 
 /// Represents a single hardware registers by modelling it as
 /// a fresh variable.
@@ -43,7 +43,7 @@ impl<'a, T, const N: usize> Reg<*const [T; N]> {
     }
 }
 
-pub trait Pointer: RegisterSource {}
+pub trait Pointer: ReifyRegister {}
 impl<T> Pointer for PointerReg<'_, T> {}
 impl<T> Pointer for Reg<*mut T> {}
 impl<T> Pointer for Reg<*const T> {}

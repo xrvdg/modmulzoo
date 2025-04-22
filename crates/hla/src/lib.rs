@@ -21,8 +21,8 @@ pub struct InstructionF<R> {
     //   - CMN only affects flags
     //   - STR writes to a destination stored in an operand
     // - LDP has 2 destinations
-    results: Vec<TypedSizedRegister<R>>,
-    operands: Vec<TypedSizedRegister<R>>,
+    results: Vec<ReifiedRegister<R>>,
+    operands: Vec<ReifiedRegister<R>>,
     modifiers: Mod,
 }
 
@@ -58,7 +58,7 @@ impl<R: std::fmt::Display + Copy> std::fmt::Display for InstructionF<R> {
 }
 
 impl<R> InstructionF<R> {
-    fn extract_registers(&self) -> impl Iterator<Item = &TypedSizedRegister<R>> {
+    fn extract_registers(&self) -> impl Iterator<Item = &ReifiedRegister<R>> {
         self.results.iter().chain(&self.operands)
     }
 }
@@ -100,13 +100,13 @@ impl Addressing {
     }
 }
 #[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
-pub struct TypedSizedRegister<R> {
+pub struct ReifiedRegister<R> {
     reg: R,
     addressing: Addressing,
     idx: Index,
 }
 
-impl<R: std::fmt::Display> std::fmt::Display for TypedSizedRegister<R> {
+impl<R: std::fmt::Display> std::fmt::Display for ReifiedRegister<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let reg = &self.reg;
         let addr = self.addressing;
@@ -296,20 +296,19 @@ impl RegisterPool {
     }
 }
 
-// TODO different name than RegisterSource
-pub trait RegisterSource {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>;
+pub trait ReifyRegister {
+    fn reify(&self) -> ReifiedRegister<FreshRegister>;
 }
 
-impl<T> RegisterSource for Reg<*mut T> {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        self.as_().to_typed_register()
+impl<T> ReifyRegister for Reg<*mut T> {
+    fn reify(&self) -> ReifiedRegister<FreshRegister> {
+        self.as_().reify()
     }
 }
 
-impl<T> RegisterSource for Reg<*const T> {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        TypedSizedRegister {
+impl<T> ReifyRegister for Reg<*const T> {
+    fn reify(&self) -> ReifiedRegister<FreshRegister> {
+        ReifiedRegister {
             reg: self.reg,
             addressing: Addressing::X,
             idx: Index::Pointer(0),
@@ -317,9 +316,9 @@ impl<T> RegisterSource for Reg<*const T> {
     }
 }
 
-impl<T> RegisterSource for PointerReg<'_, T> {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        TypedSizedRegister {
+impl<T> ReifyRegister for PointerReg<'_, T> {
+    fn reify(&self) -> ReifiedRegister<FreshRegister> {
+        ReifiedRegister {
             reg: self.reg.reg,
             addressing: Addressing::X,
             idx: Index::Pointer(self.offset as usize),
@@ -327,9 +326,9 @@ impl<T> RegisterSource for PointerReg<'_, T> {
     }
 }
 
-impl RegisterSource for Reg<u64> {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        TypedSizedRegister {
+impl ReifyRegister for Reg<u64> {
+    fn reify(&self) -> ReifiedRegister<FreshRegister> {
+        ReifiedRegister {
             reg: self.reg,
             addressing: Addressing::X,
             idx: Index::None,
@@ -337,9 +336,9 @@ impl RegisterSource for Reg<u64> {
     }
 }
 
-impl RegisterSource for Reg<f64> {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        TypedSizedRegister {
+impl ReifyRegister for Reg<f64> {
+    fn reify(&self) -> ReifiedRegister<FreshRegister> {
+        ReifiedRegister {
             reg: self.reg,
             addressing: Addressing::D,
             idx: Index::None,
@@ -347,9 +346,9 @@ impl RegisterSource for Reg<f64> {
     }
 }
 
-impl<T> RegisterSource for Reg<Simd<T, 2>> {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        TypedSizedRegister {
+impl<T> ReifyRegister for Reg<Simd<T, 2>> {
+    fn reify(&self) -> ReifiedRegister<FreshRegister> {
+        ReifiedRegister {
             reg: self.reg,
             addressing: Addressing::V,
             idx: Index::None,
@@ -357,17 +356,17 @@ impl<T> RegisterSource for Reg<Simd<T, 2>> {
     }
 }
 
-impl<T, const I: u8> RegisterSource for Idx<Reg<Simd<T, 2>>, I> {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        let mut tp = self.0.to_typed_register();
+impl<T, const I: u8> ReifyRegister for Idx<Reg<Simd<T, 2>>, I> {
+    fn reify(&self) -> ReifiedRegister<FreshRegister> {
+        let mut tp = self.0.reify();
         tp.idx = Index::Lane(I);
         tp
     }
 }
 
-impl<T, const L: u8, const I: u8> RegisterSource for Sized<Idx<Reg<Simd<T, 2>>, I>, L> {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        let mut tp = self.0.to_typed_register();
+impl<T, const L: u8, const I: u8> ReifyRegister for Sized<Idx<Reg<Simd<T, 2>>, I>, L> {
+    fn reify(&self) -> ReifiedRegister<FreshRegister> {
+        let mut tp = self.0.reify();
 
         let sizes = match L {
             2 => LaneSize::D,
@@ -387,12 +386,12 @@ pub fn input<T>(
     phys: u64,
 ) -> Reg<T>
 where
-    Reg<T>: RegisterSource,
+    Reg<T>: ReifyRegister,
 {
     let fresh = asm.fresh();
 
     let hw_reg = HardwareRegister(phys);
-    let tp = fresh.to_typed_register();
+    let tp = fresh.reify();
 
     if !register_bank.remove(hw_reg, tp.addressing) {
         panic!("{:?} is already in use", phys)
@@ -403,16 +402,16 @@ where
     fresh
 }
 
-pub fn pin_register<T: RegisterSource>(
+pub fn pin_register<T: ReifyRegister>(
     register_bank: &mut RegisterBank,
     lifetimes: &Vec<(usize, usize)>,
     fresh: &T,
     hardware_register: u64,
 ) where
-    T: RegisterSource,
+    T: ReifyRegister,
 {
     let hardware_register = HardwareRegister(hardware_register);
-    let tp = fresh.to_typed_register();
+    let tp = fresh.reify();
 
     register_bank.set_availability(hardware_register, tp, lifetimes[tp.reg.0 as usize].0);
 }
@@ -424,8 +423,8 @@ impl Seen {
         Self(HashSet::new())
     }
 
-    pub fn output_interface<T: RegisterSource>(&mut self, fresh: &T) -> bool {
-        self.seen(fresh.to_typed_register().reg)
+    pub fn output_interface<T: ReifyRegister>(&mut self, fresh: &T) -> bool {
+        self.seen(fresh.reify().reg)
     }
 
     fn seen(&mut self, fresh: FreshRegister) -> bool {
@@ -459,7 +458,7 @@ impl RegisterBank {
 
     fn pop_first(
         &mut self,
-        tp: TypedSizedRegister<FreshRegister>,
+        tp: ReifiedRegister<FreshRegister>,
         end_lifetime: usize,
     ) -> Option<HardwareRegister> {
         self.get_register_pool(tp.addressing)
@@ -473,7 +472,7 @@ impl RegisterBank {
     fn set_availability(
         &mut self,
         register: HardwareRegister,
-        tp: TypedSizedRegister<FreshRegister>,
+        tp: ReifiedRegister<FreshRegister>,
         lifetime: usize,
     ) {
         self.get_register_pool(tp.addressing)
@@ -575,12 +574,12 @@ impl RegisterMapping {
     // Get the physical register for a source register
     fn get_register(
         &self,
-        fresh: TypedSizedRegister<FreshRegister>,
-    ) -> TypedSizedRegister<HardwareRegister> {
+        fresh: ReifiedRegister<FreshRegister>,
+    ) -> ReifiedRegister<HardwareRegister> {
         match *self.index(fresh.reg) {
             RegisterState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
 
-            RegisterState::Assigned(reg) => TypedSizedRegister {
+            RegisterState::Assigned(reg) => ReifiedRegister {
                 reg: reg.reg(),
                 addressing: fresh.addressing,
                 idx: fresh.idx,
@@ -593,9 +592,9 @@ impl RegisterMapping {
     fn get_or_allocate_register(
         &mut self,
         register_bank: &mut RegisterBank,
-        typed_register: TypedSizedRegister<FreshRegister>,
+        typed_register: ReifiedRegister<FreshRegister>,
         end_lifetime: usize,
-    ) -> TypedSizedRegister<HardwareRegister> {
+    ) -> ReifiedRegister<HardwareRegister> {
         // Possible to do a mutable reference here
         let entry = self.index_mut(typed_register.reg);
         let hw_reg = match *entry {
@@ -612,7 +611,7 @@ impl RegisterMapping {
             RegisterState::Assigned(reg) => reg.reg(),
             RegisterState::Dropped => unreachable!("{typed_register:?} already has been dropped"),
         };
-        TypedSizedRegister {
+        ReifiedRegister {
             reg: hw_reg,
             addressing: typed_register.addressing,
             idx: typed_register.idx,
@@ -649,14 +648,14 @@ impl RegisterMapping {
     // - to only have the addressing defined in a single place namely RegisterSource
     // Whether we should keep it as Typed Sized Register is another question
     // The index is not of interested here and needs to be set to None explicitly
-    pub fn output_register<R: RegisterSource>(
+    pub fn output_register<R: ReifyRegister>(
         &self,
         reg: &R,
-    ) -> Option<TypedSizedRegister<HardwareRegister>> {
-        let tp = reg.to_typed_register();
+    ) -> Option<ReifiedRegister<HardwareRegister>> {
+        let tp = reg.reify();
         match self.index(tp.reg) {
             RegisterState::Unassigned => None,
-            RegisterState::Assigned(hw_reg) => Some(TypedSizedRegister {
+            RegisterState::Assigned(hw_reg) => Some(ReifiedRegister {
                 reg: hw_reg.reg(),
                 addressing: tp.addressing,
                 idx: Index::None,
@@ -808,8 +807,8 @@ pub fn backend_inline(instructions: &Vec<InstructionF<HardwareRegister>>) -> Str
 
 pub fn backend_rust(
     mapping: RegisterMapping,
-    inputs_registers: Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    outputs_registers: Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    inputs_registers: Vec<Vec<ReifiedRegister<HardwareRegister>>>,
+    outputs_registers: Vec<Vec<ReifiedRegister<HardwareRegister>>>,
     instructions: &Vec<InstructionF<HardwareRegister>>,
 ) -> String {
     assert_eq!(
@@ -845,7 +844,7 @@ pub fn backend_rust(
         .intersperse(", ".to_string())
         .collect();
 
-    let mut clobber_registers: BTreeSet<TypedSizedRegister<HardwareRegister>> = BTreeSet::new();
+    let mut clobber_registers: BTreeSet<ReifiedRegister<HardwareRegister>> = BTreeSet::new();
     instructions.iter().for_each(|instruction| {
         clobber_registers.extend(instruction.extract_registers().map(|reg| clobber(reg)));
     });
@@ -876,9 +875,9 @@ pub fn backend_rust(
 }
 
 /// For the clobber register we only have to mention the register
-fn clobber(c: &TypedSizedRegister<HardwareRegister>) -> TypedSizedRegister<HardwareRegister> {
+fn clobber(c: &ReifiedRegister<HardwareRegister>) -> ReifiedRegister<HardwareRegister> {
     // Unpack the fields of TypedSizedRegister using destructuring
-    let TypedSizedRegister {
+    let ReifiedRegister {
         reg,
         addressing,
         idx: _idx,
@@ -890,7 +889,7 @@ fn clobber(c: &TypedSizedRegister<HardwareRegister>) -> TypedSizedRegister<Hardw
     };
 
     // Return a new TypedSizedRegister with the same values
-    TypedSizedRegister {
+    ReifiedRegister {
         reg: *reg,
         addressing,
         idx: Index::None,

@@ -18,10 +18,7 @@ fn setup_schoolmethod(
     mapping: &mut RegisterMapping,
     phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<Reg<u64>>,
-) {
+) -> (Vec<Vec<ReifiedRegister<HardwareRegister>>>, Vec<Reg<u64>>) {
     let a = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
     let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (a.len() + i) as u64));
 
@@ -50,9 +47,9 @@ fn build_func<T>(
         mapping: &mut RegisterMapping,
         phys_registers: &mut RegisterBank,
         asm: &mut Assembler,
-    ) -> (Vec<Vec<TypedSizedRegister<HardwareRegister>>>, Vec<T>),
+    ) -> (Vec<Vec<ReifiedRegister<HardwareRegister>>>, Vec<T>),
 ) where
-    T: hla::RegisterSource,
+    T: hla::ReifyRegister,
 {
     let mut alloc = Allocator::new();
     let mut mapping = RegisterMapping::new();
@@ -112,10 +109,7 @@ fn setup_single_step(
     phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
     base: usize,
-) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<Reg<u64>>,
-) {
+) -> (Vec<Vec<ReifiedRegister<HardwareRegister>>>, Vec<Reg<u64>>) {
     let a = array::from_fn(|i| input(alloc, mapping, phys_registers, (base + i) as u64));
     let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (base + a.len() + i) as u64));
 
@@ -143,7 +137,7 @@ fn setup_single_step_load(
     asm: &mut Assembler,
     base: usize,
 ) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Vec<ReifiedRegister<HardwareRegister>>>,
     Vec<Reg<*mut [u64; 4]>>,
 ) {
     let mut a = input(alloc, mapping, phys_registers, (base + 0) as u64);
@@ -162,10 +156,7 @@ fn setup_single_step_split(
     mapping: &mut RegisterMapping,
     phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<Reg<u64>>,
-) {
+) -> (Vec<Vec<ReifiedRegister<HardwareRegister>>>, Vec<Reg<u64>>) {
     let a = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
     let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (a.len() + i) as u64));
 
@@ -191,10 +182,7 @@ fn setup_smul_add(
     mapping: &mut RegisterMapping,
     phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<Reg<u64>>,
-) {
+) -> (Vec<Vec<ReifiedRegister<HardwareRegister>>>, Vec<Reg<u64>>) {
     let add = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
     let a = array::from_fn(|i| input(alloc, mapping, phys_registers, (add.len() + i) as u64));
     let b = input(alloc, mapping, phys_registers, (add.len() + a.len()) as u64);
@@ -229,7 +217,7 @@ fn setup_u256_to_u260_shl2_imd(
     phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
 ) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Vec<ReifiedRegister<HardwareRegister>>>,
     Vec<Reg<Simd<u64, 2>>>,
 ) {
     let limbs = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
@@ -253,7 +241,7 @@ fn setup_u260_to_u256_simd(
     phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
 ) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Vec<ReifiedRegister<HardwareRegister>>>,
     Vec<Reg<Simd<u64, 2>>>,
 ) {
     let limbs = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
@@ -274,7 +262,7 @@ fn setup_vmultadd_noinit_simd(
     phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
 ) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Vec<ReifiedRegister<HardwareRegister>>>,
     Vec<Reg<Simd<u64, 2>>>,
 ) {
     let t = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
@@ -326,7 +314,7 @@ fn setup_single_step_simd(
     phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
 ) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Vec<ReifiedRegister<HardwareRegister>>>,
     Vec<Reg<Simd<u64, 2>>>,
 ) {
     let a = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
@@ -356,7 +344,7 @@ fn setup_reduce_ct_simd(
     phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
 ) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
+    Vec<Vec<ReifiedRegister<HardwareRegister>>>,
     Vec<Reg<Simd<u64, 2>>>,
 ) {
     let red = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
