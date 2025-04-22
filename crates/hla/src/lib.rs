@@ -186,12 +186,6 @@ impl Allocator {
         Reg::new(x)
     }
 
-    pub fn fresh_preg<T>(&mut self) -> PointerReg<T> {
-        let x = self.fresh;
-        self.fresh += 1;
-        PointerReg::new(x)
-    }
-
     pub fn new() -> Self {
         Self { fresh: 0 }
     }
@@ -307,10 +301,20 @@ pub trait RegisterSource {
     fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>;
 }
 
-impl<T> RegisterSource for PointerReg<T> {
+impl<T> RegisterSource for Reg<*mut T> {
     fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
         TypedSizedRegister {
             reg: self.reg,
+            addressing: Addressing::X,
+            idx: Index::Pointer(0),
+        }
+    }
+}
+
+impl<T> RegisterSource for PointerReg<'_, T> {
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
+        TypedSizedRegister {
+            reg: self.reg.reg,
             addressing: Addressing::X,
             idx: Index::Pointer(self.offset as usize),
         }
@@ -383,26 +387,6 @@ where
 
     let hw_reg = HardwareRegister(phys);
     let tp = fresh.to_typed_register();
-
-    if !register_bank.remove(hw_reg, tp.addressing) {
-        panic!("{:?} is already in use", phys)
-    }
-
-    *mapping.index_mut(fresh.reg) = RegisterState::Assigned(tp.addressing.to_pool(hw_reg));
-
-    fresh
-}
-
-pub fn input_preg<T, const N: usize>(
-    asm: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    register_bank: &mut RegisterBank,
-    phys: u64,
-) -> PointerReg<[T; N]> {
-    let fresh = asm.fresh_preg();
-
-    let hw_reg = HardwareRegister(phys);
-    let tp = fresh.get(0).to_typed_register();
 
     if !register_bank.remove(hw_reg, tp.addressing) {
         panic!("{:?} is already in use", phys)

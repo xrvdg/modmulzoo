@@ -151,6 +151,8 @@ pub mod scalar {
 }
 
 pub mod load_store {
+    use crate::Pointer;
+
     use super::*;
     pub fn ldr<T>(alloc: &mut Allocator, asm: &mut Assembler, ptr: &PointerReg<T>) -> Reg<u64> {
         let ret = alloc.fresh();
@@ -167,10 +169,10 @@ pub mod load_store {
         }
     }
 
-    pub fn ldp<T>(
+    pub fn ldp<PTR: Pointer>(
         alloc: &mut Allocator,
         asm: &mut Assembler,
-        ptr: &PointerReg<T>,
+        ptr: &PTR,
     ) -> (Reg<u64>, Reg<u64>) {
         let ret0 = alloc.fresh();
         let ret1 = alloc.fresh();
@@ -178,7 +180,7 @@ pub mod load_store {
         (ret0, ret1)
     }
 
-    pub fn ldp_inst<T>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PointerReg<T>) -> Instruction {
+    pub fn ldp_inst<PTR: Pointer>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PTR) -> Instruction {
         InstructionF {
             opcode: "ldp".to_string(),
             results: vec![dest.to_typed_register(), dest2.to_typed_register()],
@@ -186,17 +188,17 @@ pub mod load_store {
             modifiers: Mod::None,
         }
     }
-    pub fn stp<T>(
+    pub fn stp<PTR: Pointer>(
         _alloc: &mut Allocator,
         asm: &mut Assembler,
         str0: &Reg<u64>,
         str1: &Reg<u64>,
-        ptr: &PointerReg<T>,
+        ptr: &PTR,
     ) {
         asm.append_instruction(vec![stp_inst(&str0, &str1, ptr)]);
     }
 
-    pub fn stp_inst<T>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PointerReg<T>) -> Instruction {
+    pub fn stp_inst<PTR: Pointer>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PTR) -> Instruction {
         InstructionF {
             opcode: "stp".to_string(),
             results: vec![],
