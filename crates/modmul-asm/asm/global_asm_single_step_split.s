@@ -177,20 +177,20 @@ _single_step_split:
   adds x20, x23, x20
   cinc x10, x10, hs
   adds x12, x12, x16
-  adds x4, x4, x8
-  adds x5, x5, x13
-  adds x6, x6, x14
-  adds x7, x7, x9
+  adcs x4, x4, x8
+  adcs x5, x5, x13
+  adcs x6, x6, x14
+  adc x7, x7, x9
   adds x8, x12, x22
-  adds x4, x4, x15
-  adds x5, x5, x17
-  adds x6, x6, x20
-  adds x7, x7, x10
+  adcs x4, x4, x15
+  adcs x5, x5, x17
+  adcs x6, x6, x20
+  adc x7, x7, x10
   adds x8, x8, x11
-  adds x0, x4, x0
-  adds x1, x5, x1
-  adds x2, x6, x2
-  adds x3, x7, x3
+  adcs x0, x4, x0
+  adcs x1, x5, x1
+  adcs x2, x6, x2
+  adc x3, x7, x3
   mov x4, #65535
   movk x4, #61439, lsl 16
   movk x4, #62867, lsl 32
@@ -227,11 +227,11 @@ _single_step_split:
   adds x7, x11, x7
   cinc x4, x4, hs
   cmn x10, x8
-  adds x0, x5, x0
-  adds x1, x6, x1
-  adds x2, x7, x2
-  adds x5, x4, x3
-  adds x5, x4, x3
+  adcs x0, x5, x0
+  adcs x1, x6, x1
+  adcs x2, x7, x2
+  adcs x5, x4, x3
+  adc x5, x4, x3
   mov x3, #2
   movk x3, #57344, lsl 16
   movk x3, #60199, lsl 32

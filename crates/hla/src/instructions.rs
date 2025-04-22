@@ -45,6 +45,14 @@ macro_rules! embed_asm {
                 ret
             }
 
+            embed_asm_inst!($name, $opcode, ($($arg: $arg_ty),*) -> $ret_ty);
+        }
+    };
+}
+
+macro_rules! embed_asm_inst {
+    ($name:ident, $opcode:literal, ($($arg:ident : $arg_ty:ty),*) -> $ret_ty:ty) => {
+        paste!{
             pub fn [<$name _inst>](dest: &Reg<$ret_ty>, $($arg: &Reg<$arg_ty>),*) -> Instruction {
                 InstructionF {
                     opcode: $opcode.to_string(),
@@ -74,10 +82,8 @@ pub mod scalar {
         }
     }
 
-    // Instructions that are only used in assembly blocks
-    // These instructions are not meant to be used directly in the DSL
-    // as they may have side effects or require specific conditions
-    // that are better handled in assembly blocks
+    // The following instructions that are only used in assembly blocks
+    // as they have side effects such as carries.
 
     pub fn tst_inst(a: &Reg<u64>, imm: u64) -> Instruction {
         InstructionF {
@@ -115,17 +121,11 @@ pub mod scalar {
         }
     }
 
-    pub fn ins_inst<const I: u8>(
-        dest: &SizedIdx<Reg<Simd<u64, 2>>, D, I>,
-        a: &Reg<u64>,
-    ) -> Instruction {
-        InstructionF {
-            opcode: "ins".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![a.to_typed_register()],
-            modifiers: Mod::None,
-        }
-    }
+    embed_asm_inst!(adds, "adds", (a: u64, b: u64) -> u64);
+    embed_asm_inst!(adcs, "adcs", (a: u64, b: u64) -> u64);
+    embed_asm_inst!(adc, "adc", (a: u64, b: u64) -> u64);
+    embed_asm_inst!(subs, "subs", (a: u64, b: u64) -> u64);
+    embed_asm_inst!(sbcs, "sbcs", (a: u64, b: u64) -> u64);
 
     // END block operations
 
@@ -144,38 +144,11 @@ pub mod scalar {
         }
     }
 
-    pub fn umov<const I: u8>(
-        alloc: &mut Allocator,
-        asm: &mut Assembler,
-        a: &SizedIdx<Reg<Simd<u64, 2>>, D, I>,
-    ) -> Reg<u64> {
-        let ret = alloc.fresh();
-        asm.append_instruction(vec![umov_inst(&ret, a)]);
-        ret
-    }
-    pub fn umov_inst<const I: u8>(
-        dest: &Reg<u64>,
-        a: &SizedIdx<Reg<Simd<u64, 2>>, D, I>,
-    ) -> Instruction {
-        InstructionF {
-            opcode: "umov".to_string(),
-            dest: vec![dest.to_typed_register()],
-            src: vec![a.to_typed_register()],
-            modifiers: Mod::None,
-        }
-    }
-
     embed_asm!(mul, "mul", (a: u64, b: u64) -> u64);
     embed_asm!(umulh, "umulh", (a: u64, b: u64) -> u64);
 
     embed_asm!(add, "add", (a: u64, b: u64) -> u64);
     embed_asm!(and, "and", (a: u64, b: u64) -> u64);
-
-    embed_asm!(adds, "adds", (a: u64, b: u64) -> u64);
-    embed_asm!(adcs, "adds", (a: u64, b: u64) -> u64);
-    embed_asm!(adc, "adds", (a: u64, b: u64) -> u64);
-    embed_asm!(subs, "subs", (a: u64, b: u64) -> u64);
-    embed_asm!(sbcs, "sbcs", (a: u64, b: u64) -> u64);
 }
 
 pub mod load_store {
@@ -250,6 +223,39 @@ pub mod simd {
     embed_asm!(sub2d, "sub.2d", (a: Simd<i64,2>, b: Simd<i64,2>) -> Simd<i64,2>);
     embed_asm!(fsub2d, "fsub.2d", (a: Simd<f64,2>, b: Simd<f64,2>) -> Simd<f64,2>);
     embed_asm!(orr16, "orr.16b", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
+
+    pub fn ins_inst<const I: u8>(
+        dest: &SizedIdx<Reg<Simd<u64, 2>>, D, I>,
+        a: &Reg<u64>,
+    ) -> Instruction {
+        InstructionF {
+            opcode: "ins".to_string(),
+            dest: vec![dest.to_typed_register()],
+            src: vec![a.to_typed_register()],
+            modifiers: Mod::None,
+        }
+    }
+
+    pub fn umov<const I: u8>(
+        alloc: &mut Allocator,
+        asm: &mut Assembler,
+        a: &SizedIdx<Reg<Simd<u64, 2>>, D, I>,
+    ) -> Reg<u64> {
+        let ret = alloc.fresh();
+        asm.append_instruction(vec![umov_inst(&ret, a)]);
+        ret
+    }
+    pub fn umov_inst<const I: u8>(
+        dest: &Reg<u64>,
+        a: &SizedIdx<Reg<Simd<u64, 2>>, D, I>,
+    ) -> Instruction {
+        InstructionF {
+            opcode: "umov".to_string(),
+            dest: vec![dest.to_typed_register()],
+            src: vec![a.to_typed_register()],
+            modifiers: Mod::None,
+        }
+    }
 
     pub fn cmeq2d(
         alloc: &mut Allocator,
