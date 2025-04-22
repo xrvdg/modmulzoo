@@ -144,7 +144,7 @@ fn setup_single_step_load(
     base: usize,
 ) -> (
     Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<PReg<[u64; 4]>>,
+    Vec<PointerReg<[u64; 4]>>,
 ) {
     let mut a = input_preg(alloc, mapping, phys_registers, (base + 0) as u64);
     let b = input_preg(alloc, mapping, phys_registers, (base + 1) as u64);
@@ -915,8 +915,8 @@ pub fn school_method(
 pub fn school_method_load(
     alloc: &mut Allocator,
     asm: &mut Assembler,
-    a: &PReg<[u64; 4]>,
-    b: &PReg<[u64; 4]>,
+    a: &PointerReg<[u64; 4]>,
+    b: &PointerReg<[u64; 4]>,
 ) -> [Reg<u64>; 8] {
     let mut t: [Reg<u64>; 8] = array::from_fn(|_| alloc.fresh());
     let mut carry;
@@ -1044,7 +1044,7 @@ pub fn single_step(
     reduce(alloc, asm, r4)
 }
 
-fn load_vector(alloc: &mut Allocator, asm: &mut Assembler, a: &PReg<[u64; 4]>) -> [Reg<u64>; 4] {
+fn load_vector(alloc: &mut Allocator, asm: &mut Assembler, a: &PointerReg<[u64; 4]>) -> [Reg<u64>; 4] {
     let (l0, l1) = ldp(alloc, asm, a);
     let (l2, l3) = ldp(alloc, asm, &a.get(2));
     [l0, l1, l2, l3]
@@ -1054,7 +1054,7 @@ fn store_vector(
     alloc: &mut Allocator,
     asm: &mut Assembler,
     a: &[Reg<u64>; 4],
-    str: &mut PReg<[u64; 4]>,
+    str: &mut PointerReg<[u64; 4]>,
 ) {
     let [a0, a1, a2, a3] = a;
     stp(alloc, asm, a0, a1, &str.get(0));
@@ -1064,8 +1064,8 @@ fn store_vector(
 pub fn single_step_load<'a>(
     alloc: &mut Allocator,
     asm: &mut Assembler,
-    a: &mut PReg<[u64; 4]>,
-    b: &PReg<[u64; 4]>,
+    a: &mut PointerReg<[u64; 4]>,
+    b: &PointerReg<[u64; 4]>,
 ) {
     let load_a = load_vector(alloc, asm, a);
     let b = load_vector(alloc, asm, b);

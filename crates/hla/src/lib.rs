@@ -10,7 +10,7 @@ pub mod instructions;
 pub type AtomicInstruction = Vec<InstructionF<FreshRegister>>;
 pub type Instruction = InstructionF<FreshRegister>;
 
-// This instruction models both aliases and regular instructions
+/// This instruction models both aliases and regular instructions
 #[derive(Debug, PartialEq)]
 pub struct InstructionF<R> {
     opcode: String,
@@ -34,41 +34,8 @@ enum Mod {
     Cond(String),
 }
 
-impl<R: std::fmt::Display> std::fmt::Display for TypedSizedRegister<R> {
+impl<R: std::fmt::Display + Copy> std::fmt::Display for InstructionF<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let reg = &self.reg;
-        let addr = self.addressing;
-        match self.idx {
-            Index::None => write!(f, "{addr}{reg}"),
-            Index::Lane(idx) => write!(f, "{addr}{reg}[{idx}]"),
-            Index::LaneSized(lane_sizes, idx) => write!(f, "{addr}{reg}.{lane_sizes}[{idx}]"),
-            Index::Pointer(offset) => write!(f, "[{addr}{reg}, #{offset}]"),
-        }
-    }
-}
-
-impl std::fmt::Display for LaneSize {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LaneSize::S => write!(f, "s"),
-            LaneSize::D => write!(f, "d"),
-        }
-    }
-}
-
-impl std::fmt::Display for Addressing {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Addressing::V => write!(f, "v"),
-            Addressing::D => write!(f, "d"),
-            Addressing::X => write!(f, "x"),
-        }
-    }
-}
-
-impl<R: std::fmt::Display + Copy> InstructionF<R> {
-    // TODO this might be better as Display and/or using Formatter
-    fn format_instruction(&self) -> String {
         let regs: String = self
             .extract_registers()
             .map(|x| x.to_string())
@@ -82,46 +49,25 @@ impl<R: std::fmt::Display + Copy> InstructionF<R> {
             Mod::ImmLSL(imm, shift) => format!(", #{imm}, lsl {shift}"),
             Mod::LSL(imm) => format!(", #{imm}"),
         };
-        let inst = &self.opcode;
-        format!("{inst} {regs}{extra}")
-    }
 
+        let inst = &self.opcode;
+        write!(f, "{inst} {regs}{extra}")
+    }
+}
+
+impl<R> InstructionF<R> {
     fn extract_registers(&self) -> impl Iterator<Item = &TypedSizedRegister<R>> {
         self.results.iter().chain(&self.operands)
     }
 }
 
-impl From<InstructionF<FreshRegister>> for LivenessCommand {
-    fn from(instr: InstructionF<FreshRegister>) -> Self {
-        LivenessCommand::Instr(instr)
-    }
-}
-
-pub struct Assembler {
-    pub instructions: Vec<AtomicInstruction>,
-}
-
-impl Assembler {
-    pub fn new() -> Self {
-        Self {
-            instructions: Vec::new(),
-        }
-    }
-    pub fn append_instruction(&mut self, inst: AtomicInstruction) {
-        self.instructions.push(inst)
-    }
-}
-
-pub trait SIMD {}
-
-impl<T, const N: usize> SIMD for Reg<Simd<T, N>> {}
-impl<T: SIMD, const I: u8> SIMD for Idx<T, I> {}
-
 pub struct Reg<T> {
     reg: FreshRegister,
     _marker: PhantomData<T>,
 }
-pub struct PReg<T> {
+
+/// Register that contains a pointer of type T
+pub struct PointerReg<T> {
     reg: FreshRegister,
     // offset in bytes as that allows for conversions between
     // x and w without having to recalculate the offset
@@ -129,7 +75,7 @@ pub struct PReg<T> {
     _marker: PhantomData<T>,
 }
 
-impl<T> PReg<T> {
+impl<T> PointerReg<T> {
     pub fn new(reg: u64) -> Self {
         Self {
             reg: FreshRegister(reg),
@@ -139,11 +85,11 @@ impl<T> PReg<T> {
     }
 }
 
-impl<T, const N: usize> PReg<[T; N]> {
-    pub fn get(&self, index: usize) -> PReg<T> {
+impl<T, const N: usize> PointerReg<[T; N]> {
+    pub fn get(&self, index: usize) -> PointerReg<T> {
         assert!(index < N, "out-of-bounds access");
 
-        PReg {
+        PointerReg {
             reg: self.reg,
             offset: mem::size_of::<T>() * index,
             _marker: PhantomData,
@@ -151,17 +97,18 @@ impl<T, const N: usize> PReg<[T; N]> {
     }
 }
 
+pub trait SIMD {}
+
+impl<T, const N: usize> SIMD for Reg<Simd<T, N>> {}
+impl<T: SIMD, const I: u8> SIMD for Idx<T, I> {}
+
 /// Define the struct ourself as to not have to import it
 pub struct Simd<T, const N: usize>(PhantomData<T>);
-// IDX has to go with SIMD but sized is an optional
-// So if ordered it would be Sized<Idx<
-// but maybe it's better to mix it in somehow
 pub struct Idx<T, const I: u8>(T);
+pub struct Sized<T, const LANES: u8>(T);
+type SizedIdx<T, const L: u8, const I: u8> = Sized<Idx<T, I>, L>;
 
 pub const D: u8 = 2;
-pub struct Sized<T, const LANES: u8>(T);
-
-type SizedIdx<T, const L: u8, const I: u8> = Sized<Idx<T, I>, L>;
 
 pub trait Reg64Bit {}
 impl Reg64Bit for u64 {}
@@ -210,6 +157,38 @@ pub struct TypedSizedRegister<R> {
     idx: Index,
 }
 
+impl<R: std::fmt::Display> std::fmt::Display for TypedSizedRegister<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let reg = &self.reg;
+        let addr = self.addressing;
+        match self.idx {
+            Index::None => write!(f, "{addr}{reg}"),
+            Index::Lane(idx) => write!(f, "{addr}{reg}[{idx}]"),
+            Index::LaneSized(lane_sizes, idx) => write!(f, "{addr}{reg}.{lane_sizes}[{idx}]"),
+            Index::Pointer(offset) => write!(f, "[{addr}{reg}, #{offset}]"),
+        }
+    }
+}
+
+impl std::fmt::Display for LaneSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LaneSize::S => write!(f, "s"),
+            LaneSize::D => write!(f, "d"),
+        }
+    }
+}
+
+impl std::fmt::Display for Addressing {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Addressing::V => write!(f, "v"),
+            Addressing::D => write!(f, "d"),
+            Addressing::X => write!(f, "x"),
+        }
+    }
+}
+
 #[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
 #[repr(u8)]
 enum LaneSize {
@@ -245,7 +224,7 @@ impl<T> Reg<T> {
     }
 }
 
-impl<T> RegisterSource for PReg<T> {
+impl<T> RegisterSource for PointerReg<T> {
     fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
         TypedSizedRegister {
             reg: self.reg,
@@ -287,6 +266,21 @@ impl<T> Reg<Simd<T, 2>> {
     }
 }
 
+pub struct Assembler {
+    pub instructions: Vec<AtomicInstruction>,
+}
+
+impl Assembler {
+    pub fn new() -> Self {
+        Self {
+            instructions: Vec::new(),
+        }
+    }
+    pub fn append_instruction(&mut self, inst: AtomicInstruction) {
+        self.instructions.push(inst)
+    }
+}
+
 #[derive(Debug)]
 pub struct Allocator {
     // It's about unique counters so we use the counter for both
@@ -302,10 +296,10 @@ impl Allocator {
         Reg::new(x)
     }
 
-    pub fn fresh_preg<T>(&mut self) -> PReg<T> {
+    pub fn fresh_preg<T>(&mut self) -> PointerReg<T> {
         let x = self.fresh;
         self.fresh += 1;
-        PReg::new(x)
+        PointerReg::new(x)
     }
 
     pub fn new() -> Self {
@@ -516,7 +510,7 @@ pub fn input_preg<T, const N: usize>(
     mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
     phys: u64,
-) -> PReg<[T; N]> {
+) -> PointerReg<[T; N]> {
     let fresh = asm.fresh_preg();
 
     let hw_reg = HardwareRegister(phys);
@@ -904,7 +898,7 @@ pub fn print_instructions<R: std::fmt::Display + Copy>(instrs: &[InstructionF<R>
     instrs
         .iter()
         .enumerate()
-        .for_each(|(line, inst)| println!("{line}: {}", inst.format_instruction()));
+        .for_each(|(line, inst)| println!("{line}: {}", inst));
 }
 
 pub fn backend_global(label: &str, instructions: &Vec<InstructionF<HardwareRegister>>) -> String {
@@ -915,7 +909,7 @@ pub fn backend_global(label: &str, instructions: &Vec<InstructionF<HardwareRegis
     asm_code.extend(
         instructions
             .into_iter()
-            .map(|instruction| format!("  {}\n", instruction.format_instruction())),
+            .map(|instruction| format!("  {}\n", instruction)),
     );
     asm_code.push_str("ret\n");
     asm_code
@@ -926,7 +920,7 @@ pub fn backend_inline(instructions: &Vec<InstructionF<HardwareRegister>>) -> Str
     asm_code.extend(
         instructions
             .into_iter()
-            .map(|instruction| format!("\"{}\",\n", instruction.format_instruction())),
+            .map(|instruction| format!("\"{}\",\n", instruction)),
     );
     asm_code
 }

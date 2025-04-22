@@ -20,7 +20,8 @@
 //!
 //! # Notes
 //!
-//! Note all instru
+//! Most instructions are more general than defined here. For now we've only modelled the instructions
+//! for our specific use case.
 //!
 //! # Safety
 //! - Flag-based operations should only be used through their `_inst` variants to prevent
@@ -31,8 +32,8 @@ pub use scalar::*;
 pub use simd::*;
 
 use crate::{
-    Allocator, Assembler, D, Instruction, InstructionF, Mod, PReg, Reg, RegisterSource, SIMD, Simd,
-    SizedIdx,
+    Allocator, Assembler, D, Instruction, InstructionF, Mod, PointerReg, Reg, RegisterSource, SIMD,
+    Simd, SizedIdx,
 };
 
 use paste::paste;
@@ -153,13 +154,13 @@ pub mod scalar {
 
 pub mod load_store {
     use super::*;
-    pub fn ldr<T>(alloc: &mut Allocator, asm: &mut Assembler, ptr: &PReg<T>) -> Reg<u64> {
+    pub fn ldr<T>(alloc: &mut Allocator, asm: &mut Assembler, ptr: &PointerReg<T>) -> Reg<u64> {
         let ret = alloc.fresh();
         asm.append_instruction(vec![ldr_inst(&ret, ptr)]);
         ret
     }
 
-    pub fn ldr_inst<T>(dest: &Reg<u64>, ptr: &PReg<T>) -> Instruction {
+    pub fn ldr_inst<T>(dest: &Reg<u64>, ptr: &PointerReg<T>) -> Instruction {
         InstructionF {
             opcode: "ldr".to_string(),
             results: vec![dest.to_typed_register()],
@@ -171,7 +172,7 @@ pub mod load_store {
     pub fn ldp<T>(
         alloc: &mut Allocator,
         asm: &mut Assembler,
-        ptr: &PReg<T>,
+        ptr: &PointerReg<T>,
     ) -> (Reg<u64>, Reg<u64>) {
         let ret0 = alloc.fresh();
         let ret1 = alloc.fresh();
@@ -179,7 +180,7 @@ pub mod load_store {
         (ret0, ret1)
     }
 
-    pub fn ldp_inst<T>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PReg<T>) -> Instruction {
+    pub fn ldp_inst<T>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PointerReg<T>) -> Instruction {
         InstructionF {
             opcode: "ldp".to_string(),
             results: vec![dest.to_typed_register(), dest2.to_typed_register()],
@@ -192,12 +193,12 @@ pub mod load_store {
         asm: &mut Assembler,
         str0: &Reg<u64>,
         str1: &Reg<u64>,
-        ptr: &PReg<T>,
+        ptr: &PointerReg<T>,
     ) {
         asm.append_instruction(vec![stp_inst(&str0, &str1, ptr)]);
     }
 
-    pub fn stp_inst<T>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PReg<T>) -> Instruction {
+    pub fn stp_inst<T>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PointerReg<T>) -> Instruction {
         InstructionF {
             opcode: "stp".to_string(),
             results: vec![],
