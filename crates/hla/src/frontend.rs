@@ -10,9 +10,9 @@ pub struct Reg<T> {
 }
 
 /// Represents a single hardware register that contains a pointer to a type T
-/// but also allows us to store an offset from that register.
+/// and an offset from that pointer.
 pub struct PointerReg<'a, T> {
-    pub(crate) reg: &'a Reg<*mut T>,
+    pub(crate) reg: &'a Reg<T>,
     // offset in bytes as that allows for conversions between
     // x and w without having to recalculate the offset
     pub(crate) offset: usize,
@@ -20,7 +20,19 @@ pub struct PointerReg<'a, T> {
 }
 
 impl<'a, T, const N: usize> Reg<*mut [T; N]> {
-    pub fn get(&self, index: usize) -> PointerReg<T> {
+    pub fn get(&self, index: usize) -> PointerReg<*mut T> {
+        assert!(index < N, "out-of-bounds access");
+
+        PointerReg {
+            reg: self.as_pointer(),
+            offset: mem::size_of::<T>() * index,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<'a, T, const N: usize> Reg<*const [T; N]> {
+    pub fn get(&self, index: usize) -> PointerReg<*const T> {
         assert!(index < N, "out-of-bounds access");
 
         PointerReg {
@@ -34,6 +46,11 @@ impl<'a, T, const N: usize> Reg<*mut [T; N]> {
 pub trait Pointer: RegisterSource {}
 impl<T> Pointer for PointerReg<'_, T> {}
 impl<T> Pointer for Reg<*mut T> {}
+impl<T> Pointer for Reg<*const T> {}
+
+pub trait MutablePointer: Pointer {}
+impl<T> MutablePointer for PointerReg<'_, *mut T> {}
+impl<T> MutablePointer for Reg<*mut T> {}
 
 // fmla.2d supports both a vector or vector lane as multiplier
 pub trait SIMD {}
@@ -99,7 +116,19 @@ impl<T> Reg<Simd<T, 2>> {
 }
 
 impl<T, const N: usize> Reg<*mut [T; N]> {
-    pub fn as_(&self) -> &Reg<*mut T> {
+    pub fn as_pointer(&self) -> &Reg<*mut T> {
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl<T> Reg<*mut T> {
+    pub fn as_(&self) -> &Reg<*const T> {
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl<T, const N: usize> Reg<*const [T; N]> {
+    pub fn as_(&self) -> &Reg<*const T> {
         unsafe { std::mem::transmute(self) }
     }
 }

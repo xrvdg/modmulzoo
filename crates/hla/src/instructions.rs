@@ -151,7 +151,7 @@ pub mod scalar {
 }
 
 pub mod load_store {
-    use crate::Pointer;
+    use crate::{MutablePointer, Pointer};
 
     use super::*;
     pub fn ldr<T>(alloc: &mut Allocator, asm: &mut Assembler, ptr: &PointerReg<T>) -> Reg<u64> {
@@ -188,7 +188,7 @@ pub mod load_store {
             modifiers: Mod::None,
         }
     }
-    pub fn stp<PTR: Pointer>(
+    pub fn stp<PTR: MutablePointer>(
         _alloc: &mut Allocator,
         asm: &mut Assembler,
         str0: &Reg<u64>,
@@ -198,7 +198,11 @@ pub mod load_store {
         asm.append_instruction(vec![stp_inst(&str0, &str1, ptr)]);
     }
 
-    pub fn stp_inst<PTR: Pointer>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PTR) -> Instruction {
+    pub fn stp_inst<PTR: MutablePointer>(
+        dest: &Reg<u64>,
+        dest2: &Reg<u64>,
+        ptr: &PTR,
+    ) -> Instruction {
         InstructionF {
             opcode: "stp".to_string(),
             results: vec![],

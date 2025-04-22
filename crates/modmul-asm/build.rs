@@ -915,8 +915,8 @@ pub fn school_method(
 pub fn school_method_load(
     alloc: &mut Allocator,
     asm: &mut Assembler,
-    a: &Reg<*mut [u64; 4]>,
-    b: &Reg<*mut [u64; 4]>,
+    a: &Reg<*const [u64; 4]>,
+    b: &Reg<*const [u64; 4]>,
 ) -> [Reg<u64>; 8] {
     let mut t: [Reg<u64>; 8] = array::from_fn(|_| alloc.fresh());
     let mut carry;
@@ -1047,9 +1047,9 @@ pub fn single_step(
 fn load_vector(
     alloc: &mut Allocator,
     asm: &mut Assembler,
-    a: &Reg<*mut [u64; 4]>,
+    a: &Reg<*const [u64; 4]>,
 ) -> [Reg<u64>; 4] {
-    let (l0, l1) = ldp(alloc, asm, &a.get(0));
+    let (l0, l1) = ldp(alloc, asm, a);
     let (l2, l3) = ldp(alloc, asm, &a.get(2));
     [l0, l1, l2, l3]
 }
@@ -1061,7 +1061,7 @@ fn store_vector(
     str: &Reg<*mut [u64; 4]>,
 ) {
     let [a0, a1, a2, a3] = a;
-    stp(alloc, asm, a0, a1, &str.get(0));
+    stp(alloc, asm, a0, a1, str);
     stp(alloc, asm, a2, a3, &str.get(2));
 }
 
@@ -1069,9 +1069,9 @@ pub fn single_step_load<'a>(
     alloc: &mut Allocator,
     asm: &mut Assembler,
     a: &Reg<*mut [u64; 4]>,
-    b: &Reg<*mut [u64; 4]>,
+    b: &Reg<*const [u64; 4]>,
 ) {
-    let load_a = load_vector(alloc, asm, a);
+    let load_a = load_vector(alloc, asm, a.as_());
     let b = load_vector(alloc, asm, b);
 
     let res = single_step(alloc, asm, &load_a, &b);

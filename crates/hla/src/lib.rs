@@ -303,6 +303,12 @@ pub trait RegisterSource {
 
 impl<T> RegisterSource for Reg<*mut T> {
     fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
+        self.as_().to_typed_register()
+    }
+}
+
+impl<T> RegisterSource for Reg<*const T> {
+    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
         TypedSizedRegister {
             reg: self.reg,
             addressing: Addressing::X,
