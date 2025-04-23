@@ -6,8 +6,10 @@ use std::{
 
 pub mod frontend;
 pub mod instructions;
+pub mod reification;
 
 pub use frontend::*;
+pub use reification::*;
 
 pub type AtomicInstruction = Vec<InstructionF<FreshRegister>>;
 pub type Instruction = InstructionF<FreshRegister>;
@@ -80,82 +82,6 @@ impl From<u64> for FreshRegister {
     }
 }
 
-/// Vector sizes to erase the difference between address float64 or u64
-/// TODO different name for addressing
-#[derive(Debug, Eq, PartialOrd, Ord, Hash, PartialEq, Clone, Copy)]
-pub enum Addressing {
-    // Unsigned
-    X,
-    // SIMD/FP
-    V,
-    D,
-}
-
-impl Addressing {
-    fn to_pool(&self, reg: HardwareRegister) -> Pool {
-        match self {
-            Addressing::X => Pool::General(reg),
-            Addressing::V | Addressing::D => Pool::Vector(reg),
-        }
-    }
-}
-#[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
-pub struct ReifiedRegister<R> {
-    reg: R,
-    addressing: Addressing,
-    idx: Index,
-}
-
-impl<R: std::fmt::Display> std::fmt::Display for ReifiedRegister<R> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let reg = &self.reg;
-        let addr = self.addressing;
-        match self.idx {
-            Index::None => write!(f, "{addr}{reg}"),
-            Index::Lane(idx) => write!(f, "{addr}{reg}[{idx}]"),
-            Index::LaneSized(lane_sizes, idx) => write!(f, "{addr}{reg}.{lane_sizes}[{idx}]"),
-            Index::Pointer(offset) => write!(f, "[{addr}{reg}, #{offset}]"),
-        }
-    }
-}
-
-impl std::fmt::Display for LaneSize {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LaneSize::S => write!(f, "s"),
-            LaneSize::D => write!(f, "d"),
-        }
-    }
-}
-
-impl std::fmt::Display for Addressing {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Addressing::V => write!(f, "v"),
-            Addressing::D => write!(f, "d"),
-            Addressing::X => write!(f, "x"),
-        }
-    }
-}
-
-#[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
-#[repr(u8)]
-enum LaneSize {
-    S = 4,
-    D = 2,
-}
-
-#[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
-enum Index {
-    None,
-    // Some instructions require the size (.d, .s, etc) in combination with
-    // a lane and others do not
-    Lane(u8),
-    LaneSized(LaneSize, u8),
-    // offset in bytes
-    Pointer(usize),
-}
-
 pub struct Assembler {
     pub instructions: Vec<AtomicInstruction>,
 }
@@ -207,21 +133,22 @@ impl std::fmt::Display for HardwareRegister {
 #[derive(PartialEq, Debug)]
 enum RegisterState {
     Unassigned,
-    Assigned(Pool),
+    Assigned(BasicRegister),
     Dropped,
 }
 
+/// Basic register represents as it is contained within the
+/// register banks. It does not have any kind information nor indexing.
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Pool {
+enum BasicRegister {
     General(HardwareRegister),
     Vector(HardwareRegister),
 }
 
-impl Pool {
+impl BasicRegister {
     fn reg(&self) -> HardwareRegister {
         match self {
-            Pool::General(reg) => *reg,
-            Pool::Vector(reg) => *reg,
+            BasicRegister::General(reg) | BasicRegister::Vector(reg) => *reg,
         }
     }
 }
@@ -296,89 +223,6 @@ impl RegisterPool {
     }
 }
 
-pub trait ReifyRegister {
-    fn reify(&self) -> ReifiedRegister<FreshRegister>;
-}
-
-impl<T> ReifyRegister for Reg<*mut T> {
-    fn reify(&self) -> ReifiedRegister<FreshRegister> {
-        self.as_().reify()
-    }
-}
-
-impl<T> ReifyRegister for Reg<*const T> {
-    fn reify(&self) -> ReifiedRegister<FreshRegister> {
-        ReifiedRegister {
-            reg: self.reg,
-            addressing: Addressing::X,
-            idx: Index::Pointer(0),
-        }
-    }
-}
-
-impl<T> ReifyRegister for PointerReg<'_, T> {
-    fn reify(&self) -> ReifiedRegister<FreshRegister> {
-        ReifiedRegister {
-            reg: self.reg.reg,
-            addressing: Addressing::X,
-            idx: Index::Pointer(self.offset as usize),
-        }
-    }
-}
-
-impl ReifyRegister for Reg<u64> {
-    fn reify(&self) -> ReifiedRegister<FreshRegister> {
-        ReifiedRegister {
-            reg: self.reg,
-            addressing: Addressing::X,
-            idx: Index::None,
-        }
-    }
-}
-
-impl ReifyRegister for Reg<f64> {
-    fn reify(&self) -> ReifiedRegister<FreshRegister> {
-        ReifiedRegister {
-            reg: self.reg,
-            addressing: Addressing::D,
-            idx: Index::None,
-        }
-    }
-}
-
-impl<T> ReifyRegister for Reg<Simd<T, 2>> {
-    fn reify(&self) -> ReifiedRegister<FreshRegister> {
-        ReifiedRegister {
-            reg: self.reg,
-            addressing: Addressing::V,
-            idx: Index::None,
-        }
-    }
-}
-
-impl<T, const I: u8> ReifyRegister for Idx<Reg<Simd<T, 2>>, I> {
-    fn reify(&self) -> ReifiedRegister<FreshRegister> {
-        let mut tp = self.0.reify();
-        tp.idx = Index::Lane(I);
-        tp
-    }
-}
-
-impl<T, const L: u8, const I: u8> ReifyRegister for Sized<Idx<Reg<Simd<T, 2>>, I>, L> {
-    fn reify(&self) -> ReifiedRegister<FreshRegister> {
-        let mut tp = self.0.reify();
-
-        let sizes = match L {
-            2 => LaneSize::D,
-            4 => LaneSize::S,
-            _ => panic!("invalid lane size"),
-        };
-
-        tp.idx = Index::LaneSized(sizes, I);
-        tp
-    }
-}
-
 pub fn input<T>(
     asm: &mut Allocator,
     mapping: &mut RegisterMapping,
@@ -391,13 +235,13 @@ where
     let fresh = asm.fresh();
 
     let hw_reg = HardwareRegister(phys);
-    let tp = fresh.reify();
+    let reified_register = fresh.reify().into_hardware(hw_reg);
 
-    if !register_bank.remove(hw_reg, tp.addressing) {
+    if !register_bank.remove(hw_reg, reified_register.r#type) {
         panic!("{:?} is already in use", phys)
     }
 
-    *mapping.index_mut(fresh.reg) = RegisterState::Assigned(tp.addressing.to_pool(hw_reg));
+    *mapping.index_mut(fresh.reg) = RegisterState::Assigned(reified_register.to_basic_register());
 
     fresh
 }
@@ -449,10 +293,10 @@ impl RegisterBank {
         }
     }
 
-    fn get_register_pool(&mut self, addr: Addressing) -> &mut RegisterPool {
+    fn get_register_pool(&mut self, addr: RegisterType) -> &mut RegisterPool {
         match addr {
-            Addressing::X => &mut self.x,
-            Addressing::V | Addressing::D => &mut self.v,
+            RegisterType::X => &mut self.x,
+            RegisterType::V | RegisterType::D => &mut self.v,
         }
     }
 
@@ -461,11 +305,11 @@ impl RegisterBank {
         tp: ReifiedRegister<FreshRegister>,
         end_lifetime: usize,
     ) -> Option<HardwareRegister> {
-        self.get_register_pool(tp.addressing)
+        self.get_register_pool(tp.r#type)
             .pop_first(tp.reg, end_lifetime)
     }
 
-    fn remove(&mut self, register: HardwareRegister, addr: Addressing) -> bool {
+    fn remove(&mut self, register: HardwareRegister, addr: RegisterType) -> bool {
         self.get_register_pool(addr).remove(&register)
     }
 
@@ -475,15 +319,15 @@ impl RegisterBank {
         tp: ReifiedRegister<FreshRegister>,
         lifetime: usize,
     ) {
-        self.get_register_pool(tp.addressing)
+        self.get_register_pool(tp.r#type)
             .set_availability(tp.reg, register, lifetime);
     }
 
     /// Return the hardware register back into the register pool
-    fn insert(&mut self, register: Pool) -> bool {
+    fn insert(&mut self, register: BasicRegister) -> bool {
         match register {
-            Pool::General(hardware_register) => self.x.insert(hardware_register),
-            Pool::Vector(hardware_register) => self.v.insert(hardware_register),
+            BasicRegister::General(hardware_register) => self.x.insert(hardware_register),
+            BasicRegister::Vector(hardware_register) => self.v.insert(hardware_register),
         }
     }
 }
@@ -581,7 +425,7 @@ impl RegisterMapping {
 
             RegisterState::Assigned(reg) => ReifiedRegister {
                 reg: reg.reg(),
-                addressing: fresh.addressing,
+                r#type: fresh.r#type,
                 idx: fresh.idx,
             },
             RegisterState::Dropped => unreachable!("{fresh:?} already has been dropped"),
@@ -599,12 +443,13 @@ impl RegisterMapping {
         let entry = self.index_mut(typed_register.reg);
         let hw_reg = match *entry {
             RegisterState::Unassigned => {
-                let addr = typed_register.addressing;
                 let hw_reg = register_bank
                     .pop_first(typed_register, end_lifetime)
                     .expect("ran out of registers");
 
-                *entry = RegisterState::Assigned(addr.to_pool(hw_reg));
+                let hardware_reified_register = typed_register.into_hardware(hw_reg);
+
+                *entry = RegisterState::Assigned(hardware_reified_register.to_basic_register());
                 hw_reg
             }
 
@@ -613,7 +458,7 @@ impl RegisterMapping {
         };
         ReifiedRegister {
             reg: hw_reg,
-            addressing: typed_register.addressing,
+            r#type: typed_register.r#type,
             idx: typed_register.idx,
         }
     }
@@ -657,7 +502,7 @@ impl RegisterMapping {
             RegisterState::Unassigned => None,
             RegisterState::Assigned(hw_reg) => Some(ReifiedRegister {
                 reg: hw_reg.reg(),
-                addressing: tp.addressing,
+                r#type: tp.r#type,
                 idx: Index::None,
             }),
             RegisterState::Dropped => None,
@@ -719,6 +564,13 @@ pub fn liveness_analysis(
     (commands, lifetimes)
 }
 
+pub fn print_instructions<R: std::fmt::Display + Copy>(instrs: &[InstructionF<R>]) {
+    instrs
+        .iter()
+        .enumerate()
+        .for_each(|(line, inst)| println!("{line}: {}", inst));
+}
+
 pub fn hardware_register_allocation(
     mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
@@ -769,131 +621,6 @@ pub fn hardware_register_allocation(
     };
 
     instructions.into_iter().zip(releases).map(f).collect()
-}
-
-pub fn print_instructions<R: std::fmt::Display + Copy>(instrs: &[InstructionF<R>]) {
-    instrs
-        .iter()
-        .enumerate()
-        .for_each(|(line, inst)| println!("{line}: {}", inst));
-}
-
-pub fn backend_global(label: &str, instructions: &Vec<InstructionF<HardwareRegister>>) -> String {
-    let mut asm_code = String::new();
-    let label = format!("_{label}");
-    asm_code.push_str(&format!(".global {label}\n.align 4\n.text\n"));
-    asm_code.push_str(&format!("{label}:\n"));
-    asm_code.extend(
-        instructions
-            .into_iter()
-            .map(|instruction| format!("  {}\n", instruction)),
-    );
-    asm_code.push_str("ret\n");
-    asm_code
-}
-
-pub fn backend_inline(instructions: &Vec<InstructionF<HardwareRegister>>) -> String {
-    let mut asm_code = String::new();
-    asm_code.extend(
-        instructions
-            .into_iter()
-            .map(|instruction| format!("\"{}\",\n", instruction)),
-    );
-    asm_code
-}
-
-/// Outputs all the arguments to the asm! macros
-/// TODO provide labels for inputs
-
-pub fn backend_rust(
-    mapping: RegisterMapping,
-    inputs_registers: Vec<Vec<ReifiedRegister<HardwareRegister>>>,
-    outputs_registers: Vec<Vec<ReifiedRegister<HardwareRegister>>>,
-    instructions: &Vec<InstructionF<HardwareRegister>>,
-) -> String {
-    assert_eq!(
-        mapping.allocated(),
-        outputs_registers
-            .iter()
-            .map(|output_register| output_register.len())
-            .sum()
-    );
-
-    let inputs: Vec<_> = inputs_registers
-        .iter()
-        .enumerate()
-        .flat_map(|(n, input_register)| {
-            input_register
-                .iter()
-                .enumerate()
-                .map(move |(i, r)| format!("in(\"{r}\") in{n}[{i}]"))
-        })
-        .intersperse(", ".to_string())
-        .collect();
-
-    // Make this work with
-    let outputs: Vec<_> = outputs_registers
-        .iter()
-        .enumerate()
-        .flat_map(|(n, output_registers)| {
-            output_registers
-                .iter()
-                .enumerate()
-                .map(move |(i, r)| format!("lateout(\"{r}\") out{n}[{i}]"))
-        })
-        .intersperse(", ".to_string())
-        .collect();
-
-    let mut clobber_registers: BTreeSet<ReifiedRegister<HardwareRegister>> = BTreeSet::new();
-    instructions.iter().for_each(|instruction| {
-        clobber_registers.extend(instruction.extract_registers().map(|reg| clobber(reg)));
-    });
-
-    let output_registers =
-        BTreeSet::from_iter(outputs_registers.into_iter().flat_map(|r| r.into_iter()));
-
-    // For the clobbers
-    let clobbers = clobber_registers
-        .difference(&output_registers)
-        .map(|r| format!("lateout(\"{}\") _", r))
-        .intersperse(", ".to_string());
-
-    let newline = std::iter::once(",\n".to_string());
-    // We jump to the assembly code with br so we need to safe the lr register
-    // This can change in the future
-    let lr = std::iter::once("lateout(\"lr\") _".to_string());
-
-    inputs
-        .into_iter()
-        .chain(newline.clone())
-        .chain(outputs)
-        .chain(newline.clone())
-        .chain(clobbers)
-        .chain(newline.clone())
-        .chain(lr)
-        .collect()
-}
-
-/// For the clobber register we only have to mention the register
-fn clobber(c: &ReifiedRegister<HardwareRegister>) -> ReifiedRegister<HardwareRegister> {
-    // Unpack the fields of TypedSizedRegister using destructuring
-    let ReifiedRegister {
-        reg,
-        addressing,
-        idx: _idx,
-    } = c;
-
-    let addressing = match addressing {
-        Addressing::D => Addressing::V,
-        other => *other,
-    };
-
-    // Return a new TypedSizedRegister with the same values
-    ReifiedRegister {
-        reg: *reg,
-        addressing,
-        idx: Index::None,
-    }
 }
 
 #[cfg(test)]
