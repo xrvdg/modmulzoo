@@ -2,8 +2,9 @@
 use std::array;
 
 use block_multiplier::{constants::*, make_initial};
-use hla::instructions::*;
+use hla::codegen::generate_asm_operands;
 use hla::*;
+use hla::{codegen::generate_standalone_asm, instructions::*};
 // TODO don't rely on montgomery_reduction for anything other than tests
 // Possible not even then
 use montgomery_reduction::{
@@ -86,10 +87,11 @@ fn build_func<T>(
         .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
-    let txt = backend_global(label, &out);
+    let txt = generate_standalone_asm(label, &out);
 
     // Write this info in the assembly file
-    let operands = backend_rust(mapping, input_hw_registers, vec![output_hw_registers], &out);
+    let operands =
+        generate_asm_operands(mapping, input_hw_registers, vec![output_hw_registers], &out);
     let operands_with_semicolon: Vec<String> =
         operands.lines().map(|line| format!("//{}", line)).collect();
     let operands = format!("{}\n", operands_with_semicolon.join("\n"));
@@ -447,14 +449,14 @@ fn build_interleaved_seq_scalar(label: &str) {
         .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
-    let txt = backend_global(label, &out);
+    let txt = generate_standalone_asm(label, &out);
 
     let mut input_hw_registers = fst_input_hw_registers;
     input_hw_registers.extend(snd_input_hw_registers);
     input_hw_registers.extend(thrd_input_hw_registers);
 
     // Write this info in the assembly file
-    let operands = backend_rust(
+    let operands = generate_asm_operands(
         mapping,
         input_hw_registers,
         vec![
@@ -592,7 +594,7 @@ fn build_interleaved_triple_scalar(label: &str) {
         .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
-    let txt = backend_global(label, &out);
+    let txt = generate_standalone_asm(label, &out);
 
     let mut input_hw_registers = fst_input_hw_registers;
     input_hw_registers.extend(snd_input_hw_registers);
@@ -600,7 +602,7 @@ fn build_interleaved_triple_scalar(label: &str) {
     input_hw_registers.extend(fourth_input_hw_registers);
 
     // Write this info in the assembly file
-    let operands = backend_rust(
+    let operands = generate_asm_operands(
         mapping,
         input_hw_registers,
         vec![
@@ -685,13 +687,13 @@ fn build_interleaved(label: &str) {
         .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
-    let txt = backend_global(label, &out);
+    let txt = generate_standalone_asm(label, &out);
 
     let mut input_hw_registers = fst_input_hw_registers;
     input_hw_registers.extend(snd_input_hw_registers);
 
     // Write this info in the assembly file
-    let operands = backend_rust(
+    let operands = generate_asm_operands(
         mapping,
         input_hw_registers,
         vec![fst_output_hw_registers, snd_output_hw_registers],

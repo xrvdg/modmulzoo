@@ -4,6 +4,7 @@ use std::{
     mem::{self},
 };
 
+pub mod codegen;
 pub mod frontend;
 pub mod instructions;
 pub mod reification;
@@ -139,7 +140,7 @@ enum RegisterState {
 
 /// Basic register represents as it is contained within the
 /// register banks. It does not have any kind information nor indexing.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Eq, Ord, PartialOrd)]
 enum BasicRegister {
     General(HardwareRegister),
     Vector(HardwareRegister),
@@ -149,6 +150,15 @@ impl BasicRegister {
     fn reg(&self) -> HardwareRegister {
         match self {
             BasicRegister::General(reg) | BasicRegister::Vector(reg) => *reg,
+        }
+    }
+}
+
+impl std::fmt::Display for BasicRegister {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BasicRegister::General(reg) => write!(f, "x{}", reg.0),
+            BasicRegister::Vector(reg) => write!(f, "v{}", reg.0),
         }
     }
 }
@@ -293,8 +303,8 @@ impl RegisterBank {
         }
     }
 
-    fn get_register_pool(&mut self, addr: RegisterType) -> &mut RegisterPool {
-        match addr {
+    fn get_register_pool(&mut self, r#type: RegisterType) -> &mut RegisterPool {
+        match r#type {
             RegisterType::X => &mut self.x,
             RegisterType::V | RegisterType::D => &mut self.v,
         }
@@ -423,11 +433,7 @@ impl RegisterMapping {
         match *self.index(fresh.reg) {
             RegisterState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
 
-            RegisterState::Assigned(reg) => ReifiedRegister {
-                reg: reg.reg(),
-                r#type: fresh.r#type,
-                idx: fresh.idx,
-            },
+            RegisterState::Assigned(reg) => fresh.into_hardware(reg.reg()),
             RegisterState::Dropped => unreachable!("{fresh:?} already has been dropped"),
         }
     }
