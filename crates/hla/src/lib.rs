@@ -352,7 +352,7 @@ impl Seen {
     /// # Returns
     ///
     /// `true` if the register was not previously seen, `false` otherwise.
-    pub fn mark_register<T: ReifyRegister>(&mut self, fresh: &T) -> bool {
+    fn mark_register(&mut self, fresh: &dyn ReifyRegister) -> bool {
         let fresh = fresh.reify().reg;
         self.0.insert(fresh)
     }
@@ -682,14 +682,11 @@ impl RegisterMapping {
 /// # Panics
 ///
 /// Panics if an instruction has an unused destination register.
-pub fn liveness_analysis<'a, T>(
-    output_registers: impl Iterator<Item = &'a T>,
+pub fn liveness_analysis<'a>(
+    output_registers: impl Iterator<Item = &'a dyn ReifyRegister>,
     instructions: &[Instruction],
     nr_fresh_registers: usize,
-) -> (VecDeque<HashSet<FreshRegister>>, Vec<(usize, usize)>)
-where
-    T: ReifyRegister + 'a,
-{
+) -> (VecDeque<HashSet<FreshRegister>>, Vec<(usize, usize)>) {
     // Initialize the seen_registers with the output registers such that they won't get released.
     let mut seen_registers = Seen::new();
     output_registers.for_each(|r| {

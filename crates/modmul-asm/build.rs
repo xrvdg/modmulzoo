@@ -63,12 +63,12 @@ fn build_func<T>(
 
     // Is there something we n do to tie off the outputs.
     // and to make sure it happens before drop_pass
-    let mut seen = Seen::new();
-    s.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
 
-    let (releases, lifetimes) = liveness_analysis(&mut seen, &first, alloc.fresh as usize);
+    let (releases, lifetimes) = liveness_analysis(
+        s.iter().map(|register| register as &dyn ReifyRegister),
+        &first,
+        alloc.fresh as usize,
+    );
 
     s.iter().enumerate().for_each(|(idx, r)| {
         pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
@@ -394,20 +394,13 @@ fn build_interleaved_seq_scalar(label: &str) {
         .flatten()
         .collect();
 
-    // Is there something we n do to tie off the outputs.
-    // and to make sure it happens before drop_pass
-    let mut seen = Seen::new();
-    fst_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-    snd_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-    thrd_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-
-    let (releases, lifetimes) = liveness_analysis(&mut seen, &mixed, alloc.fresh as usize);
+    let (releases, lifetimes) = liveness_analysis(
+        reify_iter(&fst_regs)
+            .chain(reify_iter(&snd_regs))
+            .chain(reify_iter(&thrd_regs)),
+        &mixed,
+        alloc.fresh as usize,
+    );
 
     fst_regs.iter().enumerate().for_each(|(idx, r)| {
         pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
@@ -517,23 +510,14 @@ fn build_interleaved_triple_scalar(label: &str) {
         .flatten()
         .collect();
 
-    // Is there something we n do to tie off the outputs.
-    // and to make sure it happens before drop_pass
-    let mut seen = Seen::new();
-    fst_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-    snd_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-    thrd_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-    fourth_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-
-    let (releases, lifetimes) = liveness_analysis(&mut seen, &mixed, alloc.fresh as usize);
+    let (releases, lifetimes) = liveness_analysis(
+        reify_iter(&fst_regs)
+            .chain(reify_iter(&snd_regs))
+            .chain(reify_iter(&thrd_regs))
+            .chain(reify_iter(&fourth_regs)),
+        &mixed,
+        alloc.fresh as usize,
+    );
 
     // fst_regs.iter().enumerate().for_each(|(idx, r)| {
     //     pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
@@ -636,17 +620,11 @@ fn build_interleaved(label: &str) {
         .flatten()
         .collect();
 
-    // Is there something we n do to tie off the outputs.
-    // and to make sure it happens before drop_pass
-    let mut seen = Seen::new();
-    fst_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-    snd_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-
-    let (releases, lifetimes) = liveness_analysis(&mut seen, &mixed, alloc.fresh as usize);
+    let (releases, lifetimes) = liveness_analysis(
+        reify_iter(&fst_regs).chain(reify_iter(&snd_regs)),
+        &mixed,
+        alloc.fresh as usize,
+    );
 
     snd_regs.iter().enumerate().for_each(|(idx, r)| {
         pin_register(&mut phys_registers, &lifetimes, r, idx as u64);

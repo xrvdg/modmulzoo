@@ -86,6 +86,14 @@ impl std::fmt::Display for RegisterType {
     }
 }
 
+pub fn reify_iter<'a, U, T>(iter: U) -> impl Iterator<Item = &'a dyn ReifyRegister>
+where
+    T: ReifyRegister + 'a,
+    U: IntoIterator<Item = &'a T>,
+{
+    iter.into_iter().map(|r| r as &dyn ReifyRegister)
+}
+
 pub trait ReifyRegister {
     fn reify(&self) -> ReifiedRegister<FreshRegister>;
 }
