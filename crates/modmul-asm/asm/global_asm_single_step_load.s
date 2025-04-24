@@ -1,8 +1,9 @@
-//in("x0") in0[0], in("x1") in1[0],
+//in("x0") in0[0],
+//in("x1") in1[0],
 //lateout("x0") out0[0],
 //lateout("x1") _, lateout("x2") _, lateout("x3") _, lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _, lateout("x15") _,
 //lateout("lr") _
-.global _single_step_load
+        .global _single_step_load
 .align 4
 .text
 _single_step_load:
@@ -278,4 +279,4 @@ _single_step_load:
   csel x4, x8, x4, mi
   stp x2, x3, [x0, #0]
   stp x1, x4, [x0, #16]
-ret
+  ret

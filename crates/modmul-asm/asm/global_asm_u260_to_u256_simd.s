@@ -2,7 +2,7 @@
 //lateout("v0") out0[0], lateout("v5") out0[1], lateout("v6") out0[2], lateout("v7") out0[3],
 //lateout("v1") _, lateout("v2") _, lateout("v3") _, lateout("v4") _,
 //lateout("lr") _
-.global _u260_to_u256_simd
+        .global _u260_to_u256_simd
 .align 4
 .text
 _u260_to_u256_simd:
@@ -13,4 +13,4 @@ _u260_to_u256_simd:
   sli.2d v5, v2, #40
   sli.2d v6, v3, #28
   sli.2d v7, v4, #16
-ret
+  ret

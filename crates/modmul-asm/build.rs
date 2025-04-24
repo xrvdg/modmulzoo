@@ -2,9 +2,9 @@
 use std::array;
 
 use block_multiplier::{constants::*, make_initial};
-use hla::codegen::generate_asm_operands;
+use hla::codegen::generate_rust_global_asm;
+use hla::instructions::*;
 use hla::*;
-use hla::{codegen::generate_standalone_asm, instructions::*};
 // TODO don't rely on montgomery_reduction for anything other than tests
 // Possible not even then
 use montgomery_reduction::{
@@ -87,21 +87,19 @@ fn build_func<T>(
         .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
-    let txt = generate_standalone_asm(label, &out);
-
     // Write this info in the assembly file
-    let operands =
-        generate_asm_operands(mapping, input_hw_registers, vec![output_hw_registers], &out);
-    let operands_with_semicolon: Vec<String> =
-        operands.lines().map(|line| format!("//{}", line)).collect();
-    let operands = format!("{}\n", operands_with_semicolon.join("\n"));
+    let assembly = generate_rust_global_asm(
+        label,
+        mapping,
+        &input_hw_registers,
+        &vec![output_hw_registers],
+        &out,
+    );
 
     use std::io::Write;
     let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
         .expect("Unable to create file");
-    file.write_all(operands.as_bytes())
-        .expect("Unable to write data to file");
-    file.write_all(txt.as_bytes())
+    file.write_all(assembly.as_bytes())
         .expect("Unable to write data to file");
 }
 
@@ -449,33 +447,27 @@ fn build_interleaved_seq_scalar(label: &str) {
         .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
-    let txt = generate_standalone_asm(label, &out);
-
     let mut input_hw_registers = fst_input_hw_registers;
     input_hw_registers.extend(snd_input_hw_registers);
     input_hw_registers.extend(thrd_input_hw_registers);
 
     // Write this info in the assembly file
-    let operands = generate_asm_operands(
+    let assembly = generate_rust_global_asm(
+        label,
         mapping,
-        input_hw_registers,
-        vec![
+        &input_hw_registers,
+        &vec![
             fst_output_hw_registers,
             snd_output_hw_registers,
             thrd_output_hw_registers,
         ],
         &out,
     );
-    let operands_with_semicolon: Vec<String> =
-        operands.lines().map(|line| format!("//{}", line)).collect();
-    let operands = format!("{}\n", operands_with_semicolon.join("\n"));
 
     use std::io::Write;
     let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
         .expect("Unable to create file");
-    file.write_all(operands.as_bytes())
-        .expect("Unable to write data to file");
-    file.write_all(txt.as_bytes())
+    file.write_all(assembly.as_bytes())
         .expect("Unable to write data to file");
 }
 
@@ -594,18 +586,17 @@ fn build_interleaved_triple_scalar(label: &str) {
         .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
-    let txt = generate_standalone_asm(label, &out);
-
     let mut input_hw_registers = fst_input_hw_registers;
     input_hw_registers.extend(snd_input_hw_registers);
     input_hw_registers.extend(thrd_input_hw_registers);
     input_hw_registers.extend(fourth_input_hw_registers);
 
     // Write this info in the assembly file
-    let operands = generate_asm_operands(
+    let assembly = generate_rust_global_asm(
+        label,
         mapping,
-        input_hw_registers,
-        vec![
+        &input_hw_registers,
+        &vec![
             fst_output_hw_registers,
             snd_output_hw_registers,
             thrd_output_hw_registers,
@@ -613,16 +604,11 @@ fn build_interleaved_triple_scalar(label: &str) {
         ],
         &out,
     );
-    let operands_with_semicolon: Vec<String> =
-        operands.lines().map(|line| format!("//{}", line)).collect();
-    let operands = format!("{}\n", operands_with_semicolon.join("\n"));
 
     use std::io::Write;
     let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
         .expect("Unable to create file");
-    file.write_all(operands.as_bytes())
-        .expect("Unable to write data to file");
-    file.write_all(txt.as_bytes())
+    file.write_all(assembly.as_bytes())
         .expect("Unable to write data to file");
 }
 
@@ -687,28 +673,22 @@ fn build_interleaved(label: &str) {
         .filter_map(|reg| mapping.output_register(reg))
         .collect();
 
-    let txt = generate_standalone_asm(label, &out);
-
     let mut input_hw_registers = fst_input_hw_registers;
     input_hw_registers.extend(snd_input_hw_registers);
 
     // Write this info in the assembly file
-    let operands = generate_asm_operands(
+    let assembly = generate_rust_global_asm(
+        label,
         mapping,
-        input_hw_registers,
-        vec![fst_output_hw_registers, snd_output_hw_registers],
+        &input_hw_registers,
+        &vec![fst_output_hw_registers, snd_output_hw_registers],
         &out,
     );
-    let operands_with_semicolon: Vec<String> =
-        operands.lines().map(|line| format!("//{}", line)).collect();
-    let operands = format!("{}\n", operands_with_semicolon.join("\n"));
 
     use std::io::Write;
     let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
         .expect("Unable to create file");
-    file.write_all(operands.as_bytes())
-        .expect("Unable to write data to file");
-    file.write_all(txt.as_bytes())
+    file.write_all(assembly.as_bytes())
         .expect("Unable to write data to file");
 }
 

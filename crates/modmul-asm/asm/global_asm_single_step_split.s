@@ -1,8 +1,9 @@
-//in("x0") in0[0], in("x1") in0[1], in("x2") in0[2], in("x3") in0[3], in("x4") in1[0], in("x5") in1[1], in("x6") in1[2], in("x7") in1[3],
+//in("x0") in0[0], in("x1") in0[1], in("x2") in0[2], in("x3") in0[3],
+//in("x4") in1[0], in("x5") in1[1], in("x6") in1[2], in("x7") in1[3],
 //lateout("x0") out0[0], lateout("x1") out0[1], lateout("x2") out0[2], lateout("x3") out0[3],
 //lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _, lateout("x15") _, lateout("x16") _, lateout("x17") _, lateout("x20") _, lateout("x21") _, lateout("x22") _, lateout("x23") _,
 //lateout("lr") _
-.global _single_step_split
+        .global _single_step_split
 .align 4
 .text
 _single_step_split:
@@ -257,4 +258,4 @@ _single_step_split:
   csel x1, x4, x1, mi
   csel x2, x6, x2, mi
   csel x3, x7, x5, mi
-ret
+  ret

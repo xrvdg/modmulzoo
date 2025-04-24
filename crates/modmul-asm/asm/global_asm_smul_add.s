@@ -1,8 +1,10 @@
-//in("x0") in0[0], in("x1") in0[1], in("x2") in0[2], in("x3") in0[3], in("x4") in0[4], in("x5") in1[0], in("x6") in1[1], in("x7") in1[2], in("x8") in1[3], in("x9") in2[0],
+//in("x0") in0[0], in("x1") in0[1], in("x2") in0[2], in("x3") in0[3], in("x4") in0[4],
+//in("x5") in1[0], in("x6") in1[1], in("x7") in1[2], in("x8") in1[3],
+//in("x9") in2[0],
 //lateout("x0") out0[0], lateout("x1") out0[1], lateout("x2") out0[2], lateout("x3") out0[3], lateout("x4") out0[4],
 //lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _,
 //lateout("lr") _
-.global _smul_add
+        .global _smul_add
 .align 4
 .text
 _smul_add:
@@ -29,4 +31,4 @@ _smul_add:
   adds x3, x5, x3
   cinc x5, x6, hs
   add x4, x4, x5
-ret
+  ret

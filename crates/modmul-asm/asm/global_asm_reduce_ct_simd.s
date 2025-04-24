@@ -2,7 +2,7 @@
 //lateout("v0") out0[0], lateout("v1") out0[1], lateout("v2") out0[2], lateout("v3") out0[3], lateout("v4") out0[4],
 //lateout("x0") _, lateout("v5") _, lateout("v6") _, lateout("v7") _, lateout("v8") _, lateout("v9") _, lateout("v10") _, lateout("v11") _, lateout("v12") _,
 //lateout("lr") _
-.global _reduce_ct_simd
+        .global _reduce_ct_simd
 .align 4
 .text
 _reduce_ct_simd:
@@ -56,4 +56,4 @@ _reduce_ct_simd:
   and.16b v2, v3, v6
   and.16b v3, v4, v6
   and.16b v4, v5, v6
-ret
+  ret
