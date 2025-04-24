@@ -1,8 +1,5 @@
 #![feature(iter_intersperse)]
-use std::{
-    collections::{BTreeSet, HashSet, VecDeque},
-    mem::{self},
-};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 pub mod codegen;
 pub mod frontend;
@@ -19,10 +16,10 @@ pub type Instruction = InstructionF<FreshRegister>;
 #[derive(Debug, PartialEq)]
 pub struct InstructionF<R> {
     opcode: String,
-    // Reasons for destination being a vector
+    // Result is a vector because:
     // - Some operations have do not write results to a register
     //   - CMN only affects flags
-    //   - STR writes to a destination stored in an operand
+    //   - STR writes to a destination stored in operands
     // - LDP has 2 destinations
     results: Vec<ReifiedRegister<R>>,
     operands: Vec<ReifiedRegister<R>>,
@@ -66,8 +63,8 @@ impl<R> InstructionF<R> {
     }
 }
 
-/// `Reg` represents the fresh variable and has (as much as possible) the same semantics as a regular rust variable.
-/// FreshRegister represent the label for the fresh variable.
+/// FreshRegister represent the label for a fresh variable which is hidden inside
+/// a Reg.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct FreshRegister(u64);
 
@@ -100,9 +97,7 @@ impl Assembler {
 
 #[derive(Debug)]
 pub struct Allocator {
-    // It's about unique counters so we use the counter for both
-    // q and v registers
-    // this makes it easier to read the assembly
+    // A counter for the fresh variable labels
     pub fresh: u64,
 }
 
@@ -118,9 +113,6 @@ impl Allocator {
     }
 }
 
-// Add another struct to prevent things from being created
-// Make a struct around here such that it can't be copied
-// THe phys_register file is the one that creates them
 #[derive(PartialEq, Debug, Hash, Ord, PartialOrd, Eq, Clone, Copy)]
 pub struct HardwareRegister(u64);
 
@@ -129,19 +121,11 @@ impl std::fmt::Display for HardwareRegister {
         write!(f, "{}", self.0)
     }
 }
-// No Clone as the state of one free reg
-// does not make sense as the state of another free reg
-#[derive(PartialEq, Debug)]
-enum RegisterState {
-    Unassigned,
-    Assigned(BasicRegister),
-    Dropped,
-}
 
 /// Basic register represents as it is contained within the
 /// register banks. It does not have any kind information nor indexing.
 #[derive(Clone, Copy, PartialEq, Debug, Eq, Ord, PartialOrd)]
-enum BasicRegister {
+pub enum BasicRegister {
     General(HardwareRegister),
     Vector(HardwareRegister),
 }
@@ -251,7 +235,7 @@ where
         panic!("{:?} is already in use", phys)
     }
 
-    *mapping.index_mut(fresh.reg) = RegisterState::Assigned(reified_register.to_basic_register());
+    mapping.assign_register(fresh.reg, reified_register.to_basic_register());
 
     fresh
 }
@@ -384,84 +368,79 @@ pub fn interleave<T>(lhs: Vec<T>, rhs: Vec<T>) -> Vec<T> {
 
     result
 }
-// Write test that checks if the combined length is always the same as from the individual lengths
 
-#[derive(Debug)]
-pub struct RegisterMapping(Vec<RegisterState>);
-
-impl std::fmt::Display for RegisterMapping {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Register Mapping: [")?;
-        for (i, state) in self.0.iter().enumerate() {
-            match state {
-                RegisterState::Unassigned => write!(f, "  {}: U", i)?,
-                RegisterState::Assigned(reg) => write!(f, "  {}: M{:?}", i, reg)?,
-                RegisterState::Dropped => write!(f, "  {}: D", i)?,
-            }
-            write!(f, ", ")?
-        }
-        write!(f, "]")?;
-        Ok(())
-    }
+/// A mapping from FreshRegister to its hardware assignment state
+#[derive(Debug, Default)]
+pub struct RegisterMapping {
+    mapping: HashMap<FreshRegister, BasicRegister>,
+    // dropped is not strictly necessary.
+    dropped: HashSet<FreshRegister>,
 }
 
 impl RegisterMapping {
     pub fn new() -> Self {
-        // TODO Needs to be equal to the number of free register in the allocator once it is finished
-        // but also needs space for the elements in the beginning
-        // In the beginning there can't be more than all the vector registers combined, so that can be allocated initially
-        // get_or_allocate_register needs to deal with the resizing
-        Self(
-            std::iter::repeat_with(|| RegisterState::Unassigned)
-                .take(2000)
-                .collect::<Vec<_>>(),
-        )
+        Self {
+            mapping: HashMap::with_capacity(100),
+            dropped: HashSet::with_capacity(100),
+        }
     }
 
     pub fn allocated(&self) -> usize {
-        self.0
-            .iter()
-            .filter(|&reg_state| matches!(reg_state, RegisterState::Assigned(_)))
-            .count()
+        self.mapping.len()
     }
 
-    // Get the physical register for a source register
+    /// Directly assign a register (used by input function for compatibility)
+    pub fn assign_register(&mut self, fresh: FreshRegister, hardware: BasicRegister) {
+        self.mapping.insert(fresh, hardware);
+    }
+
+    /// Get the physical register for a source register
     fn get_register(
         &self,
         fresh: ReifiedRegister<FreshRegister>,
     ) -> ReifiedRegister<HardwareRegister> {
-        match *self.index(fresh.reg) {
-            RegisterState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
+        assert!(
+            !self.dropped.contains(&fresh.reg),
+            "{:?} already has been dropped",
+            fresh
+        );
 
-            RegisterState::Assigned(reg) => fresh.into_hardware(reg.reg()),
-            RegisterState::Dropped => unreachable!("{fresh:?} already has been dropped"),
+        match self.mapping.get(&fresh.reg) {
+            Some(reg) => fresh.into_hardware(reg.reg()),
+            None => panic!("{:?} has not been assigned yet", fresh),
         }
     }
 
-    // Get or allocate a register
+    /// Get or allocate a register
     fn get_or_allocate_register(
         &mut self,
         register_bank: &mut RegisterBank,
         typed_register: ReifiedRegister<FreshRegister>,
         end_lifetime: usize,
     ) -> ReifiedRegister<HardwareRegister> {
-        // Possible to do a mutable reference here
-        let entry = self.index_mut(typed_register.reg);
-        let hw_reg = match *entry {
-            RegisterState::Unassigned => {
+        assert!(
+            !self.dropped.contains(&typed_register.reg),
+            "{:?} already has been dropped",
+            typed_register
+        );
+
+        // Either return existing mapping or create new one
+        let hw_reg = match self.mapping.get(&typed_register.reg) {
+            Some(reg) => reg.reg(),
+            None => {
                 let hw_reg = register_bank
                     .pop_first(typed_register, end_lifetime)
                     .expect("ran out of registers");
 
                 let hardware_reified_register = typed_register.into_hardware(hw_reg);
-
-                *entry = RegisterState::Assigned(hardware_reified_register.to_basic_register());
+                self.mapping.insert(
+                    typed_register.reg,
+                    hardware_reified_register.to_basic_register(),
+                );
                 hw_reg
             }
-
-            RegisterState::Assigned(reg) => reg.reg(),
-            RegisterState::Dropped => unreachable!("{typed_register:?} already has been dropped"),
         };
+
         ReifiedRegister {
             reg: hw_reg,
             r#type: typed_register.r#type,
@@ -469,60 +448,44 @@ impl RegisterMapping {
         }
     }
 
-    // Once a fresh register goes out of scope the hardware register that was assigned to that fresh register
-    // can be returned to the register bank.
+    /// Free a register, returning it to the register bank
     fn free_register(&mut self, register_bank: &mut RegisterBank, fresh: FreshRegister) -> bool {
-        let old = mem::replace(self.index_mut(fresh), RegisterState::Dropped);
+        assert!(
+            !self.dropped.contains(&fresh),
+            "Register {:?} has already been dropped",
+            fresh
+        );
 
-        match old {
-            RegisterState::Unassigned => {
-                unreachable!("There should never be a drop before the register has been assigned")
-            }
-            RegisterState::Assigned(reg) => {
-                let new = register_bank.insert(reg);
-                assert!(
-                    new,
-                    "hardware:{reg:?} is assigned to more than one fresh register. "
-                );
-                new
-            }
-            RegisterState::Dropped => {
-                unreachable!("A register that has been dropped can't be dropped again")
-            }
+        if let Some(reg) = self.mapping.remove(&fresh) {
+            self.dropped.insert(fresh);
+            // TODO this assert needs to be moved into insert and that should also solve the todo
+            let result = register_bank.insert(reg);
+            assert!(
+                result,
+                "hardware:{reg:?} is assigned to more than one fresh register."
+            );
+            result
+        } else {
+            todo!()
         }
     }
 
-    // Integrate with seen?
-    // This output only should output
-    // Two reasons we convert it to to_typed_register
-    // - have access to reg without having to introduce a reg on the trait
-    // - to only have the addressing defined in a single place namely RegisterSource
-    // Whether we should keep it as Typed Sized Register is another question
-    // The index is not of interested here and needs to be set to None explicitly
     pub fn output_register<R: ReifyRegister>(
         &self,
         reg: &R,
     ) -> Option<ReifiedRegister<HardwareRegister>> {
-        let tp = reg.reify();
-        match self.index(tp.reg) {
-            RegisterState::Unassigned => None,
-            RegisterState::Assigned(hw_reg) => Some(ReifiedRegister {
-                reg: hw_reg.reg(),
-                r#type: tp.r#type,
-                idx: Index::None,
-            }),
-            RegisterState::Dropped => None,
+        let reified_register = reg.reify();
+        if self.dropped.contains(&reified_register.reg) {
+            return None;
         }
-    }
-}
 
-/// We do not implement the Index Trait as that would leak the private RegisterState
-impl RegisterMapping {
-    fn index(&self, idx: FreshRegister) -> &RegisterState {
-        &self.0[idx.0 as usize]
-    }
-    fn index_mut(&mut self, idx: FreshRegister) -> &mut RegisterState {
-        &mut self.0[idx.0 as usize]
+        self.mapping
+            .get(&reified_register.reg)
+            .map(|hw_reg| ReifiedRegister {
+                reg: hw_reg.reg(),
+                r#type: reified_register.r#type,
+                idx: Index::None,
+            })
     }
 }
 
