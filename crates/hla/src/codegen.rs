@@ -1,6 +1,6 @@
 //! Code generators that do ~90% of the work required to incorporate an assembly function into Rust.
-//! It will generate the meat of the functions, but you'll have to write the interface functions and
-//! give the arguments a better name.
+//! It will generate the meat of the functions, the assembly instructions and in/out/lateout for registers, but you'll have to write the interface functions and
+//! give the arguments the correct label.
 use std::collections::BTreeSet;
 
 use crate::{BasicRegister, HardwareRegister, InstructionF, RegisterMapping, ReifiedRegister};
