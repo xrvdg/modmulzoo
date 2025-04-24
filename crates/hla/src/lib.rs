@@ -242,7 +242,7 @@ where
 
 pub fn pin_register<T: ReifyRegister>(
     register_bank: &mut RegisterBank,
-    lifetimes: &Vec<(usize, usize)>,
+    lifetimes: &[(usize, usize)],
     fresh: &T,
     hardware_register: u64,
 ) where
@@ -527,45 +527,44 @@ pub fn hardware_register_allocation(
     assert_eq!(
         instructions.len(),
         releases.len(),
-        "The instructions and release collections need to be the same lenght"
+        "The instructions and release collections need to be the same length"
     );
 
-    let f = |(instruction, release): (Instruction, HashSet<_>)| {
-        // println!();
-        // println!("mapping: {mapping}");
-        // println!("bank: {register_bank:?}");
-        // println!("instruction: {instruction:?}");
-        // println!("release: {release:?}");
-        // std::io::stdout().flush().unwrap();
+    instructions
+        .into_iter()
+        .zip(releases)
+        .map(|(instruction, release)| {
+            // Map operands to hardware registers
+            let src = instruction
+                .operands
+                .into_iter()
+                .map(|s| mapping.get_register(s))
+                .collect();
 
-        let src = instruction
-            .operands
-            .into_iter()
-            .map(|s| mapping.get_register(s))
-            .collect();
-        // assert on the return of free register?
-        release.into_iter().for_each(|fresh| {
-            mapping.free_register(register_bank, fresh);
-        });
+            // Free registers that are no longer needed
+            release.into_iter().for_each(|fresh| {
+                mapping.free_register(register_bank, fresh);
+            });
 
-        let dest = instruction
-            .results
-            .into_iter()
-            .map(|d| {
-                let idx = d.reg.0;
-                mapping.get_or_allocate_register(register_bank, d, lifetimes[idx as usize].1)
-            })
-            .collect();
+            // Allocate result registers
+            let dest = instruction
+                .results
+                .into_iter()
+                .map(|d| {
+                    let idx = d.reg.0;
+                    mapping.get_or_allocate_register(register_bank, d, lifetimes[idx as usize].1)
+                })
+                .collect();
 
-        InstructionF {
-            opcode: instruction.opcode,
-            results: dest,
-            operands: src,
-            modifiers: instruction.modifiers,
-        }
-    };
-
-    instructions.into_iter().zip(releases).map(f).collect()
+            // Construct the hardware instruction
+            InstructionF {
+                opcode: instruction.opcode,
+                results: dest,
+                operands: src,
+                modifiers: instruction.modifiers,
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
