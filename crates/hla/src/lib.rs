@@ -374,14 +374,12 @@ pub fn interleave<T>(lhs: Vec<T>, rhs: Vec<T>) -> Vec<T> {
 pub struct RegisterMapping {
     mapping: HashMap<FreshRegister, BasicRegister>,
     // dropped is not strictly necessary.
-    dropped: HashSet<FreshRegister>,
 }
 
 impl RegisterMapping {
     pub fn new() -> Self {
         Self {
             mapping: HashMap::with_capacity(100),
-            dropped: HashSet::with_capacity(100),
         }
     }
 
@@ -399,12 +397,6 @@ impl RegisterMapping {
         &self,
         fresh: ReifiedRegister<FreshRegister>,
     ) -> ReifiedRegister<HardwareRegister> {
-        assert!(
-            !self.dropped.contains(&fresh.reg),
-            "{:?} already has been dropped",
-            fresh
-        );
-
         match self.mapping.get(&fresh.reg) {
             Some(reg) => fresh.into_hardware(reg.reg()),
             None => panic!("{:?} has not been assigned yet", fresh),
@@ -418,12 +410,6 @@ impl RegisterMapping {
         typed_register: ReifiedRegister<FreshRegister>,
         end_lifetime: usize,
     ) -> ReifiedRegister<HardwareRegister> {
-        assert!(
-            !self.dropped.contains(&typed_register.reg),
-            "{:?} already has been dropped",
-            typed_register
-        );
-
         // Either return existing mapping or create new one
         let hw_reg = match self.mapping.get(&typed_register.reg) {
             Some(reg) => reg.reg(),
@@ -450,14 +436,7 @@ impl RegisterMapping {
 
     /// Free a register, returning it to the register bank
     fn free_register(&mut self, register_bank: &mut RegisterBank, fresh: FreshRegister) -> bool {
-        assert!(
-            !self.dropped.contains(&fresh),
-            "Register {:?} has already been dropped",
-            fresh
-        );
-
         if let Some(reg) = self.mapping.remove(&fresh) {
-            self.dropped.insert(fresh);
             // TODO this assert needs to be moved into insert and that should also solve the todo
             let result = register_bank.insert(reg);
             assert!(
@@ -475,9 +454,6 @@ impl RegisterMapping {
         reg: &R,
     ) -> Option<ReifiedRegister<HardwareRegister>> {
         let reified_register = reg.reify();
-        if self.dropped.contains(&reified_register.reg) {
-            return None;
-        }
 
         self.mapping
             .get(&reified_register.reg)
