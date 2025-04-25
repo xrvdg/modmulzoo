@@ -1,9 +1,11 @@
 //! Code generators that do ~90% of the work required to incorporate an assembly function into Rust.
 //! It will generate the meat of the functions, the assembly instructions and in/out/lateout for registers, but you'll have to write the interface functions and
-//! give the arguments the correct label.
+//! for loads/store you'll need to modify the argument a little bit.
 use std::collections::BTreeSet;
 
-use crate::{BasicRegister, HardwareRegister, InstructionF, RegisterMapping, ReifiedRegister};
+use crate::{
+    BasicRegister, BasicVariable, FreshVariable, HardwareRegister, InstructionF, RegisterMapping,
+};
 
 pub fn generate_standalone_asm(
     label: &str,
@@ -41,8 +43,8 @@ pub fn format_instructions_rust_inline(instructions: &[InstructionF<HardwareRegi
 pub fn generate_rust_global_asm(
     label: &str,
     mapping: RegisterMapping,
-    inputs_registers: &[Vec<ReifiedRegister<HardwareRegister>>],
-    outputs_registers: &[Vec<ReifiedRegister<HardwareRegister>>],
+    inputs_registers: &[BasicVariable],
+    outputs_registers: &[FreshVariable],
     instructions: &[InstructionF<HardwareRegister>],
 ) -> String {
     let operands =
@@ -63,8 +65,8 @@ pub fn generate_rust_global_asm(
 
 pub fn generate_rust_inline_asm(
     mapping: RegisterMapping,
-    inputs_registers: &[Vec<ReifiedRegister<HardwareRegister>>],
-    outputs_registers: &[Vec<ReifiedRegister<HardwareRegister>>],
+    inputs_registers: &[BasicVariable],
+    outputs_registers: &[FreshVariable],
     instructions: &[InstructionF<HardwareRegister>],
 ) -> String {
     let inst = format_instructions_rust_inline(instructions);
@@ -84,26 +86,18 @@ pub fn generate_rust_inline_asm(
 // Can we lift that up?
 pub fn generate_asm_operands(
     mapping: RegisterMapping,
-    inputs_registers: &[Vec<ReifiedRegister<HardwareRegister>>],
-    outputs_registers: &[Vec<ReifiedRegister<HardwareRegister>>],
+    inputs: &[BasicVariable],
+    outputs: &[FreshVariable],
     instructions: &[InstructionF<HardwareRegister>],
 ) -> String {
-    assert_eq!(
-        mapping.allocated(),
-        outputs_registers
-            .iter()
-            .map(|output_register| output_register.len())
-            .sum()
-    );
+    let outputs: Vec<_> = outputs
+        .iter()
+        .map(|fresh_variable| fresh_variable.to_basic_variable(&mapping))
+        .collect();
 
-    let inputs = format_operands(inputs_registers, |r, n, i| {
-        format!("in(\"{r}\") in{n}[{i}]")
-    });
-    let outputs = format_operands(&outputs_registers, |r, n, i| {
-        format!("lateout(\"{r}\") out{n}[{i}]")
-    });
-
-    let clobber_registers = get_clobber_registers(&outputs_registers, instructions);
+    let input_operands = format_operands(&inputs, "in");
+    let output_operands = format_operands(&outputs, "lateout");
+    let clobber_registers = get_clobber_registers(&outputs, instructions);
 
     let clobbers = format_clobbers(&clobber_registers);
 
@@ -112,10 +106,10 @@ pub fn generate_asm_operands(
     let lr = std::iter::once("lateout(\"lr\") _".to_string());
 
     // TODO format the assembly lines per input and per output
-    inputs
+    input_operands
         .into_iter()
         .chain(newline.clone())
-        .chain(outputs)
+        .chain(output_operands)
         .chain(newline.clone())
         .chain(clobbers)
         .chain(newline.clone())
@@ -126,7 +120,7 @@ pub fn generate_asm_operands(
 /// Clobber registers are all the registers that have been used in the assembly block minus the
 /// registers that are used for the output. These are needed by Rust to plan which registers need to be saved.
 fn get_clobber_registers(
-    outputs_registers: &[Vec<ReifiedRegister<HardwareRegister>>],
+    outputs_registers: &[BasicVariable],
     instructions: &[InstructionF<HardwareRegister>],
 ) -> Vec<BasicRegister> {
     let mut all_used_registers = BTreeSet::new();
@@ -141,7 +135,7 @@ fn get_clobber_registers(
 
     let output_registers = outputs_registers
         .iter()
-        .flat_map(|regs| regs.iter().map(|reg| reg.to_basic_register()))
+        .flat_map(|variable| variable.registers.clone())
         .collect();
 
     all_used_registers
@@ -183,28 +177,31 @@ fn format_clobbers(clobbered_registers: &[BasicRegister]) -> impl Iterator<Item 
 /// # Returns
 ///
 /// An iterator that produces formatted strings for each register group with appropriate separators
-fn format_operands<'a>(
-    variables: &'a [Vec<ReifiedRegister<HardwareRegister>>],
-    formatter: fn(
-        register: BasicRegister,
-        variable_index: usize, // Which variable this register belongs to. This is a workaround for not having the variable name attached.
-        register_index: usize, // Position within the variable
-    ) -> String,
-) -> impl Iterator<Item = String> + 'a {
+fn format_operands(variables: &[BasicVariable], direction: &str) -> impl Iterator<Item = String> {
     // Process each register group (with its index)
     variables
         .iter()
-        .enumerate()
-        .map(move |(variable_index, registers)| {
+        .map(move |variable| {
             // Format each register in the group (with its position index)
-            registers
-                .iter()
-                .enumerate()
-                .map(move |(register_index, register)| {
-                    formatter(register.to_basic_register(), variable_index, register_index)
-                })
-                .intersperse(", ".to_string())
-                .collect() // Collect registers within a group with comma separators
+            if variable.registers.len() > 1 {
+                variable
+                    .registers
+                    .iter()
+                    .enumerate()
+                    .map(move |(variable_index, register)| {
+                        format!(
+                            "{direction}(\"{register}\") {}[{variable_index}]",
+                            variable.label
+                        )
+                    })
+                    .intersperse(", ".to_string())
+                    .collect() // Collect registers within a group with comma separators
+            } else {
+                format!(
+                    "{direction}(\"{}\") {}",
+                    variable.registers[0], variable.label
+                )
+            }
         })
         .intersperse(",\n".to_string()) // Separate groups with comma and newline
 }

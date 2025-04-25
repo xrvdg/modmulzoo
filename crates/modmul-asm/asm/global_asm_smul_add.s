@@ -1,7 +1,7 @@
-//in("x0") in0[0], in("x1") in0[1], in("x2") in0[2], in("x3") in0[3], in("x4") in0[4],
-//in("x5") in1[0], in("x6") in1[1], in("x7") in1[2], in("x8") in1[3],
-//in("x9") in2[0],
-//lateout("x0") out0[0], lateout("x1") out0[1], lateout("x2") out0[2], lateout("x3") out0[3], lateout("x4") out0[4],
+//in("x0") r#add[0], in("x1") r#add[1], in("x2") r#add[2], in("x3") r#add[3], in("x4") r#add[4],
+//in("x5") a[0], in("x6") a[1], in("x7") a[2], in("x8") a[3],
+//in("x9") b,
+//lateout("x0") out[0], lateout("x1") out[1], lateout("x2") out[2], lateout("x3") out[3], lateout("x4") out[4],
 //lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _,
 //lateout("lr") _
         .global _smul_add

@@ -103,6 +103,40 @@ impl From<u64> for FreshRegister {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct Variable<R> {
+    label: String,
+    // TODO pub due to pin_registers in build.rs but that should be moved
+    pub registers: Vec<R>,
+}
+
+pub type FreshVariable = Variable<ReifiedRegister<FreshRegister>>;
+pub type BasicVariable = Variable<BasicRegister>;
+
+impl FreshVariable {
+    pub fn new<R>(label: &str, registers: &[R]) -> Self
+    where
+        R: ReifyRegister,
+    {
+        Self {
+            label: label.to_string(),
+            registers: registers.into_iter().map(|reg| reg.reify()).collect(),
+        }
+    }
+
+    pub fn to_basic_variable(&self, mapping: &RegisterMapping) -> BasicVariable {
+        BasicVariable {
+            label: self.label.clone(),
+            registers: self
+                .registers
+                .iter()
+                .map(|register| mapping.output_register(register).unwrap())
+                .map(|hw_reg| hw_reg.to_basic_register())
+                .collect(),
+        }
+    }
+}
+
 /// A container for assembly instructions.
 ///
 /// The Assembler maintains a collection of atomic instruction blocks that
@@ -317,18 +351,15 @@ where
 /// * `lifetimes` - Register lifetimes for allocation planning. It will use the begin value.
 /// * `fresh` - The fresh register to pin
 /// * `hardware_register` - The hardware register number to pin to
-pub fn pin_register<T: ReifyRegister>(
+pub fn pin_register(
     register_bank: &mut RegisterBank,
     lifetimes: &[(usize, usize)],
-    fresh: &T,
+    fresh: &ReifiedRegister<FreshRegister>,
     hardware_register: u64,
-) where
-    T: ReifyRegister,
-{
+) {
     let hardware_register = HardwareRegister(hardware_register);
-    let tp = fresh.reify();
 
-    register_bank.set_availability(hardware_register, tp, lifetimes[tp.reg.0 as usize].0);
+    register_bank.set_availability(hardware_register, fresh, lifetimes[fresh.reg.0 as usize].0);
 }
 
 /// Tracks which registers have been seen during analysis.
@@ -352,9 +383,8 @@ impl Seen {
     /// # Returns
     ///
     /// `true` if the register was not previously seen, `false` otherwise.
-    fn mark_register(&mut self, fresh: &dyn ReifyRegister) -> bool {
-        let fresh = fresh.reify().reg;
-        self.0.insert(fresh)
+    fn mark_register(&mut self, fresh: &ReifiedRegister<FreshRegister>) -> bool {
+        self.0.insert(fresh.reg)
     }
 }
 
@@ -443,7 +473,7 @@ impl RegisterBank {
     fn set_availability(
         &mut self,
         hardware_register: HardwareRegister,
-        reified_register: ReifiedRegister<FreshRegister>,
+        reified_register: &ReifiedRegister<FreshRegister>,
         lifetime: usize,
     ) {
         self.get_register_pool(reified_register.r#type)
@@ -646,12 +676,10 @@ impl RegisterMapping {
     /// # Returns
     ///
     /// An Option containing the corresponding hardware register if mapped, None otherwise.
-    pub fn output_register<R: ReifyRegister>(
+    pub fn output_register(
         &self,
-        reg: &R,
+        reified_register: &ReifiedRegister<FreshRegister>,
     ) -> Option<ReifiedRegister<HardwareRegister>> {
-        let reified_register = reg.reify();
-
         self.mapping
             .get(&reified_register.reg)
             .map(|hw_reg| ReifiedRegister {
@@ -683,14 +711,16 @@ impl RegisterMapping {
 ///
 /// Panics if an instruction has an unused destination register.
 pub fn liveness_analysis<'a>(
-    output_registers: impl Iterator<Item = &'a dyn ReifyRegister>,
+    output_variables: &[FreshVariable],
     instructions: &[Instruction],
     nr_fresh_registers: usize,
 ) -> (VecDeque<HashSet<FreshRegister>>, Vec<(usize, usize)>) {
     // Initialize the seen_registers with the output registers such that they won't get released.
     let mut seen_registers = Seen::new();
-    output_registers.for_each(|r| {
-        seen_registers.mark_register(r);
+    output_variables.iter().for_each(|variable| {
+        variable.registers.iter().for_each(|register| {
+            seen_registers.mark_register(register);
+        });
     });
 
     // Keep track of the last line the free register is used for

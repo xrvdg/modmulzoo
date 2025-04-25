@@ -4,6 +4,8 @@ use crate::{FreshRegister, ReifyRegister};
 
 /// Represents a single hardware registers by modelling it as
 /// a fresh variable.
+/// This value does not have a clone or copy trait to prevent aliasing
+/// the same register. it's mutability story is similar to interior mutability.
 pub struct Reg<T> {
     pub(crate) reg: FreshRegister,
     _marker: PhantomData<T>,
