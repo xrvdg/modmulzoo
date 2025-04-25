@@ -1,7 +1,8 @@
 #![feature(iter_intersperse)]
+use core::panic;
 use std::{
     array,
-    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
 };
 
 pub mod codegen;
@@ -236,8 +237,25 @@ impl std::fmt::Display for BasicRegister {
 
 #[derive(Debug)]
 struct RegisterPool {
+    // Keeps track of the free hardware during allocations
     pool: BTreeSet<HardwareRegister>,
-    availability: Vec<Option<(FreshRegister, usize)>>,
+    reserved_outputs: ReservedOutputs,
+}
+
+#[derive(Debug)]
+struct ReservedOutputs {
+    // Acts as a concrete iterator
+    pool: BTreeSet<HardwareRegister>,
+    reserved: BTreeMap<HardwareRegister, (FreshRegister, usize)>,
+}
+
+impl ReservedOutputs {
+    fn new(pool: BTreeSet<HardwareRegister>) -> Self {
+        Self {
+            pool,
+            reserved: BTreeMap::new(),
+        }
+    }
 }
 
 impl RegisterPool {
@@ -245,15 +263,12 @@ impl RegisterPool {
     where
         T: Iterator<Item = u64> + Clone,
     {
-        let len = registers
-            .clone()
-            .max()
-            .expect("Can't have a zero sized register pool");
-
+        let pool = BTreeSet::from_iter(registers.map(HardwareRegister));
+        // restrictions on the output registers are the same as during the run of the program
+        let output_pool = pool.clone();
         RegisterPool {
-            pool: BTreeSet::from_iter(registers.map(HardwareRegister)),
-            // Registers start from 0 so highest count + 1
-            availability: vec![None; (len + 1) as usize],
+            pool,
+            reserved_outputs: ReservedOutputs::new(output_pool),
         }
     }
 
@@ -265,10 +280,9 @@ impl RegisterPool {
             .find(
                 // Check if the hardware register has been preassigned assigned to this fresh registers
                 // Check if the hardware register can be used before it's preassigned moment
-                //
-                |&hardware_register| match self.availability[hardware_register.0 as usize] {
-                    Some((tp, _lifetime)) if reg == tp => true,
-                    Some((_tp, lifetime)) if end_lifetime <= lifetime => true,
+                |&hardware_register| match self.reserved_outputs.reserved.get(hardware_register) {
+                    Some((tp, _lifetime)) if reg == *tp => true,
+                    Some((_tp, lifetime)) if end_lifetime <= *lifetime => true,
                     // Hardware register has not been preassigned
                     None => true,
                     // Hardware register was preassigned to a different fresh register and it's ownership overlaps
@@ -287,11 +301,14 @@ impl RegisterPool {
     }
 
     fn set_availability(&mut self, tp: FreshRegister, register: HardwareRegister, lifetime: usize) {
-        let av = &mut self.availability[register.0 as usize];
+        let removed = self.reserved_outputs.pool.remove(&register);
 
-        match av {
-            Some(_) => panic!("Availability of hardware register {register} already set"),
-            None => *av = Some((tp, lifetime)),
+        if removed {
+            self.reserved_outputs
+                .reserved
+                .insert(register, (tp, lifetime));
+        } else {
+            panic!("{register} has already been allocated to an output")
         }
     }
 
@@ -371,7 +388,7 @@ pub fn allocate_input_variable(
                 .collect();
             BasicVariable {
                 label: variable.label,
-                registers: registers,
+                registers,
             }
         })
         .collect()
@@ -386,21 +403,25 @@ pub fn allocate_input_variable(
 ///
 /// * `register_bank` - RegisterBank to pin the register in
 /// * `lifetimes` - Register lifetimes for allocation planning. It will use the begin value.
-/// * `fresh` - The fresh register to pin
-/// * `hardware_register` - The hardware register number to pin to
-pub fn reserve_output_register(
+pub fn reserve_output_variable(
     register_bank: &mut RegisterBank,
     lifetimes: &[Lifetime],
-    fresh: &ReifiedRegister<FreshRegister>,
-    hardware_register: u64,
+    variable: &FreshVariable,
 ) {
-    let hardware_register = HardwareRegister(hardware_register);
+    let pool = register_bank.get_register_pool(variable.registers[0].r#type);
+    for reified_register in &variable.registers {
+        // TODO part of this should be inside ReservedOutputs
+        match pool.reserved_outputs.pool.pop_first() {
+            Some(hardware_register) => {
+                let lifetime = lifetimes[reified_register.reg.0 as usize].begin;
 
-    register_bank.set_availability(
-        hardware_register,
-        fresh,
-        lifetimes[fresh.reg.0 as usize].begin,
-    );
+                pool.reserved_outputs
+                    .reserved
+                    .insert(hardware_register, (reified_register.reg, lifetime));
+            }
+            None => panic!("Ran out of registers to reserve"),
+        }
+    }
 }
 
 /// Tracks which registers have been seen during analysis.
@@ -485,9 +506,12 @@ impl RegisterBank {
         &mut self,
         reified_register: ReifiedRegister<FreshRegister>,
         end_lifetime: usize,
-    ) -> Option<HardwareRegister> {
-        self.get_register_pool(reified_register.r#type)
-            .pop_first(reified_register.reg, end_lifetime)
+    ) -> Option<ReifiedRegister<HardwareRegister>> {
+        let hw_reg = self
+            .get_register_pool(reified_register.r#type)
+            .pop_first(reified_register.reg, end_lifetime);
+
+        hw_reg.map(|reg| reified_register.into_hardware(reg))
     }
 
     /// Removes a hardware register from the pool.
@@ -593,7 +617,8 @@ pub fn interleave<T>(lhs: Vec<T>, rhs: Vec<T>) -> Vec<T> {
 /// Maps fresh registers to their assigned hardware registers.
 ///
 /// RegisterMapping maintains the mapping between virtual registers (FreshRegisters)
-/// and their corresponding physical hardware registers during register allocation.
+/// and their corresponding physical hardware registers _during_ register allocation.
+/// It represents the active set of allocations.
 #[derive(Debug, Default)]
 pub struct RegisterMapping {
     mapping: HashMap<FreshRegister, BasicRegister>,
@@ -670,26 +695,19 @@ impl RegisterMapping {
         lifetime: Lifetime,
     ) -> ReifiedRegister<HardwareRegister> {
         // Either return existing mapping or create new one
-        let hw_reg = match self.mapping.get(&typed_register.reg) {
-            Some(reg) => reg.reg(),
+        match self.mapping.get(&typed_register.reg) {
+            Some(reg) => typed_register.into_hardware(reg.reg()),
             None => {
-                let hw_reg = register_bank
+                let hardware_reified_register = register_bank
                     .pop_first(typed_register, lifetime.end)
                     .expect("ran out of registers");
 
-                let hardware_reified_register = typed_register.into_hardware(hw_reg);
                 self.mapping.insert(
                     typed_register.reg,
                     hardware_reified_register.to_basic_register(),
                 );
-                hw_reg
+                hardware_reified_register
             }
-        };
-
-        ReifiedRegister {
-            reg: hw_reg,
-            r#type: typed_register.r#type,
-            idx: typed_register.idx,
         }
     }
 

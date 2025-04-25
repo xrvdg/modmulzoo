@@ -58,13 +58,7 @@ fn build_func(
     );
 
     output_hw_registers.iter().for_each(|variable| {
-        variable
-            .registers
-            .iter()
-            .enumerate()
-            .for_each(|(idx, register)| {
-                reserve_output_register(&mut register_bank, &lifetimes, register, idx as u64);
-            });
+        reserve_output_variable(&mut register_bank, &lifetimes, variable);
     });
 
     let out = hardware_register_allocation(
@@ -498,20 +492,9 @@ fn build_interleaved(label: &str) {
         &lifetimes,
     );
 
-    output_hw_registers[0]
-        .registers
+    output_hw_registers
         .iter()
-        .enumerate()
-        .for_each(|(idx, r)| {
-            reserve_output_register(&mut register_bank, &lifetimes, r, idx as u64);
-        });
-    output_hw_registers[1]
-        .registers
-        .iter()
-        .enumerate()
-        .for_each(|(idx, r)| {
-            reserve_output_register(&mut register_bank, &lifetimes, r, idx as u64);
-        });
+        .for_each(|variable| reserve_output_variable(&mut register_bank, &lifetimes, variable));
 
     let out =
         hardware_register_allocation(&mut mapping, &mut register_bank, mixed, releases, lifetimes);
