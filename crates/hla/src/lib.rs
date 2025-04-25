@@ -1,5 +1,8 @@
 #![feature(iter_intersperse)]
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::{
+    array,
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+};
 
 pub mod codegen;
 pub mod frontend;
@@ -178,6 +181,10 @@ impl Allocator {
         Reg::new(x)
     }
 
+    pub fn fresh_array<T, const N: usize>(&mut self) -> [Reg<T>; N] {
+        array::from_fn(|_| self.fresh())
+    }
+
     /// Creates a new Allocator
     pub fn new() -> Self {
         Self { fresh: 0 }
@@ -340,6 +347,36 @@ where
     fresh
 }
 
+pub fn allocate_input_variable(
+    mapping: &mut RegisterMapping,
+    register_bank: &mut RegisterBank,
+    input_hw_registers: Vec<FreshVariable>,
+    lifetimes: &[Lifetime],
+) -> Vec<BasicVariable> {
+    input_hw_registers
+        .into_iter()
+        .map(|variable| {
+            let registers = variable
+                .registers
+                .into_iter()
+                .map(|register| {
+                    mapping
+                        .get_or_allocate_register(
+                            register_bank,
+                            register,
+                            lifetimes[register.reg.0 as usize],
+                        )
+                        .to_basic_register()
+                })
+                .collect();
+            BasicVariable {
+                label: variable.label,
+                registers: registers,
+            }
+        })
+        .collect()
+}
+
 /// Pins a fresh register to a specific hardware register.
 ///
 /// This function assigns a specific hardware register to a fresh register,
@@ -351,15 +388,19 @@ where
 /// * `lifetimes` - Register lifetimes for allocation planning. It will use the begin value.
 /// * `fresh` - The fresh register to pin
 /// * `hardware_register` - The hardware register number to pin to
-pub fn pin_register(
+pub fn reserve_output_register(
     register_bank: &mut RegisterBank,
-    lifetimes: &[(usize, usize)],
+    lifetimes: &[Lifetime],
     fresh: &ReifiedRegister<FreshRegister>,
     hardware_register: u64,
 ) {
     let hardware_register = HardwareRegister(hardware_register);
 
-    register_bank.set_availability(hardware_register, fresh, lifetimes[fresh.reg.0 as usize].0);
+    register_bank.set_availability(
+        hardware_register,
+        fresh,
+        lifetimes[fresh.reg.0 as usize].begin,
+    );
 }
 
 /// Tracks which registers have been seen during analysis.
@@ -622,18 +663,18 @@ impl RegisterMapping {
     /// # Panics
     ///
     /// Panics if register allocation fails.
-    fn get_or_allocate_register(
+    pub fn get_or_allocate_register(
         &mut self,
         register_bank: &mut RegisterBank,
         typed_register: ReifiedRegister<FreshRegister>,
-        end_lifetime: usize,
+        lifetime: Lifetime,
     ) -> ReifiedRegister<HardwareRegister> {
         // Either return existing mapping or create new one
         let hw_reg = match self.mapping.get(&typed_register.reg) {
             Some(reg) => reg.reg(),
             None => {
                 let hw_reg = register_bank
-                    .pop_first(typed_register, end_lifetime)
+                    .pop_first(typed_register, lifetime.end)
                     .expect("ran out of registers");
 
                 let hardware_reified_register = typed_register.into_hardware(hw_reg);
@@ -690,6 +731,12 @@ impl RegisterMapping {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct Lifetime {
+    begin: usize,
+    end: usize,
+}
+
 /// Performs liveness analysis on instructions to determine register lifetimes.
 ///
 /// This function analyzes the instruction sequence to determine at which instructions
@@ -714,7 +761,7 @@ pub fn liveness_analysis<'a>(
     output_variables: &[FreshVariable],
     instructions: &[Instruction],
     nr_fresh_registers: usize,
-) -> (VecDeque<HashSet<FreshRegister>>, Vec<(usize, usize)>) {
+) -> (VecDeque<HashSet<FreshRegister>>, Vec<Lifetime>) {
     // Initialize the seen_registers with the output registers such that they won't get released.
     let mut seen_registers = Seen::new();
     output_variables.iter().for_each(|variable| {
@@ -724,7 +771,13 @@ pub fn liveness_analysis<'a>(
     });
 
     // Keep track of the last line the free register is used for
-    let mut lifetimes = vec![(0, usize::MAX); nr_fresh_registers];
+    let mut lifetimes = vec![
+        Lifetime {
+            begin: 0,
+            end: usize::MAX
+        };
+        nr_fresh_registers
+    ];
     let mut commands = VecDeque::new();
     for (line, instruction) in instructions.iter().enumerate().rev() {
         // Add check whether the source is released here.
@@ -745,13 +798,12 @@ pub fn liveness_analysis<'a>(
                 panic!("{line}: {instruction:?} does not use the destination")
             }; // The union could be mutable
 
-            let (_b, e) = lifetimes[dest.0 as usize];
-            lifetimes[dest.0 as usize] = (line, e);
+            let lifetime = &mut lifetimes[dest.0 as usize];
+            lifetime.begin = line;
         });
-
         release.iter().for_each(|reg| {
-            let (b, _e) = lifetimes[reg.0 as usize];
-            lifetimes[reg.0 as usize] = (b, line);
+            let lifetime = &mut lifetimes[reg.0 as usize];
+            lifetime.end = line;
             seen_registers.0.insert(*reg);
         });
         commands.push_front(release);
@@ -794,7 +846,7 @@ pub fn hardware_register_allocation(
     instructions: Vec<Instruction>,
     // Change this into a Seen, and then rename Seen?
     releases: VecDeque<HashSet<FreshRegister>>,
-    lifetimes: Vec<(usize, usize)>,
+    lifetimes: Vec<Lifetime>,
 ) -> Vec<InstructionF<HardwareRegister>> {
     assert_eq!(
         instructions.len(),
@@ -824,7 +876,7 @@ pub fn hardware_register_allocation(
                 .into_iter()
                 .map(|d| {
                     let idx = d.reg.0;
-                    mapping.get_or_allocate_register(register_bank, d, lifetimes[idx as usize].1)
+                    mapping.get_or_allocate_register(register_bank, d, lifetimes[idx as usize])
                 })
                 .collect();
 

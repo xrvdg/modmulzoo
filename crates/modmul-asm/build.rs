@@ -16,40 +16,29 @@ use montgomery_reduction::{
 
 fn setup_schoolmethod(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (Vec<BasicVariable>, FreshVariable) {
-    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
-    let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (a.len() + i) as u64));
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let a = alloc.fresh_array();
+    let b = alloc.fresh_array();
 
     let s = school_method(alloc, asm, &a, &b);
 
     (
-        vec![
-            Variable::new("a", &a).to_basic_variable(mapping),
-            Variable::new("b", &b).to_basic_variable(mapping),
-        ],
+        vec![Variable::new("a", &a), Variable::new("b", &b)],
         Variable::new("out", &s),
     )
 }
 
 fn build_func(
     label: &str,
-    f: fn(
-        alloc: &mut Allocator,
-        mapping: &mut RegisterMapping,
-        phys_registers: &mut RegisterBank,
-        asm: &mut Assembler,
-    ) -> (Vec<BasicVariable>, FreshVariable),
+    f: fn(alloc: &mut Allocator, asm: &mut Assembler) -> (Vec<FreshVariable>, FreshVariable),
 ) {
     let mut alloc = Allocator::new();
     let mut mapping = RegisterMapping::new();
-    let mut phys_registers = RegisterBank::new();
+    let mut register_bank = RegisterBank::new();
 
     let mut asm = Assembler::new();
-    let (input_hw_registers, output_hw_register) =
-        f(&mut alloc, &mut mapping, &mut phys_registers, &mut asm);
+    let (input_hw_registers, output_hw_register) = f(&mut alloc, &mut asm);
 
     let output_hw_registers = [output_hw_register];
 
@@ -61,19 +50,26 @@ fn build_func(
     let (releases, lifetimes) =
         liveness_analysis(&output_hw_registers, &instructions, alloc.fresh as usize);
 
+    let input_hw_registers = allocate_input_variable(
+        &mut mapping,
+        &mut register_bank,
+        input_hw_registers,
+        &lifetimes,
+    );
+
     output_hw_registers.iter().for_each(|variable| {
         variable
             .registers
             .iter()
             .enumerate()
             .for_each(|(idx, register)| {
-                pin_register(&mut phys_registers, &lifetimes, register, idx as u64);
+                reserve_output_register(&mut register_bank, &lifetimes, register, idx as u64);
             });
     });
 
     let out = hardware_register_allocation(
         &mut mapping,
-        &mut phys_registers,
+        &mut register_bank,
         instructions,
         releases,
         lifetimes,
@@ -97,96 +93,68 @@ fn build_func(
 
 fn setup_single_step(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-    base: usize,
-) -> (Vec<BasicVariable>, FreshVariable) {
-    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, (base + i) as u64));
-    let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (base + a.len() + i) as u64));
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let a = alloc.fresh_array();
+    let b = alloc.fresh_array();
 
     let s = single_step(alloc, asm, &a, &b);
     (
-        vec![
-            Variable::new("a", &a).to_basic_variable(mapping),
-            Variable::new("b", &b).to_basic_variable(mapping),
-        ],
+        vec![Variable::new("a", &a), Variable::new("b", &b)],
         Variable::new("out", &s),
     )
 }
 
 fn setup_single_step_load(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-    base: usize,
-) -> (Vec<BasicVariable>, FreshVariable) {
-    let mut a = input(alloc, mapping, phys_registers, (base + 0) as u64);
-    let b = input(alloc, mapping, phys_registers, (base + 1) as u64);
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let mut a = alloc.fresh();
+    let b = alloc.fresh();
 
     single_step_load(alloc, asm, &mut a, &b);
 
     let var_a = Variable::new("a", &[a]);
 
-    (
-        vec![
-            var_a.to_basic_variable(mapping),
-            Variable::new("b", &[b]).to_basic_variable(mapping),
-        ],
-        var_a,
-    )
+    (vec![var_a.clone(), Variable::new("b", &[b])], var_a)
 }
 
 fn setup_single_step_split(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (Vec<BasicVariable>, FreshVariable) {
-    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
-    let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (a.len() + i) as u64));
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let a = alloc.fresh_array();
+    let b = alloc.fresh_array();
 
     let s = single_step_split(alloc, asm, &a, &b);
     (
-        vec![
-            Variable::new("a", &a).to_basic_variable(mapping),
-            Variable::new("b", &b).to_basic_variable(mapping),
-        ],
+        vec![Variable::new("a", &a), Variable::new("b", &b)],
         Variable::new("out", &s),
     )
 }
 
 fn setup_smul_add(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (Vec<BasicVariable>, FreshVariable) {
-    let add = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let add = alloc.fresh_array();
     let var_add = Variable::new("r#add", &add);
-    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, (add.len() + i) as u64));
-    let b = input(alloc, mapping, phys_registers, (add.len() + a.len()) as u64);
+    let a = alloc.fresh_array();
+    let b = alloc.fresh();
 
     let s = smult_add(alloc, asm, add, &a, &b);
 
     (
-        vec![
-            var_add.to_basic_variable(mapping),
-            Variable::new("a", &a).to_basic_variable(mapping),
-            Variable::new("b", &[b]).to_basic_variable(mapping),
-        ],
+        vec![var_add, Variable::new("a", &a), Variable::new("b", &[b])],
         Variable::new("out", &s),
     )
 }
 
 fn setup_u256_to_u260_shl2_imd(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (Vec<BasicVariable>, FreshVariable) {
-    let limbs = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let limbs = alloc.fresh_array();
 
     let mask = mov(alloc, asm, MASK52);
     let mask_simd = dup2d(alloc, asm, &mask);
@@ -194,45 +162,28 @@ fn setup_u256_to_u260_shl2_imd(
     let var_limb = Variable::new("limbs", &limbs);
     let res = u256_to_u260_shl2_simd(alloc, asm, &mask_simd, limbs);
 
-    (
-        vec![var_limb.to_basic_variable(mapping)],
-        Variable::new("out", &res),
-    )
+    (vec![var_limb], Variable::new("out", &res))
 }
 
 fn setup_u260_to_u256_simd(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (Vec<BasicVariable>, FreshVariable) {
-    let limbs = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let limbs = alloc.fresh_array();
 
     let var_limb = Variable::new("limbs", &limbs);
     let res = u260_to_u256_simd(alloc, asm, limbs);
 
-    (
-        vec![var_limb.to_basic_variable(mapping)],
-        Variable::new("out", &res),
-    )
+    (vec![var_limb], Variable::new("out", &res))
 }
 
 fn setup_vmultadd_noinit_simd(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (Vec<BasicVariable>, FreshVariable) {
-    let t = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
-    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, (i + t.len()) as u64));
-    let b = array::from_fn(|i| {
-        input(
-            alloc,
-            mapping,
-            phys_registers,
-            (i + t.len() + a.len()) as u64,
-        )
-    }); // Assuming b starts after a
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let t = alloc.fresh_array();
+    let a = alloc.fresh_array();
+    let b = alloc.fresh_array();
 
     let c1 = mov(alloc, asm, C1.to_bits());
     let c1 = dup2d(alloc, asm, &c1);
@@ -246,45 +197,28 @@ fn setup_vmultadd_noinit_simd(
 
     let res = vmultadd_noinit_simd(alloc, asm, &c1, &c2, t, a, b);
 
-    (
-        vec![
-            var_t.to_basic_variable(mapping),
-            var_a.to_basic_variable(mapping),
-            var_b.to_basic_variable(mapping),
-        ],
-        Variable::new("out", &res),
-    )
+    (vec![var_t, var_a, var_b], Variable::new("out", &res))
 }
 
 fn setup_single_step_simd(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (Vec<BasicVariable>, FreshVariable) {
-    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
-    let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (i + a.len()) as u64)); // Assuming b starts after a
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let a = alloc.fresh_array();
+    let b = alloc.fresh_array(); // Assuming b starts after a
 
     let var_a = Variable::new("av", &a);
     let var_b = Variable::new("bv", &b);
     let res = single_step_simd(alloc, asm, a, b);
 
-    (
-        vec![
-            var_a.to_basic_variable(mapping),
-            var_b.to_basic_variable(mapping),
-        ],
-        Variable::new("outv", &res),
-    )
+    (vec![var_a, var_b], Variable::new("outv", &res))
 }
 
 fn setup_reduce_ct_simd(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (Vec<BasicVariable>, FreshVariable) {
-    let red = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let red = alloc.fresh_array();
 
     let mask = mov(alloc, asm, MASK52);
     let mask52 = dup2d(alloc, asm, &mask);
@@ -293,10 +227,7 @@ fn setup_reduce_ct_simd(
 
     let res = reduce_ct_simd(alloc, asm, red).map(|reg| and16(alloc, asm, &reg, &mask52));
 
-    (
-        vec![var_red.to_basic_variable(mapping)],
-        Variable::new("out", &res),
-    )
+    (vec![var_red], Variable::new("out", &res))
 }
 
 // fn build_interleaved_seq_scalar(label: &str) {
@@ -537,25 +468,15 @@ fn setup_reduce_ct_simd(
 fn build_interleaved(label: &str) {
     let mut alloc = Allocator::new();
     let mut mapping = RegisterMapping::new();
-    let mut phys_registers = RegisterBank::new();
+    let mut register_bank = RegisterBank::new();
 
     let mut first_assembler = Assembler::new();
-    let (fst_input_hw_registers, fst_regs) = setup_single_step(
-        &mut alloc,
-        &mut mapping,
-        &mut phys_registers,
-        &mut first_assembler,
-        0,
-    );
+    let (fst_input_hw_registers, fst_regs) = setup_single_step(&mut alloc, &mut first_assembler);
 
     let mut second_assembler = Assembler::new();
 
-    let (snd_input_hw_registers, snd_regs) = setup_single_step_simd(
-        &mut alloc,
-        &mut mapping,
-        &mut phys_registers,
-        &mut second_assembler,
-    );
+    let (snd_input_hw_registers, snd_regs) =
+        setup_single_step_simd(&mut alloc, &mut second_assembler);
 
     let mixed: Vec<_> = interleave(first_assembler.instructions, second_assembler.instructions)
         .into_iter()
@@ -567,31 +488,33 @@ fn build_interleaved(label: &str) {
     let (releases, lifetimes) =
         liveness_analysis(&output_hw_registers, &mixed, alloc.fresh as usize);
 
+    let mut input_hw_registers = fst_input_hw_registers;
+    input_hw_registers.extend(snd_input_hw_registers);
+
+    let input_hw_registers = allocate_input_variable(
+        &mut mapping,
+        &mut register_bank,
+        input_hw_registers,
+        &lifetimes,
+    );
+
     output_hw_registers[0]
         .registers
         .iter()
         .enumerate()
         .for_each(|(idx, r)| {
-            pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
+            reserve_output_register(&mut register_bank, &lifetimes, r, idx as u64);
         });
     output_hw_registers[1]
         .registers
         .iter()
         .enumerate()
         .for_each(|(idx, r)| {
-            pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
+            reserve_output_register(&mut register_bank, &lifetimes, r, idx as u64);
         });
 
-    let out = hardware_register_allocation(
-        &mut mapping,
-        &mut phys_registers,
-        mixed,
-        releases,
-        lifetimes,
-    );
-
-    let mut input_hw_registers = fst_input_hw_registers;
-    input_hw_registers.extend(snd_input_hw_registers);
+    let out =
+        hardware_register_allocation(&mut mapping, &mut register_bank, mixed, releases, lifetimes);
 
     let assembly = generate_rust_global_asm(
         label,
@@ -612,12 +535,8 @@ fn main() {
     // commented out now that it takes a constant
     build_func("smul_add", setup_smul_add);
     build_func("school_method", setup_schoolmethod);
-    build_func("single_step", |alloc, mapping, bank, asm| {
-        setup_single_step(alloc, mapping, bank, asm, 0)
-    });
-    build_func("single_step_load", |alloc, mapping, bank, asm| {
-        setup_single_step_load(alloc, mapping, bank, asm, 0)
-    });
+    build_func("single_step", setup_single_step);
+    build_func("single_step_load", setup_single_step_load);
     build_func("single_step_split", setup_single_step_split);
     build_func("u256_to_u260_shl2_simd", setup_u256_to_u260_shl2_imd);
     build_func("u260_to_u256_simd", setup_u260_to_u256_simd);

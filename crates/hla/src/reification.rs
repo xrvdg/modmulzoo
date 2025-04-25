@@ -3,7 +3,7 @@ use crate::{BasicRegister, FreshRegister, HardwareRegister};
 
 #[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
 pub struct ReifiedRegister<R> {
-    pub(crate) reg: R,
+    pub reg: R,
     pub(crate) r#type: RegisterType,
     pub(crate) idx: Index,
 }
