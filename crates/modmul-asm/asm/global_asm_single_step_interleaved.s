@@ -1,9 +1,9 @@
-//in("x0") in0[0], in("x1") in0[1], in("x2") in0[2], in("x3") in0[3],
-//in("x4") in1[0], in("x5") in1[1], in("x6") in1[2], in("x7") in1[3],
-//in("v0") in2[0], in("v1") in2[1], in("v2") in2[2], in("v3") in2[3],
-//in("v4") in3[0], in("v5") in3[1], in("v6") in3[2], in("v7") in3[3],
-//lateout("x0") out0[0], lateout("x1") out0[1], lateout("x2") out0[2], lateout("x3") out0[3],
-//lateout("v0") out1[0], lateout("v1") out1[1], lateout("v2") out1[2], lateout("v3") out1[3],
+//in("x0") a[0], in("x1") a[1], in("x2") a[2], in("x3") a[3],
+//in("x4") b[0], in("x5") b[1], in("x6") b[2], in("x7") b[3],
+//in("v0") av[0], in("v1") av[1], in("v2") av[2], in("v3") av[3],
+//in("v4") bv[0], in("v5") bv[1], in("v6") bv[2], in("v7") bv[3],
+//lateout("x0") out[0], lateout("x1") out[1], lateout("x2") out[2], lateout("x3") out[3],
+//lateout("v0") outv[0], lateout("v1") outv[1], lateout("v2") outv[2], lateout("v3") outv[3],
 //lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _, lateout("x15") _, lateout("x16") _, lateout("v4") _, lateout("v5") _, lateout("v6") _, lateout("v7") _, lateout("v8") _, lateout("v9") _, lateout("v10") _, lateout("v11") _, lateout("v12") _, lateout("v13") _, lateout("v14") _, lateout("v15") _, lateout("v16") _, lateout("v17") _, lateout("v18") _, lateout("v19") _, lateout("v20") _, lateout("v21") _, lateout("v22") _, lateout("v23") _, lateout("v24") _,
 //lateout("lr") _
         .global _single_step_interleaved

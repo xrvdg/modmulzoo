@@ -265,8 +265,8 @@ fn setup_single_step_simd(
     let a = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
     let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (i + a.len()) as u64)); // Assuming b starts after a
 
-    let var_a = Variable::new("a", &a);
-    let var_b = Variable::new("b", &b);
+    let var_a = Variable::new("av", &a);
+    let var_b = Variable::new("bv", &b);
     let res = single_step_simd(alloc, asm, a, b);
 
     (
@@ -274,7 +274,7 @@ fn setup_single_step_simd(
             var_a.to_basic_variable(mapping),
             var_b.to_basic_variable(mapping),
         ],
-        Variable::new("out", &res),
+        Variable::new("outv", &res),
     )
 }
 
@@ -534,79 +534,79 @@ fn setup_reduce_ct_simd(
 //         .expect("Unable to write data to file");
 // }
 
-// fn build_interleaved(label: &str) {
-//     let mut alloc = Allocator::new();
-//     let mut mapping = RegisterMapping::new();
-//     let mut phys_registers = RegisterBank::new();
+fn build_interleaved(label: &str) {
+    let mut alloc = Allocator::new();
+    let mut mapping = RegisterMapping::new();
+    let mut phys_registers = RegisterBank::new();
 
-//     let mut fst_asm = Assembler::new();
-//     let (fst_input_hw_registers, fst_regs) = setup_single_step(
-//         &mut alloc,
-//         &mut mapping,
-//         &mut phys_registers,
-//         &mut fst_asm,
-//         0,
-//     );
+    let mut first_assembler = Assembler::new();
+    let (fst_input_hw_registers, fst_regs) = setup_single_step(
+        &mut alloc,
+        &mut mapping,
+        &mut phys_registers,
+        &mut first_assembler,
+        0,
+    );
 
-//     let mut snd_asm = Assembler::new();
+    let mut second_assembler = Assembler::new();
 
-//     let (snd_input_hw_registers, snd_regs) =
-//         setup_single_step_simd(&mut alloc, &mut mapping, &mut phys_registers, &mut snd_asm);
+    let (snd_input_hw_registers, snd_regs) = setup_single_step_simd(
+        &mut alloc,
+        &mut mapping,
+        &mut phys_registers,
+        &mut second_assembler,
+    );
 
-//     let mixed: Vec<_> = interleave(fst_asm.instructions, snd_asm.instructions)
-//         .into_iter()
-//         .flatten()
-//         .collect();
+    let mixed: Vec<_> = interleave(first_assembler.instructions, second_assembler.instructions)
+        .into_iter()
+        .flatten()
+        .collect();
 
-//     let (releases, lifetimes) = liveness_analysis(
-//         reify_iter(&fst_regs).chain(reify_iter(&snd_regs)),
-//         &mixed,
-//         alloc.fresh as usize,
-//     );
+    let output_hw_registers = [fst_regs, snd_regs];
 
-//     snd_regs.iter().enumerate().for_each(|(idx, r)| {
-//         pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
-//     });
-//     fst_regs.iter().enumerate().for_each(|(idx, r)| {
-//         pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
-//     });
+    let (releases, lifetimes) =
+        liveness_analysis(&output_hw_registers, &mixed, alloc.fresh as usize);
 
-//     let out = hardware_register_allocation(
-//         &mut mapping,
-//         &mut phys_registers,
-//         mixed,
-//         releases,
-//         lifetimes,
-//     );
+    output_hw_registers[0]
+        .registers
+        .iter()
+        .enumerate()
+        .for_each(|(idx, r)| {
+            pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
+        });
+    output_hw_registers[1]
+        .registers
+        .iter()
+        .enumerate()
+        .for_each(|(idx, r)| {
+            pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
+        });
 
-//     let fst_output_hw_registers: Vec<_> = fst_regs
-//         .iter()
-//         .filter_map(|reg| mapping.output_register(reg))
-//         .collect();
+    let out = hardware_register_allocation(
+        &mut mapping,
+        &mut phys_registers,
+        mixed,
+        releases,
+        lifetimes,
+    );
 
-//     let snd_output_hw_registers: Vec<_> = snd_regs
-//         .iter()
-//         .filter_map(|reg| mapping.output_register(reg))
-//         .collect();
+    let mut input_hw_registers = fst_input_hw_registers;
+    input_hw_registers.extend(snd_input_hw_registers);
 
-//     let mut input_hw_registers = fst_input_hw_registers;
-//     input_hw_registers.extend(snd_input_hw_registers);
+    let assembly = generate_rust_global_asm(
+        label,
+        mapping,
+        &input_hw_registers,
+        &output_hw_registers,
+        &out,
+    );
 
-//     // Write this info in the assembly file
-//     let assembly = generate_rust_global_asm(
-//         label,
-//         mapping,
-//         &input_hw_registers,
-//         &vec![fst_output_hw_registers, snd_output_hw_registers],
-//         &out,
-//     );
-
-//     use std::io::Write;
-//     let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
-//         .expect("Unable to create file");
-//     file.write_all(assembly.as_bytes())
-//         .expect("Unable to write data to file");
-// }
+    use std::io::Write;
+    let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
+        .expect("Unable to create file");
+    file.write_all(assembly.as_bytes())
+        .expect("Unable to write data to file");
+}
 
 fn main() {
     // commented out now that it takes a constant
@@ -624,7 +624,7 @@ fn main() {
     build_func("vmultadd_noinit_simd", setup_vmultadd_noinit_simd);
     build_func("single_step_simd", setup_single_step_simd);
     build_func("reduce_ct_simd", setup_reduce_ct_simd);
-    // build_interleaved("single_step_interleaved");
+    build_interleaved("single_step_interleaved");
     // build_interleaved_seq_scalar("single_step_interleaved_seq_scalar");
     // build_interleaved_triple_scalar("single_step_interleaved_triple_scalar");
 }
