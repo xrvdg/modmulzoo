@@ -1,8 +1,9 @@
-//in("x0") in0[0], in("x1") in0[1], in("x2") in0[2], in("x3") in0[3], in("x4") in1[0], in("x5") in1[1], in("x6") in1[2], in("x7") in1[3],
-//lateout("x8") out0[0], lateout("x9") out0[1], lateout("x10") out0[2], lateout("x11") out0[3], lateout("x4") out0[4], lateout("x5") out0[5], lateout("x6") out0[6], lateout("x7") out0[7],
+//in("x0") a[0], in("x1") a[1], in("x2") a[2], in("x3") a[3],
+//in("x4") b[0], in("x5") b[1], in("x6") b[2], in("x7") b[3],
+//lateout("x8") out[0], lateout("x9") out[1], lateout("x10") out[2], lateout("x11") out[3], lateout("x4") out[4], lateout("x5") out[5], lateout("x6") out[6], lateout("x7") out[7],
 //lateout("x0") _, lateout("x1") _, lateout("x2") _, lateout("x3") _, lateout("x12") _, lateout("x13") _, lateout("x14") _,
 //lateout("lr") _
-.global _school_method
+        .global _school_method
 .align 4
 .text
 _school_method:
@@ -86,4 +87,4 @@ _school_method:
   cinc x7, x7, hs
   adds x6, x12, x6
   cinc x7, x7, hs
-ret
+  ret

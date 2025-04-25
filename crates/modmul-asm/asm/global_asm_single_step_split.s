@@ -1,8 +1,9 @@
-//in("x0") in0[0], in("x1") in0[1], in("x2") in0[2], in("x3") in0[3], in("x4") in1[0], in("x5") in1[1], in("x6") in1[2], in("x7") in1[3],
-//lateout("x0") out0[0], lateout("x1") out0[1], lateout("x2") out0[2], lateout("x3") out0[3],
+//in("x0") a[0], in("x1") a[1], in("x2") a[2], in("x3") a[3],
+//in("x4") b[0], in("x5") b[1], in("x6") b[2], in("x7") b[3],
+//lateout("x0") out[0], lateout("x1") out[1], lateout("x2") out[2], lateout("x3") out[3],
 //lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _, lateout("x15") _, lateout("x16") _, lateout("x17") _, lateout("x20") _, lateout("x21") _, lateout("x22") _, lateout("x23") _,
 //lateout("lr") _
-.global _single_step_split
+        .global _single_step_split
 .align 4
 .text
 _single_step_split:
@@ -177,20 +178,20 @@ _single_step_split:
   adds x20, x23, x20
   cinc x10, x10, hs
   adds x12, x12, x16
-  adds x4, x4, x8
-  adds x5, x5, x13
-  adds x6, x6, x14
-  adds x7, x7, x9
+  adcs x4, x4, x8
+  adcs x5, x5, x13
+  adcs x6, x6, x14
+  adc x7, x7, x9
   adds x8, x12, x22
-  adds x4, x4, x15
-  adds x5, x5, x17
-  adds x6, x6, x20
-  adds x7, x7, x10
+  adcs x4, x4, x15
+  adcs x5, x5, x17
+  adcs x6, x6, x20
+  adc x7, x7, x10
   adds x8, x8, x11
-  adds x0, x4, x0
-  adds x1, x5, x1
-  adds x2, x6, x2
-  adds x3, x7, x3
+  adcs x0, x4, x0
+  adcs x1, x5, x1
+  adcs x2, x6, x2
+  adc x3, x7, x3
   mov x4, #65535
   movk x4, #61439, lsl 16
   movk x4, #62867, lsl 32
@@ -227,11 +228,11 @@ _single_step_split:
   adds x7, x11, x7
   cinc x4, x4, hs
   cmn x10, x8
-  adds x0, x5, x0
-  adds x1, x6, x1
-  adds x2, x7, x2
-  adds x5, x4, x3
-  adds x5, x4, x3
+  adcs x0, x5, x0
+  adcs x1, x6, x1
+  adcs x2, x7, x2
+  adcs x5, x4, x3
+  adc x5, x4, x3
   mov x3, #2
   movk x3, #57344, lsl 16
   movk x3, #60199, lsl 32
@@ -257,4 +258,4 @@ _single_step_split:
   csel x1, x4, x1, mi
   csel x2, x6, x2, mi
   csel x3, x7, x5, mi
-ret
+  ret

@@ -2,6 +2,8 @@
 use std::array;
 
 use block_multiplier::{constants::*, make_initial};
+use hla::codegen::generate_rust_global_asm;
+use hla::instructions::*;
 use hla::*;
 // TODO don't rely on montgomery_reduction for anything other than tests
 // Possible not even then
@@ -14,291 +16,168 @@ use montgomery_reduction::{
 
 fn setup_schoolmethod(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<Reg<u64>>,
-) {
-    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
-    let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (a.len() + i) as u64));
-
-    let input_hw_registers_a = a
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
-
-    let input_hw_registers_b = b
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let a = alloc.fresh_array();
+    let b = alloc.fresh_array();
 
     let s = school_method(alloc, asm, &a, &b);
 
     (
-        vec![input_hw_registers_a, input_hw_registers_b],
-        Vec::from(s),
+        vec![Variable::new("a", &a), Variable::new("b", &b)],
+        Variable::new("out", &s),
     )
 }
 
-fn build_func<T>(
+fn build_func(
     label: &str,
-    f: fn(
-        alloc: &mut Allocator,
-        mapping: &mut RegisterMapping,
-        phys_registers: &mut RegisterBank,
-        asm: &mut Assembler,
-    ) -> (Vec<Vec<TypedSizedRegister<HardwareRegister>>>, Vec<T>),
-) where
-    T: hla::RegisterSource,
-{
+    f: fn(alloc: &mut Allocator, asm: &mut Assembler) -> (Vec<FreshVariable>, FreshVariable),
+) {
     let mut alloc = Allocator::new();
     let mut mapping = RegisterMapping::new();
-    let mut phys_registers = RegisterBank::new();
+    let mut register_bank = RegisterBank::new();
 
     let mut asm = Assembler::new();
-    let (input_hw_registers, s) = f(&mut alloc, &mut mapping, &mut phys_registers, &mut asm);
+    let (input_hw_registers, output_hw_register) = f(&mut alloc, &mut asm);
 
-    let first: Vec<_> = asm.instructions.into_iter().flatten().collect();
+    let output_hw_registers = [output_hw_register];
+
+    let instructions: Vec<_> = asm.instructions.into_iter().flatten().collect();
 
     // Is there something we n do to tie off the outputs.
     // and to make sure it happens before drop_pass
-    let mut seen = Seen::new();
-    s.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
 
-    let (releases, lifetimes) = liveness_analysis(&mut seen, &first, alloc.fresh as usize);
+    let (releases, lifetimes) =
+        liveness_analysis(&output_hw_registers, &instructions, alloc.fresh as usize);
 
-    s.iter().enumerate().for_each(|(idx, r)| {
-        pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
+    let input_hw_registers = allocate_input_variable(
+        &mut mapping,
+        &mut register_bank,
+        input_hw_registers,
+        &lifetimes,
+    );
+
+    output_hw_registers.iter().for_each(|variable| {
+        reserve_output_variable(&mut register_bank, &lifetimes, variable);
     });
 
     let out = hardware_register_allocation(
         &mut mapping,
-        &mut phys_registers,
-        first,
+        &mut register_bank,
+        instructions,
         releases,
         lifetimes,
     );
 
-    let output_hw_registers: Vec<_> = s
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
-
-    let txt = backend_global(label, &out);
-
     // Write this info in the assembly file
-    let operands = backend_rust(mapping, input_hw_registers, vec![output_hw_registers], &out);
-    let operands_with_semicolon: Vec<String> =
-        operands.lines().map(|line| format!("//{}", line)).collect();
-    let operands = format!("{}\n", operands_with_semicolon.join("\n"));
+    let assembly = generate_rust_global_asm(
+        label,
+        mapping,
+        &input_hw_registers,
+        &output_hw_registers,
+        &out,
+    );
 
     use std::io::Write;
     let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
         .expect("Unable to create file");
-    file.write_all(operands.as_bytes())
-        .expect("Unable to write data to file");
-    file.write_all(txt.as_bytes())
+    file.write_all(assembly.as_bytes())
         .expect("Unable to write data to file");
 }
 
 fn setup_single_step(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-    base: usize,
-) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<Reg<u64>>,
-) {
-    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, (base + i) as u64));
-    let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (base + a.len() + i) as u64));
-
-    let input_hw_registers_a: Vec<_> = a
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
-
-    let input_hw_registers_b: Vec<_> = b
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let a = alloc.fresh_array();
+    let b = alloc.fresh_array();
 
     let s = single_step(alloc, asm, &a, &b);
     (
-        vec![input_hw_registers_a, input_hw_registers_b],
-        Vec::from(s),
+        vec![Variable::new("a", &a), Variable::new("b", &b)],
+        Variable::new("out", &s),
     )
 }
 
 fn setup_single_step_load(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-    base: usize,
-) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<PReg<[u64; 4]>>,
-) {
-    let mut a = input_preg(alloc, mapping, phys_registers, (base + 0) as u64);
-    let b = input_preg(alloc, mapping, phys_registers, (base + 1) as u64);
-
-    let input_hw_registers_a: Vec<_> = vec![mapping.output_register(&a).unwrap()];
-    let input_hw_registers_b: Vec<_> = vec![mapping.output_register(&b).unwrap()];
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let mut a = alloc.fresh();
+    let b = alloc.fresh();
 
     single_step_load(alloc, asm, &mut a, &b);
 
-    (vec![input_hw_registers_a, input_hw_registers_b], vec![a])
+    let var_a = Variable::new("a", &[a]);
+
+    (vec![var_a.clone(), Variable::new("b", &[b])], var_a)
 }
 
 fn setup_single_step_split(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<Reg<u64>>,
-) {
-    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
-    let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (a.len() + i) as u64));
-
-    let input_hw_registers_a: Vec<_> = a
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
-
-    let input_hw_registers_b: Vec<_> = b
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let a = alloc.fresh_array();
+    let b = alloc.fresh_array();
 
     let s = single_step_split(alloc, asm, &a, &b);
     (
-        vec![input_hw_registers_a, input_hw_registers_b],
-        Vec::from(s),
+        vec![Variable::new("a", &a), Variable::new("b", &b)],
+        Variable::new("out", &s),
     )
 }
 
 fn setup_smul_add(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<Reg<u64>>,
-) {
-    let add = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
-    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, (add.len() + i) as u64));
-    let b = input(alloc, mapping, phys_registers, (add.len() + a.len()) as u64);
-
-    let input_hw_registers_add: Vec<_> = add
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
-
-    let input_hw_registers_a: Vec<_> = a
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
-
-    let input_hw_registers_b: Vec<_> = vec![mapping.output_register(&b).unwrap()];
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let add = alloc.fresh_array();
+    let var_add = Variable::new("r#add", &add);
+    let a = alloc.fresh_array();
+    let b = alloc.fresh();
 
     let s = smult_add(alloc, asm, add, &a, &b);
 
     (
-        vec![
-            input_hw_registers_add,
-            input_hw_registers_a,
-            input_hw_registers_b,
-        ],
-        Vec::from(s),
+        vec![var_add, Variable::new("a", &a), Variable::new("b", &[b])],
+        Variable::new("out", &s),
     )
 }
 
 fn setup_u256_to_u260_shl2_imd(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<Reg<Simd<u64, 2>>>,
-) {
-    let limbs = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
-
-    let input_hw_registers: Vec<_> = limbs
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let limbs = alloc.fresh_array();
 
     let mask = mov(alloc, asm, MASK52);
     let mask_simd = dup2d(alloc, asm, &mask);
 
+    let var_limb = Variable::new("limbs", &limbs);
     let res = u256_to_u260_shl2_simd(alloc, asm, &mask_simd, limbs);
 
-    (vec![input_hw_registers], Vec::from(res))
+    (vec![var_limb], Variable::new("out", &res))
 }
 
 fn setup_u260_to_u256_simd(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<Reg<Simd<u64, 2>>>,
-) {
-    let limbs = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let limbs = alloc.fresh_array();
 
-    let input_hw_registers: Vec<_> = limbs
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
-
+    let var_limb = Variable::new("limbs", &limbs);
     let res = u260_to_u256_simd(alloc, asm, limbs);
 
-    (vec![input_hw_registers], Vec::from(res))
+    (vec![var_limb], Variable::new("out", &res))
 }
 
 fn setup_vmultadd_noinit_simd(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<Reg<Simd<u64, 2>>>,
-) {
-    let t = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
-    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, (i + t.len()) as u64));
-    let b = array::from_fn(|i| {
-        input(
-            alloc,
-            mapping,
-            phys_registers,
-            (i + t.len() + a.len()) as u64,
-        )
-    }); // Assuming b starts after a
-
-    let input_hw_registers_t: Vec<_> = t
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
-    let input_hw_registers_a: Vec<_> = a
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
-    let input_hw_registers_b: Vec<_> = b
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let t = alloc.fresh_array();
+    let a = alloc.fresh_array();
+    let b = alloc.fresh_array();
 
     let c1 = mov(alloc, asm, C1.to_bits());
     let c1 = dup2d(alloc, asm, &c1);
@@ -306,418 +185,332 @@ fn setup_vmultadd_noinit_simd(
     // Alternative is c2 = c1 + 1; This requires a change to add to support immediate
     let c2 = load_const(alloc, asm, C2.to_bits());
     let c2 = dup2d(alloc, asm, &c2);
+    let var_t = Variable::new("t", &t);
+    let var_a = Variable::new("a", &a);
+    let var_b = Variable::new("b", &b);
 
     let res = vmultadd_noinit_simd(alloc, asm, &c1, &c2, t, a, b);
 
-    (
-        vec![
-            input_hw_registers_t,
-            input_hw_registers_a,
-            input_hw_registers_b,
-        ],
-        Vec::from(res),
-    )
+    (vec![var_t, var_a, var_b], Variable::new("out", &res))
 }
 
 fn setup_single_step_simd(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<Reg<Simd<u64, 2>>>,
-) {
-    let a = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
-    let b = array::from_fn(|i| input(alloc, mapping, phys_registers, (i + a.len()) as u64)); // Assuming b starts after a
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let a = alloc.fresh_array();
+    let b = alloc.fresh_array(); // Assuming b starts after a
 
-    let input_hw_registers_a: Vec<_> = a
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
-
-    let input_hw_registers_b: Vec<_> = b
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
-
+    let var_a = Variable::new("av", &a);
+    let var_b = Variable::new("bv", &b);
     let res = single_step_simd(alloc, asm, a, b);
 
-    (
-        vec![input_hw_registers_a, input_hw_registers_b],
-        Vec::from(res),
-    )
+    (vec![var_a, var_b], Variable::new("outv", &res))
 }
 
 fn setup_reduce_ct_simd(
     alloc: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    phys_registers: &mut RegisterBank,
     asm: &mut Assembler,
-) -> (
-    Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    Vec<Reg<Simd<u64, 2>>>,
-) {
-    let red = array::from_fn(|i| input(alloc, mapping, phys_registers, i as u64));
-
-    let input_hw_registers: Vec<_> = red
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
+) -> (Vec<FreshVariable>, FreshVariable) {
+    let red = alloc.fresh_array();
 
     let mask = mov(alloc, asm, MASK52);
     let mask52 = dup2d(alloc, asm, &mask);
 
+    let var_red = Variable::new("red", &red);
+
     let res = reduce_ct_simd(alloc, asm, red).map(|reg| and16(alloc, asm, &reg, &mask52));
 
-    (vec![input_hw_registers], Vec::from(res))
+    (vec![var_red], Variable::new("out", &res))
 }
 
-fn build_interleaved_seq_scalar(label: &str) {
-    let mut alloc = Allocator::new();
-    let mut mapping = RegisterMapping::new();
-    let mut phys_registers = RegisterBank::new();
+// fn build_interleaved_seq_scalar(label: &str) {
+//     let mut alloc = Allocator::new();
+//     let mut mapping = RegisterMapping::new();
+//     let mut phys_registers = RegisterBank::new();
 
-    let mut fst_asm = Assembler::new();
-    let (fst_input_hw_registers, fst_regs) = setup_single_step(
-        &mut alloc,
-        &mut mapping,
-        &mut phys_registers,
-        &mut fst_asm,
-        0,
-    );
+//     let mut fst_asm = Assembler::new();
+//     let (fst_input_hw_registers, fst_regs) = setup_single_step(
+//         &mut alloc,
+//         &mut mapping,
+//         &mut phys_registers,
+//         &mut fst_asm,
+//         0,
+//     );
 
-    let mut snd_asm = Assembler::new();
+//     let mut snd_asm = Assembler::new();
 
-    let (snd_input_hw_registers, snd_regs) =
-        setup_single_step_simd(&mut alloc, &mut mapping, &mut phys_registers, &mut snd_asm);
+//     let (snd_input_hw_registers, snd_regs) =
+//         setup_single_step_simd(&mut alloc, &mut mapping, &mut phys_registers, &mut snd_asm);
 
-    let (thrd_input_hw_registers, thrd_regs) = setup_single_step(
-        &mut alloc,
-        &mut mapping,
-        &mut phys_registers,
-        &mut fst_asm,
-        fst_input_hw_registers.iter().map(|v| v.len()).sum(),
-    );
+//     let (thrd_input_hw_registers, thrd_regs) = setup_single_step(
+//         &mut alloc,
+//         &mut mapping,
+//         &mut phys_registers,
+//         &mut fst_asm,
+//         fst_input_hw_registers
+//             .iter()
+//             .map(|v| v.registers.len())
+//             .sum(),
+//     );
 
-    let mixed: Vec<_> = interleave(fst_asm.instructions, snd_asm.instructions)
-        .into_iter()
-        .flatten()
-        .collect();
+//     let mixed: Vec<_> = interleave(fst_asm.instructions, snd_asm.instructions)
+//         .into_iter()
+//         .flatten()
+//         .collect();
 
-    // Is there something we n do to tie off the outputs.
-    // and to make sure it happens before drop_pass
-    let mut seen = Seen::new();
-    fst_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-    snd_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-    thrd_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
+//     let (releases, lifetimes) = liveness_analysis(
+//         [&fst_regs, &snd_regs, &thrd_regs],
+//         &mixed,
+//         alloc.fresh as usize,
+//     );
 
-    let (releases, lifetimes) = liveness_analysis(&mut seen, &mixed, alloc.fresh as usize);
+//     fst_regs.registers.iter().enumerate().for_each(|(idx, r)| {
+//         pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
+//     });
+//     snd_regs.registers.iter().enumerate().for_each(|(idx, r)| {
+//         pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
+//     });
+//     thrd_regs.registers.iter().enumerate().for_each(|(idx, r)| {
+//         pin_register(
+//             &mut phys_registers,
+//             &lifetimes,
+//             r,
+//             (fst_regs.registers.len() + idx) as u64,
+//         );
+//     });
 
-    fst_regs.iter().enumerate().for_each(|(idx, r)| {
-        pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
-    });
-    snd_regs.iter().enumerate().for_each(|(idx, r)| {
-        pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
-    });
-    thrd_regs.iter().enumerate().for_each(|(idx, r)| {
-        pin_register(
-            &mut phys_registers,
-            &lifetimes,
-            r,
-            (fst_regs.len() + idx) as u64,
-        );
-    });
+//     let out = hardware_register_allocation(
+//         &mut mapping,
+//         &mut phys_registers,
+//         mixed,
+//         releases,
+//         lifetimes,
+//     );
 
-    let out = hardware_register_allocation(
-        &mut mapping,
-        &mut phys_registers,
-        mixed,
-        releases,
-        lifetimes,
-    );
+//     let fst_output_hw_registers: Vec<_> = fst_regs
+//         .iter()
+//         .filter_map(|reg| mapping.output_register(reg))
+//         .collect();
 
-    let fst_output_hw_registers: Vec<_> = fst_regs
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
+//     let snd_output_hw_registers: Vec<_> = snd_regs
+//         .iter()
+//         .filter_map(|reg| mapping.output_register(reg))
+//         .collect();
 
-    let snd_output_hw_registers: Vec<_> = snd_regs
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
+//     let thrd_output_hw_registers: Vec<_> = thrd_regs
+//         .iter()
+//         .filter_map(|reg| mapping.output_register(reg))
+//         .collect();
 
-    let thrd_output_hw_registers: Vec<_> = thrd_regs
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
+//     let mut input_hw_registers = fst_input_hw_registers;
+//     input_hw_registers.extend(snd_input_hw_registers);
+//     input_hw_registers.extend(thrd_input_hw_registers);
 
-    let txt = backend_global(label, &out);
+//     // Write this info in the assembly file
+//     let assembly = generate_rust_global_asm(
+//         label,
+//         mapping,
+//         &input_hw_registers,
+//         &vec![
+//             fst_output_hw_registers,
+//             snd_output_hw_registers,
+//             thrd_output_hw_registers,
+//         ],
+//         &out,
+//     );
 
-    let mut input_hw_registers = fst_input_hw_registers;
-    input_hw_registers.extend(snd_input_hw_registers);
-    input_hw_registers.extend(thrd_input_hw_registers);
+//     use std::io::Write;
+//     let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
+//         .expect("Unable to create file");
+//     file.write_all(assembly.as_bytes())
+//         .expect("Unable to write data to file");
+// }
 
-    // Write this info in the assembly file
-    let operands = backend_rust(
-        mapping,
-        input_hw_registers,
-        vec![
-            fst_output_hw_registers,
-            snd_output_hw_registers,
-            thrd_output_hw_registers,
-        ],
-        &out,
-    );
-    let operands_with_semicolon: Vec<String> =
-        operands.lines().map(|line| format!("//{}", line)).collect();
-    let operands = format!("{}\n", operands_with_semicolon.join("\n"));
+// fn build_interleaved_triple_scalar(label: &str) {
+//     let mut alloc = Allocator::new();
+//     let mut mapping = RegisterMapping::new();
+//     let mut phys_registers = RegisterBank::new();
 
-    use std::io::Write;
-    let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
-        .expect("Unable to create file");
-    file.write_all(operands.as_bytes())
-        .expect("Unable to write data to file");
-    file.write_all(txt.as_bytes())
-        .expect("Unable to write data to file");
-}
+//     let mut fst_asm = Assembler::new();
+//     let (fst_input_hw_registers, fst_regs) = setup_single_step_load(
+//         &mut alloc,
+//         &mut mapping,
+//         &mut phys_registers,
+//         &mut fst_asm,
+//         0,
+//     );
 
-fn build_interleaved_triple_scalar(label: &str) {
-    let mut alloc = Allocator::new();
-    let mut mapping = RegisterMapping::new();
-    let mut phys_registers = RegisterBank::new();
+//     let mut snd_asm = Assembler::new();
 
-    let mut fst_asm = Assembler::new();
-    let (fst_input_hw_registers, fst_regs) = setup_single_step_load(
-        &mut alloc,
-        &mut mapping,
-        &mut phys_registers,
-        &mut fst_asm,
-        0,
-    );
+//     // let (snd_input_hw_registers, snd_regs) : (Vec<_>, Vec<Reg<Simd<u64,2>>>)= (vec![],vec![])
+//     let (snd_input_hw_registers, snd_regs): (Vec<_>, Vec<Reg<Simd<u64, 2>>>) =
+//         setup_single_step_simd(&mut alloc, &mut mapping, &mut phys_registers, &mut snd_asm);
 
-    let mut snd_asm = Assembler::new();
+//     let len_fst = fst_input_hw_registers.iter().map(|v| v.len()).sum();
 
-    // let (snd_input_hw_registers, snd_regs) : (Vec<_>, Vec<Reg<Simd<u64,2>>>)= (vec![],vec![])
-    let (snd_input_hw_registers, snd_regs): (Vec<_>, Vec<Reg<Simd<u64, 2>>>) =
-        setup_single_step_simd(&mut alloc, &mut mapping, &mut phys_registers, &mut snd_asm);
+//     let (thrd_input_hw_registers, thrd_regs) = setup_single_step_load(
+//         &mut alloc,
+//         &mut mapping,
+//         &mut phys_registers,
+//         &mut fst_asm,
+//         len_fst,
+//     );
 
-    let len_fst = fst_input_hw_registers.iter().map(|v| v.len()).sum();
+//     let len_thrd: usize = thrd_input_hw_registers.iter().map(|v| v.len()).sum();
 
-    let (thrd_input_hw_registers, thrd_regs) = setup_single_step_load(
-        &mut alloc,
-        &mut mapping,
-        &mut phys_registers,
-        &mut fst_asm,
-        len_fst,
-    );
+//     // let (fourth_input_hw_registers, fourth_regs): (Vec<_>, Vec<Reg<u64>>) = (vec![], vec![]);
+//     let (fourth_input_hw_registers, fourth_regs): (Vec<_>, Vec<_>) = setup_single_step_load(
+//         &mut alloc,
+//         &mut mapping,
+//         &mut phys_registers,
+//         &mut fst_asm,
+//         len_fst + len_thrd,
+//     );
 
-    let len_thrd: usize = thrd_input_hw_registers.iter().map(|v| v.len()).sum();
+//     let mixed: Vec<_> = interleave(fst_asm.instructions, snd_asm.instructions)
+//         .into_iter()
+//         .flatten()
+//         .collect();
 
-    // let (fourth_input_hw_registers, fourth_regs): (Vec<_>, Vec<Reg<u64>>) = (vec![], vec![]);
-    let (fourth_input_hw_registers, fourth_regs): (Vec<_>, Vec<_>) = setup_single_step_load(
-        &mut alloc,
-        &mut mapping,
-        &mut phys_registers,
-        &mut fst_asm,
-        len_fst + len_thrd,
-    );
+//     let (releases, lifetimes) = liveness_analysis(
+//         reify_iter(&fst_regs)
+//             .chain(reify_iter(&snd_regs))
+//             .chain(reify_iter(&thrd_regs))
+//             .chain(reify_iter(&fourth_regs)),
+//         &mixed,
+//         alloc.fresh as usize,
+//     );
 
-    let mixed: Vec<_> = interleave(fst_asm.instructions, snd_asm.instructions)
-        .into_iter()
-        .flatten()
-        .collect();
+//     // fst_regs.iter().enumerate().for_each(|(idx, r)| {
+//     //     pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
+//     // });
+//     snd_regs.iter().enumerate().for_each(|(idx, r)| {
+//         pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
+//     });
+//     // thrd_regs.iter().enumerate().for_each(|(idx, r)| {
+//     //     pin_register(
+//     //         &mut phys_registers,
+//     //         &lifetimes,
+//     //         r,
+//     //         (fst_regs.len() + idx) as u64,
+//     //     );
+//     // });
+//     // fourth_regs.iter().enumerate().for_each(|(idx, r)| {
+//     //     pin_register(
+//     //         &mut phys_registers,
+//     //         &lifetimes,
+//     //         r,
+//     //         (fst_regs.len() + thrd_regs.len() + idx) as u64,
+//     //     );
+//     // });
 
-    // Is there something we n do to tie off the outputs.
-    // and to make sure it happens before drop_pass
-    let mut seen = Seen::new();
-    fst_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-    snd_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-    thrd_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-    fourth_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
+//     let out = hardware_register_allocation(
+//         &mut mapping,
+//         &mut phys_registers,
+//         mixed,
+//         releases,
+//         lifetimes,
+//     );
 
-    let (releases, lifetimes) = liveness_analysis(&mut seen, &mixed, alloc.fresh as usize);
+//     let fst_output_hw_registers: Vec<_> = fst_regs
+//         .iter()
+//         .filter_map(|reg| mapping.output_register(reg))
+//         .collect();
 
-    // fst_regs.iter().enumerate().for_each(|(idx, r)| {
-    //     pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
-    // });
-    snd_regs.iter().enumerate().for_each(|(idx, r)| {
-        pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
-    });
-    // thrd_regs.iter().enumerate().for_each(|(idx, r)| {
-    //     pin_register(
-    //         &mut phys_registers,
-    //         &lifetimes,
-    //         r,
-    //         (fst_regs.len() + idx) as u64,
-    //     );
-    // });
-    // fourth_regs.iter().enumerate().for_each(|(idx, r)| {
-    //     pin_register(
-    //         &mut phys_registers,
-    //         &lifetimes,
-    //         r,
-    //         (fst_regs.len() + thrd_regs.len() + idx) as u64,
-    //     );
-    // });
+//     let snd_output_hw_registers: Vec<_> = snd_regs
+//         .iter()
+//         .filter_map(|reg| mapping.output_register(reg))
+//         .collect();
 
-    let out = hardware_register_allocation(
-        &mut mapping,
-        &mut phys_registers,
-        mixed,
-        releases,
-        lifetimes,
-    );
+//     let thrd_output_hw_registers: Vec<_> = thrd_regs
+//         .iter()
+//         .filter_map(|reg| mapping.output_register(reg))
+//         .collect();
 
-    let fst_output_hw_registers: Vec<_> = fst_regs
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
+//     let fourth_output_hw_registers: Vec<_> = fourth_regs
+//         .iter()
+//         .filter_map(|reg| mapping.output_register(reg))
+//         .collect();
 
-    let snd_output_hw_registers: Vec<_> = snd_regs
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
+//     let mut input_hw_registers = fst_input_hw_registers;
+//     input_hw_registers.extend(snd_input_hw_registers);
+//     input_hw_registers.extend(thrd_input_hw_registers);
+//     input_hw_registers.extend(fourth_input_hw_registers);
 
-    let thrd_output_hw_registers: Vec<_> = thrd_regs
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
+//     // Write this info in the assembly file
+//     let assembly = generate_rust_global_asm(
+//         label,
+//         mapping,
+//         &input_hw_registers,
+//         &vec![
+//             fst_output_hw_registers,
+//             snd_output_hw_registers,
+//             thrd_output_hw_registers,
+//             fourth_output_hw_registers,
+//         ],
+//         &out,
+//     );
 
-    let fourth_output_hw_registers: Vec<_> = fourth_regs
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
-
-    let txt = backend_global(label, &out);
-
-    let mut input_hw_registers = fst_input_hw_registers;
-    input_hw_registers.extend(snd_input_hw_registers);
-    input_hw_registers.extend(thrd_input_hw_registers);
-    input_hw_registers.extend(fourth_input_hw_registers);
-
-    // Write this info in the assembly file
-    let operands = backend_rust(
-        mapping,
-        input_hw_registers,
-        vec![
-            fst_output_hw_registers,
-            snd_output_hw_registers,
-            thrd_output_hw_registers,
-            fourth_output_hw_registers,
-        ],
-        &out,
-    );
-    let operands_with_semicolon: Vec<String> =
-        operands.lines().map(|line| format!("//{}", line)).collect();
-    let operands = format!("{}\n", operands_with_semicolon.join("\n"));
-
-    use std::io::Write;
-    let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
-        .expect("Unable to create file");
-    file.write_all(operands.as_bytes())
-        .expect("Unable to write data to file");
-    file.write_all(txt.as_bytes())
-        .expect("Unable to write data to file");
-}
+//     use std::io::Write;
+//     let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
+//         .expect("Unable to create file");
+//     file.write_all(assembly.as_bytes())
+//         .expect("Unable to write data to file");
+// }
 
 fn build_interleaved(label: &str) {
     let mut alloc = Allocator::new();
     let mut mapping = RegisterMapping::new();
-    let mut phys_registers = RegisterBank::new();
+    let mut register_bank = RegisterBank::new();
 
-    let mut fst_asm = Assembler::new();
-    let (fst_input_hw_registers, fst_regs) = setup_single_step(
-        &mut alloc,
-        &mut mapping,
-        &mut phys_registers,
-        &mut fst_asm,
-        0,
-    );
+    let mut first_assembler = Assembler::new();
+    let (fst_input_hw_registers, fst_regs) = setup_single_step(&mut alloc, &mut first_assembler);
 
-    let mut snd_asm = Assembler::new();
+    let mut second_assembler = Assembler::new();
 
     let (snd_input_hw_registers, snd_regs) =
-        setup_single_step_simd(&mut alloc, &mut mapping, &mut phys_registers, &mut snd_asm);
+        setup_single_step_simd(&mut alloc, &mut second_assembler);
 
-    let mixed: Vec<_> = interleave(fst_asm.instructions, snd_asm.instructions)
+    let mixed: Vec<_> = interleave(first_assembler.instructions, second_assembler.instructions)
         .into_iter()
         .flatten()
         .collect();
 
-    // Is there something we n do to tie off the outputs.
-    // and to make sure it happens before drop_pass
-    let mut seen = Seen::new();
-    fst_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
-    snd_regs.iter().for_each(|r| {
-        seen.output_interface(r);
-    });
+    let output_hw_registers = [fst_regs, snd_regs];
 
-    let (releases, lifetimes) = liveness_analysis(&mut seen, &mixed, alloc.fresh as usize);
-
-    snd_regs.iter().enumerate().for_each(|(idx, r)| {
-        pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
-    });
-    fst_regs.iter().enumerate().for_each(|(idx, r)| {
-        pin_register(&mut phys_registers, &lifetimes, r, idx as u64);
-    });
-
-    let out = hardware_register_allocation(
-        &mut mapping,
-        &mut phys_registers,
-        mixed,
-        releases,
-        lifetimes,
-    );
-
-    let fst_output_hw_registers: Vec<_> = fst_regs
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
-
-    let snd_output_hw_registers: Vec<_> = snd_regs
-        .iter()
-        .filter_map(|reg| mapping.output_register(reg))
-        .collect();
-
-    let txt = backend_global(label, &out);
+    let (releases, lifetimes) =
+        liveness_analysis(&output_hw_registers, &mixed, alloc.fresh as usize);
 
     let mut input_hw_registers = fst_input_hw_registers;
     input_hw_registers.extend(snd_input_hw_registers);
 
-    // Write this info in the assembly file
-    let operands = backend_rust(
-        mapping,
+    let input_hw_registers = allocate_input_variable(
+        &mut mapping,
+        &mut register_bank,
         input_hw_registers,
-        vec![fst_output_hw_registers, snd_output_hw_registers],
+        &lifetimes,
+    );
+
+    output_hw_registers
+        .iter()
+        .for_each(|variable| reserve_output_variable(&mut register_bank, &lifetimes, variable));
+
+    let out =
+        hardware_register_allocation(&mut mapping, &mut register_bank, mixed, releases, lifetimes);
+
+    let assembly = generate_rust_global_asm(
+        label,
+        mapping,
+        &input_hw_registers,
+        &output_hw_registers,
         &out,
     );
-    let operands_with_semicolon: Vec<String> =
-        operands.lines().map(|line| format!("//{}", line)).collect();
-    let operands = format!("{}\n", operands_with_semicolon.join("\n"));
 
     use std::io::Write;
     let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
         .expect("Unable to create file");
-    file.write_all(operands.as_bytes())
-        .expect("Unable to write data to file");
-    file.write_all(txt.as_bytes())
+    file.write_all(assembly.as_bytes())
         .expect("Unable to write data to file");
 }
 
@@ -725,12 +518,8 @@ fn main() {
     // commented out now that it takes a constant
     build_func("smul_add", setup_smul_add);
     build_func("school_method", setup_schoolmethod);
-    build_func("single_step", |alloc, mapping, bank, asm| {
-        setup_single_step(alloc, mapping, bank, asm, 0)
-    });
-    build_func("single_step_load", |alloc, mapping, bank, asm| {
-        setup_single_step_load(alloc, mapping, bank, asm, 0)
-    });
+    build_func("single_step", setup_single_step);
+    build_func("single_step_load", setup_single_step_load);
     build_func("single_step_split", setup_single_step_split);
     build_func("u256_to_u260_shl2_simd", setup_u256_to_u260_shl2_imd);
     build_func("u260_to_u256_simd", setup_u260_to_u256_simd);
@@ -738,8 +527,8 @@ fn main() {
     build_func("single_step_simd", setup_single_step_simd);
     build_func("reduce_ct_simd", setup_reduce_ct_simd);
     build_interleaved("single_step_interleaved");
-    build_interleaved_seq_scalar("single_step_interleaved_seq_scalar");
-    build_interleaved_triple_scalar("single_step_interleaved_triple_scalar");
+    // build_interleaved_seq_scalar("single_step_interleaved_seq_scalar");
+    // build_interleaved_triple_scalar("single_step_interleaved_triple_scalar");
 }
 
 /* GENERATORS */
@@ -914,8 +703,8 @@ pub fn school_method(
 pub fn school_method_load(
     alloc: &mut Allocator,
     asm: &mut Assembler,
-    a: &PReg<[u64; 4]>,
-    b: &PReg<[u64; 4]>,
+    a: &Reg<*const [u64; 4]>,
+    b: &Reg<*const [u64; 4]>,
 ) -> [Reg<u64>; 8] {
     let mut t: [Reg<u64>; 8] = array::from_fn(|_| alloc.fresh());
     let mut carry;
@@ -1043,7 +832,11 @@ pub fn single_step(
     reduce(alloc, asm, r4)
 }
 
-fn load_vector(alloc: &mut Allocator, asm: &mut Assembler, a: &PReg<[u64; 4]>) -> [Reg<u64>; 4] {
+fn load_vector(
+    alloc: &mut Allocator,
+    asm: &mut Assembler,
+    a: &Reg<*const [u64; 4]>,
+) -> [Reg<u64>; 4] {
     let (l0, l1) = ldp(alloc, asm, a);
     let (l2, l3) = ldp(alloc, asm, &a.get(2));
     [l0, l1, l2, l3]
@@ -1053,20 +846,20 @@ fn store_vector(
     alloc: &mut Allocator,
     asm: &mut Assembler,
     a: &[Reg<u64>; 4],
-    str: &mut PReg<[u64; 4]>,
+    str: &Reg<*mut [u64; 4]>,
 ) {
     let [a0, a1, a2, a3] = a;
-    stp(alloc, asm, a0, a1, &str.get(0));
+    stp(alloc, asm, a0, a1, str);
     stp(alloc, asm, a2, a3, &str.get(2));
 }
 
 pub fn single_step_load<'a>(
     alloc: &mut Allocator,
     asm: &mut Assembler,
-    a: &mut PReg<[u64; 4]>,
-    b: &PReg<[u64; 4]>,
+    a: &Reg<*mut [u64; 4]>,
+    b: &Reg<*const [u64; 4]>,
 ) {
-    let load_a = load_vector(alloc, asm, a);
+    let load_a = load_vector(alloc, asm, a.as_());
     let b = load_vector(alloc, asm, b);
 
     let res = single_step(alloc, asm, &load_a, &b);

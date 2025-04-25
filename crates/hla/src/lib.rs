@@ -1,98 +1,64 @@
 #![feature(iter_intersperse)]
+use core::panic;
 use std::{
-    collections::{BTreeSet, HashSet, VecDeque},
-    marker::PhantomData,
-    mem::{self},
+    array,
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
 };
 
-// See if these can be reduced. Took all of these as it was a u64 before
+pub mod codegen;
+pub mod frontend;
+pub mod instructions;
+pub mod reification;
 
-impl TypedSizedRegister<FreshRegister> {
-    // Should only be seen by RegisterMapping
-    // Could have been used for HardwareRegister, but it's better to convert types
-    // Only for 'internal' use
-    fn as_fresh(&self) -> &FreshRegister {
-        &self.reg
-    }
-}
+pub use frontend::*;
+pub use reification::*;
 
-// Vec<BlockInstr> - mixing -> Vec<Instr> -> Vec<InstrDrop> -> Vec<PhysInstr>
+/// A vector of instructions representing an atomic unit of execution.
+///
+/// This type represents a sequence of instructions that should be executed together
+/// as they rely on side effects such as flag setting that could potentially be disturbed when interleaved.
 pub type AtomicInstruction = Vec<InstructionF<FreshRegister>>;
+
+/// An alias for an instruction using fresh registers.
+///
+/// This type represents a single machine instruction that operates on virtual registers
+/// (fresh registers) before hardware register allocation occurs.
 pub type Instruction = InstructionF<FreshRegister>;
 
-// This instruction models both aliases and regular instructions
-// The option on destination can be removed, but that would require
-// implementing the aliases such CMP, CMN ourselves.
-// This would require introducing
-// Destination{
-// XZR
-// TR(TypeSizedRegister<R>)
-// }
-// for dest.
-// and then write the aliases as instruction as the current design.
-// It requires more changes if we want the user to be able to use XZR.
-// The best way to do that would likely be a trait and a zero sized type for XZR
+/// A generic instruction representation that can work with different register types.
+///
+/// This instruction models both regular machine instructions and register aliases.
+/// It contains the opcode, result registers, operand registers, and any modifiers.
+///
+/// # Type Parameters
+///
+/// * `R` - The register type is either `FreshRegister` for virtual registers
+///   or `HardwareRegister` for physical machine registers.
 #[derive(Debug, PartialEq)]
 pub struct InstructionF<R> {
     opcode: String,
-    // Reasons for destination being a vector
-    // - Some operations have no destination or no allocatable destination
+    // Result is a vector because:
+    // - Some operations have do not write results to a register
     //   - CMN only affects flags
-    //   - STR in the sense that we can't allocate the destination for it
+    //   - STR writes to a destination stored in operands
     // - LDP has 2 destinations
-    dest: Vec<TypedSizedRegister<R>>,
-    src: Vec<TypedSizedRegister<R>>,
+    results: Vec<ReifiedRegister<R>>,
+    operands: Vec<ReifiedRegister<R>>,
     modifiers: Mod,
 }
 
-// Proper name for this
 #[derive(Debug, PartialEq)]
 enum Mod {
     None,
     Imm(u64),
     ImmLSL(u16, u8),
-    // LS could be combined with Imm and let the compiler backend deal with it.
-    LS(u8),
+    // Logical shift left
+    LSL(u8),
     Cond(String),
 }
 
-// TODO This could benefit from having really different types for FreshRegister and
-// Hardware Register. The output could be made different for this
-impl<R: std::fmt::Display> std::fmt::Display for TypedSizedRegister<R> {
+impl<R: std::fmt::Display + Copy> std::fmt::Display for InstructionF<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let reg = &self.reg;
-        let addr = self.addressing;
-        match self.idx {
-            Index::None => write!(f, "{addr}{reg}"),
-            Index::Lane(idx) => write!(f, "{addr}{reg}[{idx}]"),
-            Index::LaneSized(lane_sizes, idx) => write!(f, "{addr}{reg}.{lane_sizes}[{idx}]"),
-            Index::Pointer(offset) => write!(f, "[{addr}{reg}, #{offset}]"),
-        }
-    }
-}
-
-impl std::fmt::Display for LaneSizes {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LaneSizes::S => write!(f, "s"),
-            LaneSizes::D => write!(f, "d"),
-        }
-    }
-}
-
-impl std::fmt::Display for Addressing {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Addressing::V => write!(f, "v"),
-            Addressing::D => write!(f, "d"),
-            Addressing::X => write!(f, "x"),
-        }
-    }
-}
-
-impl<R: std::fmt::Display + Copy> InstructionF<R> {
-    // TODO this might be better as Display and/or using Formatter
-    fn format_instruction(&self) -> String {
         let regs: String = self
             .extract_registers()
             .map(|x| x.to_string())
@@ -104,462 +70,28 @@ impl<R: std::fmt::Display + Copy> InstructionF<R> {
             Mod::Imm(imm) => format!(", #{imm}"),
             Mod::Cond(cond) => format!(", {cond}"),
             Mod::ImmLSL(imm, shift) => format!(", #{imm}, lsl {shift}"),
-            Mod::LS(imm) => format!(", #{imm}"),
+            Mod::LSL(imm) => format!(", #{imm}"),
         };
+
         let inst = &self.opcode;
-        format!("{inst} {regs}{extra}")
-    }
-
-    fn extract_registers(&self) -> impl Iterator<Item = &TypedSizedRegister<R>> {
-        self.dest.iter().chain(&self.src)
+        write!(f, "{inst} {regs}{extra}")
     }
 }
 
-impl From<InstructionF<FreshRegister>> for LivenessCommand {
-    fn from(instr: InstructionF<FreshRegister>) -> Self {
-        LivenessCommand::Instr(instr)
+impl<R> InstructionF<R> {
+    /// Returns an iterator over all registers referenced by this instruction.
+    ///
+    /// The iterator includes both result registers and operand registers.
+    fn extract_registers(&self) -> impl Iterator<Item = &ReifiedRegister<R>> {
+        self.results.iter().chain(&self.operands)
     }
 }
 
-pub struct Assembler {
-    pub instructions: Vec<AtomicInstruction>,
-}
-
-impl Assembler {
-    pub fn new() -> Self {
-        Self {
-            instructions: Vec::new(),
-        }
-    }
-    pub fn append_instruction(&mut self, inst: AtomicInstruction) {
-        self.instructions.push(inst)
-    }
-}
-
-use paste::paste;
-macro_rules! embed_asm {
-    ($name:ident, $opcode:literal, ($($arg:ident : $arg_ty:ty),*) -> $ret_ty:ty) => {
-        paste! {
-            pub fn $name(alloc: &mut Allocator, asm: &mut Assembler, $($arg: &Reg<$arg_ty>),*) -> Reg<$ret_ty> {
-                let ret = alloc.fresh();
-                asm.append_instruction(vec![ [<$name _inst>](&ret, $($arg),*) ]);
-                ret
-            }
-
-            pub fn [<$name _inst>](dest: &Reg<$ret_ty>, $($arg: &Reg<$arg_ty>),*) -> Instruction {
-                InstructionF {
-                    opcode: $opcode.to_string(),
-                    dest: vec![dest.to_typed_register()],
-                    src: vec![$($arg.to_typed_register()),*],
-                    modifiers: Mod::None,
-                }
-            }
-        }
-    };
-}
-
-// To quickly write these kind of macros just write the general structure
-// with embed_asm and then inline all the macros and modify accordingly
-
-pub fn mov(alloc: &mut Allocator, asm: &mut Assembler, imm: u64) -> Reg<u64> {
-    let ret = alloc.fresh();
-    asm.append_instruction(vec![mov_inst(&ret, imm)]);
-    ret
-}
-
-pub fn mov_inst(dest: &Reg<u64>, imm: u64) -> Instruction {
-    InstructionF {
-        opcode: "mov".to_string(),
-        dest: vec![dest.to_typed_register()],
-        src: vec![],
-        modifiers: Mod::Imm(imm),
-    }
-}
-
-// operations that use or set a flag should never be used as an atomic.
-// interleaving can potentially result in invalid code. Therefore these are only available as inst
-pub fn tst_inst(a: &Reg<u64>, imm: u64) -> Instruction {
-    InstructionF {
-        opcode: "tst".to_string(),
-        dest: vec![],
-        src: vec![a.to_typed_register()],
-        modifiers: Mod::Imm(imm),
-    }
-}
-
-pub fn csel_inst(dest: &Reg<u64>, a: &Reg<u64>, b: &Reg<u64>, cond: &str) -> Instruction {
-    InstructionF {
-        opcode: "csel".to_string(),
-        dest: vec![dest.to_typed_register()],
-        src: vec![a.to_typed_register(), b.to_typed_register()],
-        modifiers: Mod::Cond(cond.to_string()),
-    }
-}
-
-pub fn cmn_inst(a: &Reg<u64>, b: &Reg<u64>) -> Instruction {
-    InstructionF {
-        opcode: "cmn".to_string(),
-        dest: vec![],
-        src: vec![a.to_typed_register(), b.to_typed_register()],
-        modifiers: Mod::None,
-    }
-}
-
-pub fn cinc_inst(dest: &Reg<u64>, a: &Reg<u64>, cond: String) -> Instruction {
-    InstructionF {
-        opcode: "cinc".to_string(),
-        dest: vec![dest.to_typed_register()],
-        src: vec![a.to_typed_register()],
-        modifiers: Mod::Cond(cond),
-    }
-}
-
-// END flag operations
-
-pub fn movk(alloc: &mut Allocator, asm: &mut Assembler, imm: u16, shift: u8) -> Reg<u64> {
-    let ret = alloc.fresh();
-    asm.append_instruction(vec![movk_inst(&ret, imm, shift)]);
-    ret
-}
-
-pub fn movk_inst(dest: &Reg<u64>, imm: u16, shift: u8) -> Instruction {
-    InstructionF {
-        opcode: "movk".to_string(),
-        dest: vec![dest.to_typed_register()],
-        src: vec![],
-        modifiers: Mod::ImmLSL(imm, shift),
-    }
-}
-
-pub trait SIMD {}
-
-impl<T, const N: usize> SIMD for Reg<Simd<T, N>> {}
-impl<T: SIMD, const I: u8> SIMD for Idx<T, I> {}
-
-// Create a new type for b that takes into account the index
-pub fn fmla2d<S: SIMD + RegisterSource>(
-    _alloc: &mut Allocator, // Done to have the same pattern as the rest
-    asm: &mut Assembler,
-    add: Reg<Simd<f64, 2>>,
-    a: &Reg<Simd<f64, 2>>,
-    b: &S, // Trait bound a bit too loose, but for now don't want to add the complexity necessary
-) -> Reg<Simd<f64, 2>> {
-    asm.append_instruction(vec![fmla2d_inst(&add, a, b)]);
-    add
-}
-
-pub fn fmla2d_inst<S: SIMD + RegisterSource>(
-    dest_add: &Reg<Simd<f64, 2>>,
-    a: &Reg<Simd<f64, 2>>,
-    b: &S,
-) -> Instruction {
-    InstructionF {
-        opcode: "fmla.2d".to_string(),
-        dest: vec![dest_add.to_typed_register()],
-        src: vec![a.to_typed_register(), b.to_typed_register()],
-        modifiers: Mod::None,
-    }
-}
-
-// Could add ins that returns consumes and returns the register
-pub fn ins_inst<const I: u8>(
-    dest: &SizedIdx<Reg<Simd<u64, 2>>, D, I>,
-    a: &Reg<u64>,
-) -> Instruction {
-    InstructionF {
-        opcode: "ins".to_string(),
-        dest: vec![dest.to_typed_register()],
-        src: vec![a.to_typed_register()],
-        modifiers: Mod::None,
-    }
-}
-
-pub fn shl2d(
-    alloc: &mut Allocator,
-    asm: &mut Assembler,
-    a: &Reg<Simd<u64, 2>>,
-    imm: u8,
-) -> Reg<Simd<u64, 2>> {
-    let ret = alloc.fresh();
-    asm.append_instruction(vec![shl2d_inst(&ret, a, imm)]);
-    ret
-}
-
-pub fn shl2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> Instruction {
-    InstructionF {
-        opcode: "shl.2d".to_string(),
-        dest: vec![dest.to_typed_register()],
-        src: vec![a.to_typed_register()],
-        modifiers: Mod::LS(imm),
-    }
-}
-
-pub fn ushr2d(
-    alloc: &mut Allocator,
-    asm: &mut Assembler,
-    a: &Reg<Simd<u64, 2>>,
-    imm: u8,
-) -> Reg<Simd<u64, 2>> {
-    let ret = alloc.fresh();
-    asm.append_instruction(vec![ushr2d_inst(&ret, a, imm)]);
-    ret
-}
-
-pub fn ushr2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> Instruction {
-    InstructionF {
-        opcode: "ushr.2d".to_string(),
-        dest: vec![dest.to_typed_register()],
-        src: vec![a.to_typed_register()],
-        modifiers: Mod::LS(imm),
-    }
-}
-
-pub fn usra2d(
-    _alloc: &mut Allocator,
-    asm: &mut Assembler,
-    add: Reg<Simd<u64, 2>>,
-    a: &Reg<Simd<u64, 2>>,
-    imm: u8,
-) -> Reg<Simd<u64, 2>> {
-    asm.append_instruction(vec![usra2d_inst(&add, a, imm)]);
-    add
-}
-
-pub fn usra2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> Instruction {
-    InstructionF {
-        opcode: "usra.2d".to_string(),
-        dest: vec![dest.to_typed_register()],
-        src: vec![a.to_typed_register()],
-        modifiers: Mod::LS(imm),
-    }
-}
-
-pub fn ssra2d(
-    _alloc: &mut Allocator,
-    asm: &mut Assembler,
-    add: Reg<Simd<i64, 2>>,
-    a: &Reg<Simd<i64, 2>>,
-    imm: u8,
-) -> Reg<Simd<i64, 2>> {
-    asm.append_instruction(vec![ssra2d_inst(&add, a, imm)]);
-    add
-}
-
-pub fn ssra2d_inst(dest: &Reg<Simd<i64, 2>>, a: &Reg<Simd<i64, 2>>, imm: u8) -> Instruction {
-    InstructionF {
-        opcode: "ssra.2d".to_string(),
-        dest: vec![dest.to_typed_register()],
-        src: vec![a.to_typed_register()],
-        modifiers: Mod::LS(imm),
-    }
-}
-
-pub fn umov<const I: u8>(
-    alloc: &mut Allocator,
-    asm: &mut Assembler,
-    a: &SizedIdx<Reg<Simd<u64, 2>>, D, I>,
-) -> Reg<u64> {
-    let ret = alloc.fresh();
-    asm.append_instruction(vec![umov_inst(&ret, a)]);
-    ret
-}
-pub fn umov_inst<const I: u8>(
-    dest: &Reg<u64>,
-    a: &SizedIdx<Reg<Simd<u64, 2>>, D, I>,
-) -> Instruction {
-    InstructionF {
-        opcode: "umov".to_string(),
-        dest: vec![dest.to_typed_register()],
-        src: vec![a.to_typed_register()],
-        modifiers: Mod::None,
-    }
-}
-
-pub fn cmeq2d(
-    alloc: &mut Allocator,
-    asm: &mut Assembler,
-    a: &Reg<Simd<u64, 2>>,
-    imm: u64,
-) -> Reg<Simd<u64, 2>> {
-    let ret = alloc.fresh();
-    asm.append_instruction(vec![cmeq2d_inst(&ret, a, imm)]);
-    ret
-}
-pub fn cmeq2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u64) -> Instruction {
-    InstructionF {
-        opcode: "cmeq.2d".to_string(),
-        dest: vec![dest.to_typed_register()],
-        src: vec![a.to_typed_register()],
-        modifiers: Mod::Imm(imm),
-    }
-}
-
-// Needs to have a vector version as well
-pub fn ldr<T>(alloc: &mut Allocator, asm: &mut Assembler, ptr: &PReg<T>) -> Reg<u64> {
-    let ret = alloc.fresh();
-    asm.append_instruction(vec![ldr_inst(&ret, ptr)]);
-    ret
-}
-
-pub fn ldr_inst<T>(dest: &Reg<u64>, ptr: &PReg<T>) -> Instruction {
-    InstructionF {
-        opcode: "ldr".to_string(),
-        dest: vec![dest.to_typed_register()],
-        src: vec![ptr.to_typed_register()],
-        modifiers: Mod::None,
-    }
-}
-
-// TODO: better type than just everything?
-pub fn ldp<T>(alloc: &mut Allocator, asm: &mut Assembler, ptr: &PReg<T>) -> (Reg<u64>, Reg<u64>) {
-    let ret0 = alloc.fresh();
-    let ret1 = alloc.fresh();
-    asm.append_instruction(vec![ldp_inst(&ret0, &ret1, ptr)]);
-    (ret0, ret1)
-}
-
-pub fn ldp_inst<T>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PReg<T>) -> Instruction {
-    InstructionF {
-        opcode: "ldp".to_string(),
-        dest: vec![dest.to_typed_register(), dest2.to_typed_register()],
-        src: vec![ptr.to_typed_register()],
-        modifiers: Mod::None,
-    }
-}
-pub fn stp<T>(
-    _alloc: &mut Allocator,
-    asm: &mut Assembler,
-    str0: &Reg<u64>,
-    str1: &Reg<u64>,
-    ptr: &PReg<T>,
-) {
-    asm.append_instruction(vec![stp_inst(&str0, &str1, ptr)]);
-}
-
-pub fn stp_inst<T>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PReg<T>) -> Instruction {
-    InstructionF {
-        opcode: "stp".to_string(),
-        dest: vec![],
-        src: vec![
-            dest.to_typed_register(),
-            dest2.to_typed_register(),
-            ptr.to_typed_register(),
-        ],
-        modifiers: Mod::None,
-    }
-}
-
-embed_asm!(mul, "mul", (a: u64, b: u64) -> u64);
-embed_asm!(umulh, "umulh", (a: u64, b: u64) -> u64);
-
-embed_asm!(add, "add", (a: u64, b: u64) -> u64);
-embed_asm!(and, "and", (a: u64, b: u64) -> u64);
-// TODO: These operations set flags and should only make their inst available
-embed_asm!(adds, "adds", (a: u64, b: u64) -> u64);
-embed_asm!(adcs, "adds", (a: u64, b: u64) -> u64);
-embed_asm!(adc, "adds", (a: u64, b: u64) -> u64);
-embed_asm!(subs, "subs", (a: u64, b: u64) -> u64);
-embed_asm!(sbcs, "sbcs", (a: u64, b: u64) -> u64);
-
-pub fn mov16b<T>(
-    alloc: &mut Allocator,
-    asm: &mut Assembler,
-    a: &Reg<Simd<T, 2>>,
-) -> Reg<Simd<T, 2>> {
-    let ret = alloc.fresh();
-    asm.append_instruction(vec![mov16b_inst(&ret, a)]);
-    ret
-}
-pub fn mov16b_inst<T>(dest: &Reg<Simd<T, 2>>, a: &Reg<Simd<T, 2>>) -> Instruction {
-    InstructionF {
-        opcode: "mov.16b".to_string(),
-        dest: vec![dest.to_typed_register()],
-        src: vec![a.to_typed_register()],
-        modifiers: Mod::None,
-    }
-}
-
-embed_asm!(ucvtf2d, "ucvtf.2d", (a: Simd<u64,2>) -> Simd<f64,2>);
-embed_asm!(dup2d, "dup.2d", (a: u64) -> Simd<u64,2>);
-embed_asm!(ucvtf, "ucvtf", (a: u64) -> f64);
-embed_asm!(and16, "and.16b", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
-embed_asm!(bic16, "bic.16b", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
-embed_asm!(add2d, "add.2d", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
-embed_asm!(sub2d, "sub.2d", (a: Simd<i64,2>, b: Simd<i64,2>) -> Simd<i64,2>);
-embed_asm!(fsub2d, "fsub.2d", (a: Simd<f64,2>, b: Simd<f64,2>) -> Simd<f64,2>);
-embed_asm!(orr16, "orr.16b", (a: Simd<u64,2>, b: Simd<u64,2>) -> Simd<u64,2>);
-
-pub fn sli2d(
-    _alloc: &mut Allocator,
-    asm: &mut Assembler,
-    dest: Reg<Simd<u64, 2>>,
-    source: &Reg<Simd<u64, 2>>,
-    shl: u8,
-) -> Reg<Simd<u64, 2>> {
-    asm.append_instruction(vec![sli2d_inst(&dest, source, shl)]);
-    dest
-}
-pub fn sli2d_inst(dest: &Reg<Simd<u64, 2>>, source: &Reg<Simd<u64, 2>>, shl: u8) -> Instruction {
-    InstructionF {
-        opcode: "sli.2d".to_string(),
-        dest: vec![dest.to_typed_register()],
-        src: vec![source.to_typed_register()],
-        modifiers: Mod::LS(shl),
-    }
-}
-
-pub struct Reg<T> {
-    reg: FreshRegister,
-    _marker: PhantomData<T>,
-}
-pub struct PReg<T> {
-    reg: FreshRegister,
-    // offset in bytes as that allows for conversions between
-    // x and w without having to recalculate the offset
-    offset: usize,
-    _marker: PhantomData<T>,
-}
-
-impl<T> PReg<T> {
-    pub fn new(reg: u64) -> Self {
-        Self {
-            reg: FreshRegister(reg),
-            offset: 0,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<T, const N: usize> PReg<[T; N]> {
-    pub fn get(&self, index: usize) -> PReg<T> {
-        assert!(index < N, "out-of-bounds access");
-
-        PReg {
-            reg: self.reg,
-            offset: mem::size_of::<T>() * index,
-            _marker: PhantomData,
-        }
-    }
-}
-
-/// Define the struct ourself as to not have to import it
-pub struct Simd<T, const N: usize>(PhantomData<T>);
-// IDX has to go with SIMD but sized is an optional
-// So if ordered it would be Sized<Idx<
-// but maybe it's better to mix it in somehow
-pub struct Idx<T, const I: u8>(T);
-// TODO better separated into Sized and Idx
-pub struct Sized<T, const LANES: u8>(T);
-
-type SizedIdx<T, const L: u8, const I: u8> = Sized<Idx<T, I>, L>;
-
-const D: u8 = 2;
-pub trait Reg64Bit {}
-impl Reg64Bit for u64 {}
-impl Reg64Bit for f64 {}
-
-/// `Reg` represents the fresh variable and has (as much as possible) the same semantics as a regular rust variable.
-/// FreshRegister represent the label for the fresh variable.
+/// A virtual register identifier used before hardware register allocation.
+///
+/// FreshRegister represents a unique label for a variable in the intermediate
+/// representation. It serves as a placeholder for a hardware register that will
+/// be assigned during the register allocation phase.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct FreshRegister(u64);
 
@@ -575,149 +107,95 @@ impl From<u64> for FreshRegister {
     }
 }
 
-/// Vector sizes to erase the difference between address float64 or u64
-/// TODO different name for addressing
-#[derive(Debug, Eq, PartialOrd, Ord, Hash, PartialEq, Clone, Copy)]
-pub enum Addressing {
-    // Unsigned
-    X,
-    // SIMD/FP
-    V,
-    D,
+#[derive(Clone, Debug)]
+pub struct Variable<R> {
+    label: String,
+    // TODO pub due to pin_registers in build.rs but that should be moved
+    pub registers: Vec<R>,
 }
 
-impl Addressing {
-    fn to_pool(&self, reg: HardwareRegister) -> Pool {
-        match self {
-            Addressing::X => Pool::General(reg),
-            Addressing::V | Addressing::D => Pool::Vector(reg),
-        }
-    }
-}
-#[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
-pub struct TypedSizedRegister<R> {
-    reg: R,
-    addressing: Addressing,
-    idx: Index,
-}
+pub type FreshVariable = Variable<ReifiedRegister<FreshRegister>>;
+pub type BasicVariable = Variable<BasicRegister>;
 
-#[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
-enum LaneSizes {
-    S,
-    D,
-}
-
-#[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
-enum Index {
-    None,
-    // Some instructions require the size (.d, .s, etc) in combination with
-    // a lane and others do not
-    Lane(u8),
-    LaneSized(LaneSizes, u8),
-    // offset in bytes
-    Pointer(usize),
-}
-
-/// The result of the liveness analysis and it gives commands to the
-/// hardware register allocator
-#[derive(Debug)]
-pub enum LivenessCommand {
-    Instr(InstructionF<FreshRegister>),
-    Drop(FreshRegister),
-}
-
-impl<T> Reg<T> {
-    fn new(reg: u64) -> Self {
+impl FreshVariable {
+    pub fn new<R>(label: &str, registers: &[R]) -> Self
+    where
+        R: ReifyRegister,
+    {
         Self {
-            reg: reg.into(),
-            _marker: Default::default(),
+            label: label.to_string(),
+            registers: registers.into_iter().map(|reg| reg.reify()).collect(),
+        }
+    }
+
+    pub fn to_basic_variable(&self, mapping: &RegisterMapping) -> BasicVariable {
+        BasicVariable {
+            label: self.label.clone(),
+            registers: self
+                .registers
+                .iter()
+                .map(|register| mapping.output_register(register).unwrap())
+                .map(|hw_reg| hw_reg.to_basic_register())
+                .collect(),
         }
     }
 }
 
-impl<T> RegisterSource for PReg<T> {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        TypedSizedRegister {
-            reg: self.reg,
-            addressing: Addressing::X,
-            idx: Index::Pointer(self.offset as usize),
+/// A container for assembly instructions.
+///
+/// The Assembler maintains a collection of atomic instruction blocks that
+/// make up a program. Instructions are appended to build up the program in
+/// a way similar to a Write/State monad.
+pub struct Assembler {
+    pub instructions: Vec<AtomicInstruction>,
+}
+
+impl Assembler {
+    /// Creates a new empty Assembler.
+    pub fn new() -> Self {
+        Self {
+            instructions: Vec::new(),
         }
     }
-}
 
-impl Reg<f64> {
-    pub fn as_simd(&self) -> &Reg<Simd<f64, 2>> {
-        unsafe { std::mem::transmute(self) }
+    /// Appends an atomic instruction block to the assembler.
+    pub fn append_instruction(&mut self, inst: AtomicInstruction) {
+        self.instructions.push(inst)
     }
 }
 
-impl<T> Reg<Simd<T, 2>> {
-    pub fn into_<D>(self) -> Reg<Simd<D, 2>> {
-        unsafe { std::mem::transmute(self) }
-    }
-
-    pub fn as_<D>(&self) -> &Reg<Simd<D, 2>> {
-        unsafe { std::mem::transmute(self) }
-    }
-
-    pub fn _0(&self) -> &Idx<Reg<Simd<T, 2>>, 0> {
-        unsafe { std::mem::transmute(self) }
-    }
-
-    pub fn _1(&self) -> &Idx<Reg<Simd<T, 2>>, 1> {
-        unsafe { std::mem::transmute(self) }
-    }
-
-    pub fn _d0(&self) -> &SizedIdx<Reg<Simd<T, 2>>, D, 0> {
-        unsafe { std::mem::transmute(self) }
-    }
-
-    pub fn _d1(&self) -> &SizedIdx<Reg<Simd<T, 2>>, D, 1> {
-        unsafe { std::mem::transmute(self) }
-    }
-}
-
+/// Generates fresh register identifiers for intermediate code.
+///
+/// The Allocator maintains a counter to generate unique FreshRegister
+/// identifiers that represent virtual registers in the intermediate code.
 #[derive(Debug)]
 pub struct Allocator {
-    // It's about unique counters so we use the counter for both
-    // q and v registers
-    // this makes it easier to read the assembly
+    /// Counter for the fresh variable labels
     pub fresh: u64,
 }
 
 impl Allocator {
+    /// Generates a new fresh register of the specified type.
     pub fn fresh<T>(&mut self) -> Reg<T> {
         let x = self.fresh;
         self.fresh += 1;
         Reg::new(x)
     }
 
-    pub fn fresh_preg<T>(&mut self) -> PReg<T> {
-        let x = self.fresh;
-        self.fresh += 1;
-        PReg::new(x)
+    pub fn fresh_array<T, const N: usize>(&mut self) -> [Reg<T>; N] {
+        array::from_fn(|_| self.fresh())
     }
 
+    /// Creates a new Allocator
     pub fn new() -> Self {
         Self { fresh: 0 }
     }
 }
 
-impl std::fmt::Display for Reg<u64> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "x{}", self.reg)
-    }
-}
-
-impl std::fmt::Debug for Reg<u64> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "x{}", self.reg)
-    }
-}
-
-// Add another struct to prevent things from being created
-// Make a struct around here such that it can't be copied
-// THe phys_register file is the one that creates them
+/// Represents a physical hardware register.
+///
+/// HardwareRegister is a wrapper around a register number that identifies
+/// a specific register in the target CPU architecture.
 #[derive(PartialEq, Debug, Hash, Ord, PartialOrd, Eq, Clone, Copy)]
 pub struct HardwareRegister(u64);
 
@@ -726,34 +204,58 @@ impl std::fmt::Display for HardwareRegister {
         write!(f, "{}", self.0)
     }
 }
-// No Clone as the state of one free reg
-// does not make sense as the state of another free reg
-#[derive(PartialEq, Debug)]
-enum RegisterState {
-    Unassigned,
-    Assigned(Pool),
-    Dropped,
-}
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum Pool {
+/// Represents a basic hardware register with its type (general or vector).
+///
+/// BasicRegister describes a physical register as it is contained within the
+/// register banks. It does not have any kind information nor indexing.
+#[derive(Clone, Copy, PartialEq, Debug, Eq, Ord, PartialOrd)]
+pub enum BasicRegister {
+    /// A general purpose register (like x0-x31 on ARM64)
     General(HardwareRegister),
+    /// A vector register (like v0-v31 on ARM64)
     Vector(HardwareRegister),
 }
 
-impl Pool {
+impl BasicRegister {
+    /// Extracts the hardware register number from the basic register.
     fn reg(&self) -> HardwareRegister {
         match self {
-            Pool::General(reg) => *reg,
-            Pool::Vector(reg) => *reg,
+            BasicRegister::General(reg) | BasicRegister::Vector(reg) => *reg,
+        }
+    }
+}
+
+impl std::fmt::Display for BasicRegister {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BasicRegister::General(reg) => write!(f, "x{}", reg.0),
+            BasicRegister::Vector(reg) => write!(f, "v{}", reg.0),
         }
     }
 }
 
 #[derive(Debug)]
 struct RegisterPool {
+    // Keeps track of the free hardware during allocations
     pool: BTreeSet<HardwareRegister>,
-    availability: Vec<Option<(FreshRegister, usize)>>,
+    reserved_outputs: ReservedOutputs,
+}
+
+#[derive(Debug)]
+struct ReservedOutputs {
+    // Acts as a concrete iterator
+    pool: BTreeSet<HardwareRegister>,
+    reserved: BTreeMap<HardwareRegister, (FreshRegister, usize)>,
+}
+
+impl ReservedOutputs {
+    fn new(pool: BTreeSet<HardwareRegister>) -> Self {
+        Self {
+            pool,
+            reserved: BTreeMap::new(),
+        }
+    }
 }
 
 impl RegisterPool {
@@ -761,15 +263,12 @@ impl RegisterPool {
     where
         T: Iterator<Item = u64> + Clone,
     {
-        let len = registers
-            .clone()
-            .max()
-            .expect("Can't have a zero sized register pool");
-
+        let pool = BTreeSet::from_iter(registers.map(HardwareRegister));
+        // restrictions on the output registers are the same as during the run of the program
+        let output_pool = pool.clone();
         RegisterPool {
-            pool: BTreeSet::from_iter(registers.map(HardwareRegister)),
-            // Registers start from 0 so highest count + 1
-            availability: vec![None; (len + 1) as usize],
+            pool,
+            reserved_outputs: ReservedOutputs::new(output_pool),
         }
     }
 
@@ -781,10 +280,9 @@ impl RegisterPool {
             .find(
                 // Check if the hardware register has been preassigned assigned to this fresh registers
                 // Check if the hardware register can be used before it's preassigned moment
-                //
-                |&hardware_register| match self.availability[hardware_register.0 as usize] {
-                    Some((tp, _lifetime)) if reg == tp => true,
-                    Some((_tp, lifetime)) if end_lifetime <= lifetime => true,
+                |&hardware_register| match self.reserved_outputs.reserved.get(hardware_register) {
+                    Some((tp, _lifetime)) if reg == *tp => true,
+                    Some((_tp, lifetime)) if end_lifetime <= *lifetime => true,
                     // Hardware register has not been preassigned
                     None => true,
                     // Hardware register was preassigned to a different fresh register and it's ownership overlaps
@@ -803,11 +301,14 @@ impl RegisterPool {
     }
 
     fn set_availability(&mut self, tp: FreshRegister, register: HardwareRegister, lifetime: usize) {
-        let av = &mut self.availability[register.0 as usize];
+        let removed = self.reserved_outputs.pool.remove(&register);
 
-        match av {
-            Some(_) => panic!("Availability of hardware register {register} already set"),
-            None => *av = Some((tp, lifetime)),
+        if removed {
+            self.reserved_outputs
+                .reserved
+                .insert(register, (tp, lifetime));
+        } else {
+            panic!("{register} has already been allocated to an output")
         }
     }
 
@@ -820,64 +321,26 @@ impl RegisterPool {
     }
 }
 
-// TODO different name than RegisterSource
-pub trait RegisterSource {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister>;
-}
-
-impl RegisterSource for Reg<u64> {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        TypedSizedRegister {
-            reg: self.reg,
-            addressing: Addressing::X,
-            idx: Index::None,
-        }
-    }
-}
-
-impl RegisterSource for Reg<f64> {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        TypedSizedRegister {
-            reg: self.reg,
-            addressing: Addressing::D,
-            idx: Index::None,
-        }
-    }
-}
-
-impl<T> RegisterSource for Reg<Simd<T, 2>> {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        TypedSizedRegister {
-            reg: self.reg,
-            addressing: Addressing::V,
-            idx: Index::None,
-        }
-    }
-}
-
-impl<T, const I: u8> RegisterSource for Idx<Reg<Simd<T, 2>>, I> {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        let mut tp = self.0.to_typed_register();
-        tp.idx = Index::Lane(I);
-        tp
-    }
-}
-
-impl<T, const L: u8, const I: u8> RegisterSource for Sized<Idx<Reg<Simd<T, 2>>, I>, L> {
-    fn to_typed_register(&self) -> TypedSizedRegister<FreshRegister> {
-        let mut tp = self.0.to_typed_register();
-
-        let sizes = match L {
-            2 => LaneSizes::D,
-            4 => LaneSizes::S,
-            _ => panic!("invalid lane size"),
-        };
-
-        tp.idx = Index::LaneSized(sizes, I);
-        tp
-    }
-}
-
+/// Creates an input register binding to a specific hardware register.
+///
+/// This function creates a fresh register and binds it to a specific hardware register.
+/// It is typically used for handling input values that need to come from specific
+/// hardware registers.
+///
+/// # Arguments
+///
+/// * `asm` - Allocator to generate a fresh register
+/// * `mapping` - RegisterMapping to store the binding
+/// * `register_bank` - RegisterBank to allocate from
+/// * `phys` - Physical register number to bind to
+///
+/// # Returns
+///
+/// A new `Reg<T>` that is bound to the specified hardware register.
+///
+/// # Panics
+///
+/// Panics if the specified hardware register is already in use.
 pub fn input<T>(
     asm: &mut Allocator,
     mapping: &mut RegisterMapping,
@@ -885,72 +348,112 @@ pub fn input<T>(
     phys: u64,
 ) -> Reg<T>
 where
-    Reg<T>: RegisterSource,
+    Reg<T>: ReifyRegister,
 {
     let fresh = asm.fresh();
 
     let hw_reg = HardwareRegister(phys);
-    let tp = fresh.to_typed_register();
+    let reified_register = fresh.reify().into_hardware(hw_reg);
 
-    if !register_bank.remove(hw_reg, tp.addressing) {
+    if !register_bank.remove(hw_reg, reified_register.r#type) {
         panic!("{:?} is already in use", phys)
     }
 
-    *mapping.index_mut(fresh.reg) = RegisterState::Assigned(tp.addressing.to_pool(hw_reg));
+    mapping.assign_register(fresh.reg, reified_register.to_basic_register());
 
     fresh
 }
 
-pub fn input_preg<T, const N: usize>(
-    asm: &mut Allocator,
+pub fn allocate_input_variable(
     mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
-    phys: u64,
-) -> PReg<[T; N]> {
-    let fresh = asm.fresh_preg();
-
-    let hw_reg = HardwareRegister(phys);
-    let tp = fresh.get(0).to_typed_register();
-
-    if !register_bank.remove(hw_reg, tp.addressing) {
-        panic!("{:?} is already in use", phys)
-    }
-
-    *mapping.index_mut(fresh.reg) = RegisterState::Assigned(tp.addressing.to_pool(hw_reg));
-
-    fresh
+    input_hw_registers: Vec<FreshVariable>,
+    lifetimes: &[Lifetime],
+) -> Vec<BasicVariable> {
+    input_hw_registers
+        .into_iter()
+        .map(|variable| {
+            let registers = variable
+                .registers
+                .into_iter()
+                .map(|register| {
+                    mapping
+                        .get_or_allocate_register(
+                            register_bank,
+                            register,
+                            lifetimes[register.reg.0 as usize],
+                        )
+                        .to_basic_register()
+                })
+                .collect();
+            BasicVariable {
+                label: variable.label,
+                registers,
+            }
+        })
+        .collect()
 }
 
-pub fn pin_register<T: RegisterSource>(
+/// Pins a fresh register to a specific hardware register.
+///
+/// This function assigns a specific hardware register to a fresh register,
+/// ensuring that register allocation will use the specified hardware register.
+///
+/// # Arguments
+///
+/// * `register_bank` - RegisterBank to pin the register in
+/// * `lifetimes` - Register lifetimes for allocation planning. It will use the begin value.
+pub fn reserve_output_variable(
     register_bank: &mut RegisterBank,
-    lifetimes: &Vec<(usize, usize)>,
-    fresh: &T,
-    hardware_register: u64,
-) where
-    T: RegisterSource,
-{
-    let hardware_register = HardwareRegister(hardware_register);
-    let tp = fresh.to_typed_register();
+    lifetimes: &[Lifetime],
+    variable: &FreshVariable,
+) {
+    let pool = register_bank.get_register_pool(variable.registers[0].r#type);
+    for reified_register in &variable.registers {
+        // TODO part of this should be inside ReservedOutputs
+        match pool.reserved_outputs.pool.pop_first() {
+            Some(hardware_register) => {
+                let lifetime = lifetimes[reified_register.reg.0 as usize].begin;
 
-    register_bank.set_availability(hardware_register, tp, lifetimes[tp.reg.0 as usize].0);
+                pool.reserved_outputs
+                    .reserved
+                    .insert(hardware_register, (reified_register.reg, lifetime));
+            }
+            None => panic!("Ran out of registers to reserve"),
+        }
+    }
 }
 
+/// Tracks which registers have been seen during analysis.
+///
+/// This structure is used during liveness analysis to track which registers
+/// have been processed.
 pub struct Seen(HashSet<FreshRegister>);
 
 impl Seen {
+    /// Creates a new empty Seen instance.
     pub fn new() -> Self {
         Self(HashSet::new())
     }
 
-    pub fn output_interface<T: RegisterSource>(&mut self, fresh: &T) -> bool {
-        self.seen(fresh.to_typed_register().reg)
-    }
-
-    fn seen(&mut self, fresh: FreshRegister) -> bool {
-        self.0.insert(fresh)
+    /// Marks a register as seen and returns whether it was previously unseen.
+    ///
+    /// # Arguments
+    ///
+    /// * `fresh` - The register to mark
+    ///
+    /// # Returns
+    ///
+    /// `true` if the register was not previously seen, `false` otherwise.
+    fn mark_register(&mut self, fresh: &ReifiedRegister<FreshRegister>) -> bool {
+        self.0.insert(fresh.reg)
     }
 }
 
+/// Manages pools of hardware registers for allocation.
+///
+/// RegisterBank maintains separate pools for general-purpose registers and
+/// vector registers. It handles allocation and deallocation of hardware registers.
 #[derive(Debug)]
 pub struct RegisterBank {
     x: RegisterPool,
@@ -958,55 +461,116 @@ pub struct RegisterBank {
 }
 
 impl RegisterBank {
+    /// Creates a new RegisterBank with default register pools.
+    ///
+    /// # Returns
+    ///
+    /// A new RegisterBank with general-purpose and vector register pools.
+    /// Certain registers are excluded:
+    /// - Register 18 (reserved by OS)
+    /// - Register 19 (reserved by LLVM)
     pub fn new() -> Self {
         Self {
-            // Exclude registers:
-            // - 18 Reserved by OS
-            // - 19 Reserved by LLVM
             x: RegisterPool::new((0..=17).chain(20..29)),
             v: RegisterPool::new(0..=30),
         }
     }
 
-    fn get_register_pool(&mut self, addr: Addressing) -> &mut RegisterPool {
-        match addr {
-            Addressing::X => &mut self.x,
-            Addressing::V | Addressing::D => &mut self.v,
+    /// Gets the appropriate register pool based on register type.
+    ///
+    /// # Arguments
+    ///
+    /// * `r#type` - The register type (X, V, or D)
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the corresponding register pool.
+    fn get_register_pool(&mut self, r#type: RegisterType) -> &mut RegisterPool {
+        match r#type {
+            RegisterType::X => &mut self.x,
+            RegisterType::V | RegisterType::D => &mut self.v,
         }
     }
 
+    /// Allocates a hardware register for a fresh register.
+    ///
+    /// # Arguments
+    ///
+    /// * `tp` - The fresh register to allocate for
+    /// * `end_lifetime` - The instruction index after which the register is no longer needed
+    ///
+    /// # Returns
+    ///
+    /// An Option containing the allocated hardware register, or None if allocation failed.
     fn pop_first(
         &mut self,
-        tp: TypedSizedRegister<FreshRegister>,
+        reified_register: ReifiedRegister<FreshRegister>,
         end_lifetime: usize,
-    ) -> Option<HardwareRegister> {
-        self.get_register_pool(tp.addressing)
-            .pop_first(tp.reg, end_lifetime)
+    ) -> Option<ReifiedRegister<HardwareRegister>> {
+        let hw_reg = self
+            .get_register_pool(reified_register.r#type)
+            .pop_first(reified_register.reg, end_lifetime);
+
+        hw_reg.map(|reg| reified_register.into_hardware(reg))
     }
 
-    fn remove(&mut self, register: HardwareRegister, addr: Addressing) -> bool {
-        self.get_register_pool(addr).remove(&register)
+    /// Removes a hardware register from the pool.
+    ///
+    /// # Arguments
+    ///
+    /// * `register` - The hardware register to remove
+    /// * `register_type` - The type of register
+    ///
+    /// # Returns
+    ///
+    /// `true` if the register was removed, `false` if it wasn't in the pool.
+    fn remove(&mut self, register: HardwareRegister, register_type: RegisterType) -> bool {
+        self.get_register_pool(register_type).remove(&register)
     }
 
+    /// Sets the availability of a hardware register for a specific fresh register.
+    ///
+    /// # Arguments
+    ///
+    /// * `hardware_register` - The hardware register to set availability for
+    /// * `reified_register` - The fresh register to associate with the hardware register
+    /// * `lifetime` - The lifetime (instruction index) at which the register becomes available
     fn set_availability(
         &mut self,
-        register: HardwareRegister,
-        tp: TypedSizedRegister<FreshRegister>,
+        hardware_register: HardwareRegister,
+        reified_register: &ReifiedRegister<FreshRegister>,
         lifetime: usize,
     ) {
-        self.get_register_pool(tp.addressing)
-            .set_availability(tp.reg, register, lifetime);
+        self.get_register_pool(reified_register.r#type)
+            .set_availability(reified_register.reg, hardware_register, lifetime);
     }
 
-    /// Return the hardware register back into the register pool
-    fn insert(&mut self, register: Pool) -> bool {
+    /// Returns a hardware register back to the register pool.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the register was added to the pool, `false` if it was already in the pool.
+    fn insert(&mut self, register: BasicRegister) -> bool {
         match register {
-            Pool::General(hardware_register) => self.x.insert(hardware_register),
-            Pool::Vector(hardware_register) => self.v.insert(hardware_register),
+            BasicRegister::General(hardware_register) => self.x.insert(hardware_register),
+            BasicRegister::Vector(hardware_register) => self.v.insert(hardware_register),
         }
     }
 }
 
+/// Interleaves elements from two vectors.
+///
+/// This function combines elements from two vectors, distributing the elements
+/// from the shorter vector evenly throughout the longer vector.
+///
+/// # Arguments
+///
+/// * `lhs` - First vector of elements
+/// * `rhs` - Second vector of elements
+///
+/// # Returns
+///
+/// A new vector containing all elements from both input vectors, interleaved.
 pub fn interleave<T>(lhs: Vec<T>, rhs: Vec<T>) -> Vec<T> {
     let (shorter, longer) = if lhs.len() <= rhs.len() {
         (lhs, rhs)
@@ -1049,191 +613,215 @@ pub fn interleave<T>(lhs: Vec<T>, rhs: Vec<T>) -> Vec<T> {
 
     result
 }
-// Write test that checks if the combined length is always the same as from the individual lengths
 
-#[derive(Debug)]
-pub struct RegisterMapping(Vec<RegisterState>);
-
-impl std::fmt::Display for RegisterMapping {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Register Mapping: [")?;
-        for (i, state) in self.0.iter().enumerate() {
-            match state {
-                RegisterState::Unassigned => write!(f, "  {}: U", i)?,
-                RegisterState::Assigned(reg) => write!(f, "  {}: M{:?}", i, reg)?,
-                RegisterState::Dropped => write!(f, "  {}: D", i)?,
-            }
-            write!(f, ", ")?
-        }
-        write!(f, "]")?;
-        Ok(())
-    }
+/// Maps fresh registers to their assigned hardware registers.
+///
+/// RegisterMapping maintains the mapping between virtual registers (FreshRegisters)
+/// and their corresponding physical hardware registers _during_ register allocation.
+/// It represents the active set of allocations.
+#[derive(Debug, Default)]
+pub struct RegisterMapping {
+    mapping: HashMap<FreshRegister, BasicRegister>,
 }
 
 impl RegisterMapping {
+    /// Creates a new empty RegisterMapping.
     pub fn new() -> Self {
-        // TODO Needs to be equal to the number of free register in the allocator once it is finished
-        // but also needs space for the elements in the beginning
-        // In the beginning there can't be more than all the vector registers combined, so that can be allocated initially
-        // get_or_allocate_register needs to deal with the resizing
-        Self(
-            std::iter::repeat_with(|| RegisterState::Unassigned)
-                .take(2000)
-                .collect::<Vec<_>>(),
-        )
+        Self {
+            mapping: HashMap::with_capacity(100),
+        }
     }
 
+    /// Returns the number of registers currently allocated.
     pub fn allocated(&self) -> usize {
-        self.0
-            .iter()
-            .filter(|&reg_state| matches!(reg_state, RegisterState::Assigned(_)))
-            .count()
+        self.mapping.len()
     }
 
-    // Get the physical register for a source register
+    /// Directly assigns a hardware register to a fresh register.
+    ///
+    /// # Arguments
+    ///
+    /// * `fresh` - The fresh register to assign
+    /// * `hardware` - The hardware register to assign to
+    pub fn assign_register(&mut self, fresh: FreshRegister, hardware: BasicRegister) {
+        self.mapping.insert(fresh, hardware);
+    }
+
+    /// Gets the physical register for an operand.
+    ///
+    /// # Arguments
+    ///
+    /// * `fresh` - The reified fresh register to look up
+    ///
+    /// # Returns
+    ///
+    /// The corresponding hardware register.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the register has not been assigned yet.
     fn get_register(
         &self,
-        fresh: TypedSizedRegister<FreshRegister>,
-    ) -> TypedSizedRegister<HardwareRegister> {
-        match *self.index(*fresh.as_fresh()) {
-            RegisterState::Unassigned => unreachable!("{fresh:?} has not been assigned yet"),
-
-            RegisterState::Assigned(reg) => TypedSizedRegister {
-                reg: reg.reg(),
-                addressing: fresh.addressing,
-                idx: fresh.idx,
-            },
-            RegisterState::Dropped => unreachable!("{fresh:?} already has been dropped"),
+        fresh: ReifiedRegister<FreshRegister>,
+    ) -> ReifiedRegister<HardwareRegister> {
+        match self.mapping.get(&fresh.reg) {
+            Some(reg) => fresh.into_hardware(reg.reg()),
+            None => panic!("{:?} has not been assigned yet", fresh),
         }
     }
 
-    // Get or allocate a register
-    fn get_or_allocate_register(
+    /// Gets or allocates a register.
+    ///
+    /// If the register is already mapped, returns the existing mapping.
+    /// Otherwise, allocates a new hardware register.
+    ///
+    /// # Arguments
+    ///
+    /// * `register_bank` - The register bank to allocate from
+    /// * `typed_register` - The fresh register to get or allocate
+    /// * `end_lifetime` - The instruction index after which the register is no longer needed
+    ///
+    /// # Returns
+    ///
+    /// The corresponding hardware register.
+    ///
+    /// # Panics
+    ///
+    /// Panics if register allocation fails.
+    pub fn get_or_allocate_register(
         &mut self,
         register_bank: &mut RegisterBank,
-        typed_register: TypedSizedRegister<FreshRegister>,
-        end_lifetime: usize,
-    ) -> TypedSizedRegister<HardwareRegister> {
-        // Possible to do a mutable reference here
-        let entry = self.index_mut(*typed_register.as_fresh());
-        let hw_reg = match *entry {
-            RegisterState::Unassigned => {
-                let addr = typed_register.addressing;
-                let hw_reg = register_bank
-                    .pop_first(typed_register, end_lifetime)
+        typed_register: ReifiedRegister<FreshRegister>,
+        lifetime: Lifetime,
+    ) -> ReifiedRegister<HardwareRegister> {
+        // Either return existing mapping or create new one
+        match self.mapping.get(&typed_register.reg) {
+            Some(reg) => typed_register.into_hardware(reg.reg()),
+            None => {
+                let hardware_reified_register = register_bank
+                    .pop_first(typed_register, lifetime.end)
                     .expect("ran out of registers");
 
-                *entry = RegisterState::Assigned(addr.to_pool(hw_reg));
-                hw_reg
-            }
-
-            RegisterState::Assigned(reg) => reg.reg(),
-            RegisterState::Dropped => unreachable!("{typed_register:?} already has been dropped"),
-        };
-        TypedSizedRegister {
-            reg: hw_reg,
-            addressing: typed_register.addressing,
-            idx: typed_register.idx,
-        }
-    }
-
-    // Once a fresh register goes out of scope the hardware register that was assigned to that fresh register
-    // can be returned to the register bank.
-    fn free_register(&mut self, register_bank: &mut RegisterBank, fresh: FreshRegister) -> bool {
-        let old = mem::replace(self.index_mut(fresh), RegisterState::Dropped);
-
-        match old {
-            RegisterState::Unassigned => {
-                unreachable!("There should never be a drop before the register has been assigned")
-            }
-            RegisterState::Assigned(reg) => {
-                let new = register_bank.insert(reg);
-                assert!(
-                    new,
-                    "hardware:{reg:?} is assigned to more than one fresh register. "
+                self.mapping.insert(
+                    typed_register.reg,
+                    hardware_reified_register.to_basic_register(),
                 );
-                new
-            }
-            RegisterState::Dropped => {
-                unreachable!("A register that has been dropped can't be dropped again")
+                hardware_reified_register
             }
         }
     }
 
-    // Integrate with seen?
-    // This output only should output
-    // Two reasons we convert it to to_typed_register
-    // - have access to reg without having to introduce a reg on the trait
-    // - to only have the addressing defined in a single place namely RegisterSource
-    // Whether we should keep it as Typed Sized Register is another question
-    // The index is not of interested here and needs to be set to None explicitly
-    pub fn output_register<R: RegisterSource>(
+    /// Frees a register, returning it to the register bank.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the register was freed, `false` otherwise.
+    fn free_register(&mut self, register_bank: &mut RegisterBank, fresh: FreshRegister) -> bool {
+        if let Some(reg) = self.mapping.remove(&fresh) {
+            // TODO this assert needs to be moved into insert and that should also solve the todo
+            let result = register_bank.insert(reg);
+            assert!(
+                result,
+                "hardware:{reg:?} is assigned to more than one fresh register."
+            );
+            result
+        } else {
+            todo!()
+        }
+    }
+
+    /// Gets the hardware register assigned to a register if available.
+    ///
+    /// # Returns
+    ///
+    /// An Option containing the corresponding hardware register if mapped, None otherwise.
+    pub fn output_register(
         &self,
-        reg: &R,
-    ) -> Option<TypedSizedRegister<HardwareRegister>> {
-        let tp = reg.to_typed_register();
-        match self.index(tp.reg) {
-            RegisterState::Unassigned => None,
-            RegisterState::Assigned(hw_reg) => Some(TypedSizedRegister {
+        reified_register: &ReifiedRegister<FreshRegister>,
+    ) -> Option<ReifiedRegister<HardwareRegister>> {
+        self.mapping
+            .get(&reified_register.reg)
+            .map(|hw_reg| ReifiedRegister {
                 reg: hw_reg.reg(),
-                addressing: tp.addressing,
+                r#type: reified_register.r#type,
                 idx: Index::None,
-            }),
-            RegisterState::Dropped => None,
-        }
+            })
     }
 }
 
-/// We do not implement the Index Trait as that would leak the private RegisterState
-impl RegisterMapping {
-    fn index(&self, idx: FreshRegister) -> &RegisterState {
-        &self.0[idx.0 as usize]
-    }
-    fn index_mut(&mut self, idx: FreshRegister) -> &mut RegisterState {
-        &mut self.0[idx.0 as usize]
-    }
+#[derive(Clone, Copy)]
+pub struct Lifetime {
+    begin: usize,
+    end: usize,
 }
 
-// The invariant is that the hashset will only contain the sources and therefore always free to deallocate
-// because if not it means that it's either been used earlier so it would not show up in release.
-// The other way it shows up if the source
-pub fn liveness_analysis(
-    seen_registers: &mut Seen,
+/// Performs liveness analysis on instructions to determine register lifetimes.
+///
+/// This function analyzes the instruction sequence to determine at which instructions
+/// each register is last used, allowing for register deallocation at the earliest possible point.
+///
+/// # Arguments
+///
+/// * `output_registers` - The registers that contain the results at the end of the instructions.
+/// * `instructions` - The instruction sequence to analyze
+/// * `nr_fresh_registers` - The total number of fresh registers used
+///
+/// # Returns
+///
+/// A tuple containing:
+/// * A queue of sets of registers to release after each instruction
+/// * A vector of (begin, end) lifetime indices for each register
+///
+/// # Panics
+///
+/// Panics if an instruction has an unused destination register.
+pub fn liveness_analysis<'a>(
+    output_variables: &[FreshVariable],
     instructions: &[Instruction],
     nr_fresh_registers: usize,
-) -> (VecDeque<HashSet<FreshRegister>>, Vec<(usize, usize)>) {
+) -> (VecDeque<HashSet<FreshRegister>>, Vec<Lifetime>) {
+    // Initialize the seen_registers with the output registers such that they won't get released.
+    let mut seen_registers = Seen::new();
+    output_variables.iter().for_each(|variable| {
+        variable.registers.iter().for_each(|register| {
+            seen_registers.mark_register(register);
+        });
+    });
+
     // Keep track of the last line the free register is used for
-    let mut lifetimes = vec![(0, usize::MAX); nr_fresh_registers];
+    let mut lifetimes = vec![
+        Lifetime {
+            begin: 0,
+            end: usize::MAX
+        };
+        nr_fresh_registers
+    ];
     let mut commands = VecDeque::new();
     for (line, instruction) in instructions.iter().enumerate().rev() {
         // Add check whether the source is released here.
         // If we don't want to check for that later it is required that the instruction is filtered out here
         // otherwise we need a special structure that checks for both
-        let registers: HashSet<_> = instruction
-            .extract_registers()
-            .map(|tr| *tr.as_fresh())
-            .collect();
+        let registers: HashSet<_> = instruction.extract_registers().map(|tr| tr.reg).collect();
 
         // The difference could be mutable
         let release: HashSet<_> = registers.difference(&seen_registers.0).copied().collect();
 
-        instruction.dest.iter().for_each(|dest| {
-            let dest = dest.as_fresh();
+        instruction.results.iter().for_each(|dest| {
+            let dest = dest.reg;
 
-            if release.contains(dest) {
+            if release.contains(&dest) {
                 // Better way to give feedback? Now the user doesn't know where it comes from
                 // We view an unused instruction as a problem
                 print_instructions(&instructions);
                 panic!("{line}: {instruction:?} does not use the destination")
             }; // The union could be mutable
 
-            let (_b, e) = lifetimes[dest.0 as usize];
-            lifetimes[dest.0 as usize] = (line, e);
+            let lifetime = &mut lifetimes[dest.0 as usize];
+            lifetime.begin = line;
         });
-
         release.iter().for_each(|reg| {
-            let (b, _e) = lifetimes[reg.0 as usize];
-            lifetimes[reg.0 as usize] = (b, line);
+            let lifetime = &mut lifetimes[reg.0 as usize];
+            lifetime.end = line;
             seen_registers.0.insert(*reg);
         });
         commands.push_front(release);
@@ -1241,181 +829,84 @@ pub fn liveness_analysis(
     (commands, lifetimes)
 }
 
+/// Prints a formatted list of instructions for debugging.
+pub fn print_instructions<R: std::fmt::Display + Copy>(instructions: &[InstructionF<R>]) {
+    instructions
+        .iter()
+        .enumerate()
+        .for_each(|(line, inst)| println!("{line}: {}", inst));
+}
+
+/// Allocates hardware registers for a sequence of instructions.
+///
+/// This function transforms instructions using fresh registers into instructions
+/// using hardware registers, performing register allocation based on the results
+/// of liveness analysis.
+///
+/// # Arguments
+///
+/// * `mapping` - The register mapping to use and update
+/// * `register_bank` - The register bank to allocate from
+/// * `instructions` - The instruction sequence using fresh registers
+/// * `releases` - The registers to release after each instruction
+/// * `lifetimes` - The lifetime information for each register
+///
+/// # Returns
+///
+/// A new sequence of instructions using hardware registers.
+///
+/// # Panics
+///
+/// Panics if the instructions and releases collections have different lengths.
 pub fn hardware_register_allocation(
     mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
     instructions: Vec<Instruction>,
     // Change this into a Seen, and then rename Seen?
     releases: VecDeque<HashSet<FreshRegister>>,
-    lifetimes: Vec<(usize, usize)>,
+    lifetimes: Vec<Lifetime>,
 ) -> Vec<InstructionF<HardwareRegister>> {
     assert_eq!(
         instructions.len(),
         releases.len(),
-        "The instructions and release collections need to be the same lenght"
+        "The instructions and release collections need to be the same length"
     );
 
-    let f = |(instruction, release): (Instruction, HashSet<_>)| {
-        // println!();
-        // println!("mapping: {mapping}");
-        // println!("bank: {register_bank:?}");
-        // println!("instruction: {instruction:?}");
-        // println!("release: {release:?}");
-        // std::io::stdout().flush().unwrap();
-
-        let src = instruction
-            .src
-            .into_iter()
-            .map(|s| mapping.get_register(s))
-            .collect();
-        // assert on the return of free register?
-        release.into_iter().for_each(|fresh| {
-            mapping.free_register(register_bank, fresh);
-        });
-
-        let dest = instruction
-            .dest
-            .into_iter()
-            .map(|d| {
-                let idx = d.as_fresh().0;
-                mapping.get_or_allocate_register(register_bank, d, lifetimes[idx as usize].1)
-            })
-            .collect();
-
-        InstructionF {
-            opcode: instruction.opcode,
-            dest,
-            src,
-            modifiers: instruction.modifiers,
-        }
-    };
-
-    instructions.into_iter().zip(releases).map(f).collect()
-}
-
-pub fn print_instructions<R: std::fmt::Display + Copy>(instrs: &[InstructionF<R>]) {
-    instrs
-        .iter()
-        .enumerate()
-        .for_each(|(line, inst)| println!("{line}: {}", inst.format_instruction()));
-}
-
-pub fn backend_global(label: &str, instructions: &Vec<InstructionF<HardwareRegister>>) -> String {
-    let mut asm_code = String::new();
-    let label = format!("_{label}");
-    asm_code.push_str(&format!(".global {label}\n.align 4\n.text\n"));
-    asm_code.push_str(&format!("{label}:\n"));
-    asm_code.extend(
-        instructions
-            .into_iter()
-            .map(|instruction| format!("  {}\n", instruction.format_instruction())),
-    );
-    asm_code.push_str("ret\n");
-    asm_code
-}
-
-pub fn backend_inline(instructions: &Vec<InstructionF<HardwareRegister>>) -> String {
-    let mut asm_code = String::new();
-    asm_code.extend(
-        instructions
-            .into_iter()
-            .map(|instruction| format!("\"{}\",\n", instruction.format_instruction())),
-    );
-    asm_code
-}
-
-/// Outputs all the arguments to the asm! macros
-/// TODO provide labels for inputs
-
-pub fn backend_rust(
-    mapping: RegisterMapping,
-    inputs_registers: Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    outputs_registers: Vec<Vec<TypedSizedRegister<HardwareRegister>>>,
-    instructions: &Vec<InstructionF<HardwareRegister>>,
-) -> String {
-    assert_eq!(
-        mapping.allocated(),
-        outputs_registers
-            .iter()
-            .map(|output_register| output_register.len())
-            .sum()
-    );
-
-    let inputs: Vec<_> = inputs_registers
-        .iter()
-        .enumerate()
-        .flat_map(|(n, input_register)| {
-            input_register
-                .iter()
-                .enumerate()
-                .map(move |(i, r)| format!("in(\"{r}\") in{n}[{i}]"))
-        })
-        .intersperse(", ".to_string())
-        .collect();
-
-    // Make this work with
-    let outputs: Vec<_> = outputs_registers
-        .iter()
-        .enumerate()
-        .flat_map(|(n, output_registers)| {
-            output_registers
-                .iter()
-                .enumerate()
-                .map(move |(i, r)| format!("lateout(\"{r}\") out{n}[{i}]"))
-        })
-        .intersperse(", ".to_string())
-        .collect();
-
-    let mut clobber_registers: BTreeSet<TypedSizedRegister<HardwareRegister>> = BTreeSet::new();
-    instructions.iter().for_each(|instruction| {
-        clobber_registers.extend(instruction.extract_registers().map(|reg| clobber(reg)));
-    });
-
-    let output_registers =
-        BTreeSet::from_iter(outputs_registers.into_iter().flat_map(|r| r.into_iter()));
-
-    // For the clobbers
-    let clobbers = clobber_registers
-        .difference(&output_registers)
-        .map(|r| format!("lateout(\"{}\") _", r))
-        .intersperse(", ".to_string());
-
-    let newline = std::iter::once(",\n".to_string());
-    // We jump to the assembly code with br so we need to safe the lr register
-    // This can change in the future
-    let lr = std::iter::once("lateout(\"lr\") _".to_string());
-
-    inputs
+    instructions
         .into_iter()
-        .chain(newline.clone())
-        .chain(outputs)
-        .chain(newline.clone())
-        .chain(clobbers)
-        .chain(newline.clone())
-        .chain(lr)
+        .zip(releases)
+        .map(|(instruction, release)| {
+            // Map operands to hardware registers
+            let src = instruction
+                .operands
+                .into_iter()
+                .map(|s| mapping.get_register(s))
+                .collect();
+
+            // Free registers that are no longer needed
+            release.into_iter().for_each(|fresh| {
+                mapping.free_register(register_bank, fresh);
+            });
+
+            // Allocate result registers
+            let dest = instruction
+                .results
+                .into_iter()
+                .map(|d| {
+                    let idx = d.reg.0;
+                    mapping.get_or_allocate_register(register_bank, d, lifetimes[idx as usize])
+                })
+                .collect();
+
+            // Construct the hardware instruction
+            InstructionF {
+                opcode: instruction.opcode,
+                results: dest,
+                operands: src,
+                modifiers: instruction.modifiers,
+            }
+        })
         .collect()
-}
-
-/// For the clobber register we only have to mention the register
-fn clobber(c: &TypedSizedRegister<HardwareRegister>) -> TypedSizedRegister<HardwareRegister> {
-    // Unpack the fields of TypedSizedRegister using destructuring
-    let TypedSizedRegister {
-        reg,
-        addressing,
-        idx: _idx,
-    } = c;
-
-    let addressing = match addressing {
-        Addressing::D => Addressing::V,
-        other => *other,
-    };
-
-    // Return a new TypedSizedRegister with the same values
-    TypedSizedRegister {
-        reg: *reg,
-        addressing,
-        idx: Index::None,
-    }
 }
 
 #[cfg(test)]
