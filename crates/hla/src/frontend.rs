@@ -1,14 +1,14 @@
 use std::array;
 use std::{marker::PhantomData, mem};
 
-use crate::ir::{FreshRegister, InstructionF, Variable};
+use crate::ir::{FreshRegister, Instruction, Variable};
 use crate::reification::{ReifiedRegister, ReifyRegister};
 
 /// A vector of instructions representing an atomic unit of execution.
 ///
 /// This type represents a sequence of instructions that should be executed together
 /// as they rely on side effects such as flag setting that could potentially be disturbed when interleaved.
-pub type AtomicInstructionBlock = Vec<InstructionF<FreshRegister>>;
+pub type AtomicInstructionBlock = Vec<Instruction<FreshRegister>>;
 
 /// A container for assembly instructions.
 ///

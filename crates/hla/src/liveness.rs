@@ -1,4 +1,5 @@
 use std::collections::{HashSet, VecDeque};
+use std::fmt::Display;
 
 use crate::frontend::FreshVariable;
 use crate::ir::{FreshRegister, Instruction};
@@ -8,7 +9,7 @@ use crate::reification::ReifiedRegister;
 ///
 /// This structure is used during liveness analysis to track which registers
 /// have been processed.
-pub struct Seen(HashSet<FreshRegister>);
+struct Seen(HashSet<FreshRegister>);
 
 impl Default for Seen {
     fn default() -> Self {
@@ -38,8 +39,8 @@ impl Seen {
 
 #[derive(Clone, Copy)]
 pub struct Lifetime {
-    pub begin: usize,
-    pub end: usize,
+    pub(crate) begin: usize,
+    pub(crate) end: usize,
 }
 
 pub struct Lifetimes(Vec<Lifetime>);
@@ -92,7 +93,7 @@ impl std::ops::IndexMut<FreshRegister> for Lifetimes {
 /// Panics if an instruction has an unused destination register.
 pub fn liveness_analysis(
     output_variables: &[FreshVariable],
-    instructions: &[Instruction],
+    instructions: &[Instruction<FreshRegister>],
     nr_fresh_registers: usize,
 ) -> (VecDeque<HashSet<FreshRegister>>, Lifetimes) {
     // Initialize the seen_registers with the output registers such that they won't get released.
@@ -103,24 +104,18 @@ pub fn liveness_analysis(
         });
     });
 
-    // Keep track of the last line the free register is used for
+    // Keep track of the last line the free register is used in
     let mut lifetimes = Lifetimes::new(nr_fresh_registers);
     let mut commands = VecDeque::new();
     for (line, instruction) in instructions.iter().enumerate().rev() {
-        // Add check whether the source is released here.
-        // If we don't want to check for that later it is required that the instruction is filtered out here
-        // otherwise we need a special structure that checks for both
         let registers: HashSet<_> = instruction.extract_registers().map(|tr| tr.reg).collect();
 
-        // The difference could be mutable
         let release: HashSet<_> = registers.difference(&seen_registers.0).copied().collect();
 
         instruction.results.iter().for_each(|dest| {
             let dest = dest.reg;
 
             if release.contains(&dest) {
-                // Better way to give feedback? Now the user doesn't know where it comes from
-                // We view an unused instruction as a problem
                 print_instructions(instructions);
                 panic!("{line}: {instruction:?} does not use the destination")
             }; // The union could be mutable
@@ -139,7 +134,7 @@ pub fn liveness_analysis(
 }
 
 /// Prints a formatted list of instructions for debugging.
-pub fn print_instructions(instructions: &[Instruction]) {
+fn print_instructions<R: Display>(instructions: &[Instruction<R>]) {
     instructions
         .iter()
         .enumerate()

@@ -23,8 +23,8 @@ fn setup_schoolmethod(
     let s = school_method(alloc, asm, &a, &b);
 
     (
-        vec![Variable::new("a", &a), Variable::new("b", &b)],
-        Variable::new("out", &s),
+        vec![FreshVariable::new("a", &a), FreshVariable::new("b", &b)],
+        FreshVariable::new("out", &s),
     )
 }
 
@@ -37,8 +37,8 @@ fn setup_single_step(
 
     let s = single_step(alloc, asm, &a, &b);
     (
-        vec![Variable::new("a", &a), Variable::new("b", &b)],
-        Variable::new("out", &s),
+        vec![FreshVariable::new("a", &a), FreshVariable::new("b", &b)],
+        FreshVariable::new("out", &s),
     )
 }
 
@@ -51,9 +51,9 @@ fn setup_single_step_load(
 
     single_step_load(alloc, asm, &mut a, &b);
 
-    let var_a = Variable::new("a", &[a]);
+    let var_a = FreshVariable::new("a", &[a]);
 
-    (vec![var_a.clone(), Variable::new("b", &[b])], var_a)
+    (vec![var_a.clone(), FreshVariable::new("b", &[b])], var_a)
 }
 
 fn setup_single_step_split(
@@ -65,8 +65,8 @@ fn setup_single_step_split(
 
     let s = single_step_split(alloc, asm, &a, &b);
     (
-        vec![Variable::new("a", &a), Variable::new("b", &b)],
-        Variable::new("out", &s),
+        vec![FreshVariable::new("a", &a), FreshVariable::new("b", &b)],
+        FreshVariable::new("out", &s),
     )
 }
 
@@ -75,15 +75,19 @@ fn setup_smul_add(
     asm: &mut Assembler,
 ) -> (Vec<FreshVariable>, FreshVariable) {
     let add = alloc.fresh_array();
-    let var_add = Variable::new("r#add", &add);
+    let var_add = FreshVariable::new("r#add", &add);
     let a = alloc.fresh_array();
     let b = alloc.fresh();
 
     let s = smult_add(alloc, asm, add, &a, &b);
 
     (
-        vec![var_add, Variable::new("a", &a), Variable::new("b", &[b])],
-        Variable::new("out", &s),
+        vec![
+            var_add,
+            FreshVariable::new("a", &a),
+            FreshVariable::new("b", &[b]),
+        ],
+        FreshVariable::new("out", &s),
     )
 }
 
@@ -96,10 +100,10 @@ fn setup_u256_to_u260_shl2_imd(
     let mask = mov(alloc, asm, MASK52);
     let mask_simd = dup2d(alloc, asm, &mask);
 
-    let var_limb = Variable::new("limbs", &limbs);
+    let var_limb = FreshVariable::new("limbs", &limbs);
     let res = u256_to_u260_shl2_simd(alloc, asm, &mask_simd, limbs);
 
-    (vec![var_limb], Variable::new("out", &res))
+    (vec![var_limb], FreshVariable::new("out", &res))
 }
 
 fn setup_u260_to_u256_simd(
@@ -108,10 +112,10 @@ fn setup_u260_to_u256_simd(
 ) -> (Vec<FreshVariable>, FreshVariable) {
     let limbs = alloc.fresh_array();
 
-    let var_limb = Variable::new("limbs", &limbs);
+    let var_limb = FreshVariable::new("limbs", &limbs);
     let res = u260_to_u256_simd(alloc, asm, limbs);
 
-    (vec![var_limb], Variable::new("out", &res))
+    (vec![var_limb], FreshVariable::new("out", &res))
 }
 
 fn setup_vmultadd_noinit_simd(
@@ -128,13 +132,13 @@ fn setup_vmultadd_noinit_simd(
     // Alternative is c2 = c1 + 1; This requires a change to add to support immediate
     let c2 = load_const(alloc, asm, C2.to_bits());
     let c2 = dup2d(alloc, asm, &c2);
-    let var_t = Variable::new("t", &t);
-    let var_a = Variable::new("a", &a);
-    let var_b = Variable::new("b", &b);
+    let var_t = FreshVariable::new("t", &t);
+    let var_a = FreshVariable::new("a", &a);
+    let var_b = FreshVariable::new("b", &b);
 
     let res = vmultadd_noinit_simd(alloc, asm, &c1, &c2, t, a, b);
 
-    (vec![var_t, var_a, var_b], Variable::new("out", &res))
+    (vec![var_t, var_a, var_b], FreshVariable::new("out", &res))
 }
 
 fn setup_single_step_simd(
@@ -144,11 +148,11 @@ fn setup_single_step_simd(
     let a = alloc.fresh_array();
     let b = alloc.fresh_array(); // Assuming b starts after a
 
-    let var_a = Variable::new("av", &a);
-    let var_b = Variable::new("bv", &b);
+    let var_a = FreshVariable::new("av", &a);
+    let var_b = FreshVariable::new("bv", &b);
     let res = single_step_simd(alloc, asm, a, b);
 
-    (vec![var_a, var_b], Variable::new("outv", &res))
+    (vec![var_a, var_b], FreshVariable::new("outv", &res))
 }
 
 fn setup_reduce_ct_simd(
@@ -160,11 +164,11 @@ fn setup_reduce_ct_simd(
     let mask = mov(alloc, asm, MASK52);
     let mask52 = dup2d(alloc, asm, &mask);
 
-    let var_red = Variable::new("red", &red);
+    let var_red = FreshVariable::new("red", &red);
 
     let res = reduce_ct_simd(alloc, asm, red).map(|reg| and16(alloc, asm, &reg, &mask52));
 
-    (vec![var_red], Variable::new("out", &res))
+    (vec![var_red], FreshVariable::new("out", &res))
 }
 
 // fn build_interleaved_seq_scalar(label: &str) {

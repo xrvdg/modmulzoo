@@ -12,4 +12,3 @@ pub mod reification;
 pub use builder::build;
 pub use frontend::*;
 pub use instructions::*;
-pub use ir::Variable;

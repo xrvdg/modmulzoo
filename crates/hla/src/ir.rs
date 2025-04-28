@@ -6,12 +6,6 @@ pub struct Variable<R> {
     pub(crate) registers: Vec<R>,
 }
 
-/// An alias for an instruction using fresh registers.
-///
-/// This type represents a single machine instruction that operates on virtual registers
-/// (fresh registers) before hardware register allocation occurs.
-pub type Instruction = InstructionF<FreshRegister>;
-
 /// A generic instruction representation that can work with different register types.
 ///
 /// This instruction models both regular machine instructions and register aliases.
@@ -22,7 +16,7 @@ pub type Instruction = InstructionF<FreshRegister>;
 /// * `R` - The register type is either `FreshRegister` for virtual registers
 ///   or `HardwareRegister` for physical machine registers.
 #[derive(Debug, PartialEq)]
-pub struct InstructionF<R> {
+pub struct Instruction<R> {
     pub(crate) opcode: String,
     // Result is a vector because:
     // - Some operations have do not write results to a register
@@ -44,7 +38,7 @@ pub(crate) enum Modifier {
     Cond(String),
 }
 
-impl<R: std::fmt::Display + Copy> std::fmt::Display for InstructionF<R> {
+impl<R: std::fmt::Display> std::fmt::Display for Instruction<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let regs: String = self
             .extract_registers()
@@ -65,7 +59,7 @@ impl<R: std::fmt::Display + Copy> std::fmt::Display for InstructionF<R> {
     }
 }
 
-impl<R> InstructionF<R> {
+impl<R> Instruction<R> {
     /// Returns an iterator over all registers referenced by this instruction.
     ///
     /// The iterator includes both result registers and operand registers.

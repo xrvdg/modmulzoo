@@ -4,11 +4,11 @@
 use std::collections::BTreeSet;
 
 use crate::backend::AllocatedVariable;
-use crate::ir::{HardwareRegister, InstructionF, TypedHardwareRegister};
+use crate::ir::{HardwareRegister, Instruction, TypedHardwareRegister};
 
 pub fn generate_standalone_asm(
     label: &str,
-    instructions: &[InstructionF<HardwareRegister>],
+    instructions: &[Instruction<HardwareRegister>],
 ) -> String {
     let label = format!("_{label}");
 
@@ -30,7 +30,7 @@ pub fn generate_standalone_asm(
     )
 }
 
-pub fn format_instructions_rust_inline(instructions: &[InstructionF<HardwareRegister>]) -> String {
+pub fn format_instructions_rust_inline(instructions: &[Instruction<HardwareRegister>]) -> String {
     instructions
         .iter()
         .map(|instruction| format!("\"{}\"", instruction))
@@ -44,7 +44,7 @@ pub fn generate_rust_global_asm(
     label: &str,
     inputs_registers: &[AllocatedVariable],
     outputs_registers: &[AllocatedVariable],
-    instructions: &[InstructionF<HardwareRegister>],
+    instructions: &[Instruction<HardwareRegister>],
 ) -> String {
     let operands = generate_asm_operands(inputs_registers, outputs_registers, instructions);
     let standalone = generate_standalone_asm(label, instructions);
@@ -64,7 +64,7 @@ pub fn generate_rust_global_asm(
 pub fn generate_rust_inline_asm(
     inputs_registers: &[AllocatedVariable],
     outputs_registers: &[AllocatedVariable],
-    instructions: &[InstructionF<HardwareRegister>],
+    instructions: &[Instruction<HardwareRegister>],
 ) -> String {
     let inst = format_instructions_rust_inline(instructions);
     let operands = generate_asm_operands(inputs_registers, outputs_registers, instructions);
@@ -81,7 +81,7 @@ pub fn generate_rust_inline_asm(
 pub fn generate_asm_operands(
     inputs: &[AllocatedVariable],
     outputs: &[AllocatedVariable],
-    instructions: &[InstructionF<HardwareRegister>],
+    instructions: &[Instruction<HardwareRegister>],
 ) -> String {
     let input_operands = format_operands(inputs, "in");
     let output_operands = format_operands(outputs, "lateout");
@@ -93,7 +93,6 @@ pub fn generate_asm_operands(
     // When importing with global asm the code will need to jump
     let lr = std::iter::once("lateout(\"lr\") _".to_string());
 
-    // TODO format the assembly lines per input and per output
     input_operands
         .into_iter()
         .chain(newline.clone())
@@ -109,7 +108,7 @@ pub fn generate_asm_operands(
 /// registers that are used for the output. These are needed by Rust to plan which registers need to be saved.
 fn get_clobber_registers(
     outputs_registers: &[AllocatedVariable],
-    instructions: &[InstructionF<HardwareRegister>],
+    instructions: &[Instruction<HardwareRegister>],
 ) -> Vec<TypedHardwareRegister> {
     let mut all_used_registers = BTreeSet::new();
 

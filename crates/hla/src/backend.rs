@@ -1,36 +1,40 @@
 use core::panic;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
-use crate::frontend::*;
-use crate::ir::*;
-use crate::liveness::*;
-use crate::reification::*;
+use crate::{
+    FreshVariable,
+    ir::{FreshRegister, HardwareRegister, Instruction, TypedHardwareRegister, Variable},
+    liveness::{Lifetime, Lifetimes},
+    reification::{Index, RegisterType, ReifiedRegister},
+};
 
 pub type AllocatedVariable = Variable<TypedHardwareRegister>;
 
-impl AllocatedVariable {}
-
 #[derive(Debug)]
-struct RegisterPool {
+struct RegisterAllocator {
     // Keeps track of the free hardware during allocations
-    pool: BTreeSet<HardwareRegister>,
+    free_registers: BTreeSet<HardwareRegister>,
+    // Registers that at the end should contain the outputs
     pinned: PinnedOutputRegisters,
 }
 
 #[derive(Debug)]
 struct PinnedOutputRegisters {
-    // Acts as a concrete iterator
+    // Acts as a concrete iterator to keep track of which register are free to
+    // to hold output variables.
+    // We use a BTreeSet as "iterator" here to also support ABI like SYS-V which
+    // might use a few low numbered registers and x8.
     iter: BTreeSet<HardwareRegister>,
-    // Keep track till when the pinned output register is free to use
+    // Keep track till when the pinned output register is free to be used
     // for other variables.
-    reserved: BTreeMap<HardwareRegister, (FreshRegister, usize)>,
+    reservations: BTreeMap<HardwareRegister, (FreshRegister, usize)>,
 }
 
 impl PinnedOutputRegisters {
     fn new(iter: impl Iterator<Item = u64>) -> Self {
         Self {
             iter: BTreeSet::from_iter(iter.map(HardwareRegister)),
-            reserved: BTreeMap::new(),
+            reservations: BTreeMap::new(),
         }
     }
 
@@ -43,7 +47,7 @@ impl PinnedOutputRegisters {
             Some(hardware_register) => {
                 let lifetime = lifetimes[reified_register.reg].begin;
 
-                self.reserved
+                self.reservations
                     .insert(hardware_register, (reified_register.reg, lifetime));
             }
             None => panic!("Ran out of registers to reserve"),
@@ -51,14 +55,14 @@ impl PinnedOutputRegisters {
     }
 }
 
-impl RegisterPool {
+impl RegisterAllocator {
     fn new<T>(registers: T) -> Self
     where
         T: Iterator<Item = u64> + Clone,
     {
         let pool = BTreeSet::from_iter(registers.clone().map(HardwareRegister));
-        RegisterPool {
-            pool,
+        RegisterAllocator {
+            free_registers: pool,
             pinned: PinnedOutputRegisters::new(registers),
         }
     }
@@ -66,12 +70,12 @@ impl RegisterPool {
     fn pop_first(&mut self, reg: FreshRegister, end_lifetime: usize) -> Option<HardwareRegister> {
         // Find the first register that is free and will be free for the entirety of the lifetime of the fresh register.
         let reg = self
-            .pool
+            .free_registers
             .iter()
             .find(
                 // Check if the hardware register has been preassigned assigned to this fresh registers
                 // Check if the hardware register can be used before it's preassigned moment
-                |&hardware_register| match self.pinned.reserved.get(hardware_register) {
+                |&hardware_register| match self.pinned.reservations.get(hardware_register) {
                     Some((tp, _lifetime)) if reg == *tp => true,
                     Some((_tp, lifetime)) if end_lifetime <= *lifetime => true,
                     // Hardware register has not been preassigned
@@ -85,14 +89,14 @@ impl RegisterPool {
 
         // Remove the register from the pool if found
         if let Some(hardware_register) = reg {
-            self.pool.remove(&hardware_register);
+            self.free_registers.remove(&hardware_register);
         }
 
         reg
     }
 
     fn insert(&mut self, register: HardwareRegister) -> bool {
-        self.pool.insert(register)
+        self.free_registers.insert(register)
     }
 }
 
@@ -149,8 +153,8 @@ pub fn reserve_output_variable(
 /// vector registers. It handles allocation and deallocation of hardware registers.
 #[derive(Debug)]
 pub struct RegisterBank {
-    x: RegisterPool,
-    v: RegisterPool,
+    general_purpose: RegisterAllocator,
+    vector: RegisterAllocator,
 }
 
 impl Default for RegisterBank {
@@ -172,8 +176,8 @@ impl RegisterBank {
     /// - Register 31 (reserved for stack pointer)
     pub fn new() -> Self {
         Self {
-            x: RegisterPool::new((0..=17).chain(20..29)),
-            v: RegisterPool::new(0..=31),
+            general_purpose: RegisterAllocator::new((0..=17).chain(20..29)),
+            vector: RegisterAllocator::new(0..=31),
         }
     }
 
@@ -186,10 +190,10 @@ impl RegisterBank {
     /// # Returns
     ///
     /// A mutable reference to the corresponding register pool.
-    fn get_register_pool(&mut self, r#type: RegisterType) -> &mut RegisterPool {
+    fn get_register_pool(&mut self, r#type: RegisterType) -> &mut RegisterAllocator {
         match r#type {
-            RegisterType::X => &mut self.x,
-            RegisterType::V | RegisterType::D => &mut self.v,
+            RegisterType::X => &mut self.general_purpose,
+            RegisterType::V | RegisterType::D => &mut self.vector,
         }
     }
 
@@ -222,8 +226,12 @@ impl RegisterBank {
     /// `true` if the register was added to the pool, `false` if it was already in the pool.
     fn insert(&mut self, register: TypedHardwareRegister) -> bool {
         match register {
-            TypedHardwareRegister::General(hardware_register) => self.x.insert(hardware_register),
-            TypedHardwareRegister::Vector(hardware_register) => self.v.insert(hardware_register),
+            TypedHardwareRegister::General(hardware_register) => {
+                self.general_purpose.insert(hardware_register)
+            }
+            TypedHardwareRegister::Vector(hardware_register) => {
+                self.vector.insert(hardware_register)
+            }
         }
     }
 }
@@ -249,16 +257,6 @@ impl RegisterMapping {
     /// Returns the number of registers currently allocated.
     pub fn allocated(&self) -> usize {
         self.mapping.len()
-    }
-
-    /// Directly assigns a hardware register to a fresh register.
-    ///
-    /// # Arguments
-    ///
-    /// * `fresh` - The fresh register to assign
-    /// * `hardware` - The hardware register to assign to
-    pub fn assign_register(&mut self, fresh: FreshRegister, hardware: TypedHardwareRegister) {
-        self.mapping.insert(fresh, hardware);
     }
 
     /// Gets the physical register for an operand.
@@ -399,11 +397,10 @@ impl RegisterMapping {
 pub fn hardware_register_allocation(
     mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
-    instructions: Vec<Instruction>,
-    // Change this into a Seen, and then rename Seen?
+    instructions: Vec<Instruction<FreshRegister>>,
     releases: VecDeque<HashSet<FreshRegister>>,
     lifetimes: Lifetimes,
-) -> Vec<InstructionF<HardwareRegister>> {
+) -> Vec<Instruction<HardwareRegister>> {
     assert_eq!(
         instructions.len(),
         releases.len(),
@@ -437,7 +434,7 @@ pub fn hardware_register_allocation(
                 .collect();
 
             // Construct the hardware instruction
-            InstructionF {
+            Instruction {
                 opcode: instruction.opcode,
                 results: dest,
                 operands: src,

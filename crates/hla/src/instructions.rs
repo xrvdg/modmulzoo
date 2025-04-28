@@ -32,7 +32,7 @@ pub use scalar::*;
 pub use simd::*;
 
 use crate::frontend::{Assembler, D, FreshAllocator, PointerReg, Reg, SIMD, Simd, SizedIdx};
-use crate::ir::{Instruction, InstructionF, Modifier};
+use crate::ir::{FreshRegister, Instruction, Modifier};
 use crate::reification::ReifyRegister;
 
 use paste::paste;
@@ -53,8 +53,8 @@ macro_rules! embed_asm {
 macro_rules! embed_asm_inst {
     ($name:ident, $opcode:literal, ($($arg:ident : $arg_ty:ty),*) -> $ret_ty:ty) => {
         paste!{
-            pub fn [<$name _inst>](dest: &Reg<$ret_ty>, $($arg: &Reg<$arg_ty>),*) -> Instruction {
-                InstructionF {
+            pub fn [<$name _inst>](dest: &Reg<$ret_ty>, $($arg: &Reg<$arg_ty>),*) -> Instruction<FreshRegister> {
+                Instruction {
                     opcode: $opcode.to_string(),
                     results: vec![dest.reify()],
                     operands: vec![$($arg.reify()),*],
@@ -73,8 +73,8 @@ pub mod scalar {
         ret
     }
 
-    pub fn mov_inst(dest: &Reg<u64>, imm: u64) -> Instruction {
-        InstructionF {
+    pub fn mov_inst(dest: &Reg<u64>, imm: u64) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "mov".to_string(),
             results: vec![dest.reify()],
             operands: vec![],
@@ -85,8 +85,8 @@ pub mod scalar {
     // The following instructions that are only used in assembly blocks
     // as they have side effects such as carries.
 
-    pub fn tst_inst(a: &Reg<u64>, imm: u64) -> Instruction {
-        InstructionF {
+    pub fn tst_inst(a: &Reg<u64>, imm: u64) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "tst".to_string(),
             results: vec![],
             operands: vec![a.reify()],
@@ -94,8 +94,13 @@ pub mod scalar {
         }
     }
 
-    pub fn csel_inst(dest: &Reg<u64>, a: &Reg<u64>, b: &Reg<u64>, cond: &str) -> Instruction {
-        InstructionF {
+    pub fn csel_inst(
+        dest: &Reg<u64>,
+        a: &Reg<u64>,
+        b: &Reg<u64>,
+        cond: &str,
+    ) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "csel".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify(), b.reify()],
@@ -103,8 +108,8 @@ pub mod scalar {
         }
     }
 
-    pub fn cmn_inst(a: &Reg<u64>, b: &Reg<u64>) -> Instruction {
-        InstructionF {
+    pub fn cmn_inst(a: &Reg<u64>, b: &Reg<u64>) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "cmn".to_string(),
             results: vec![],
             operands: vec![a.reify(), b.reify()],
@@ -112,8 +117,8 @@ pub mod scalar {
         }
     }
 
-    pub fn cinc_inst(dest: &Reg<u64>, a: &Reg<u64>, cond: String) -> Instruction {
-        InstructionF {
+    pub fn cinc_inst(dest: &Reg<u64>, a: &Reg<u64>, cond: String) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "cinc".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
@@ -135,8 +140,8 @@ pub mod scalar {
         ret
     }
 
-    pub fn movk_inst(dest: &Reg<u64>, imm: u16, shift: u8) -> Instruction {
-        InstructionF {
+    pub fn movk_inst(dest: &Reg<u64>, imm: u16, shift: u8) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "movk".to_string(),
             results: vec![dest.reify()],
             operands: vec![],
@@ -165,8 +170,8 @@ pub mod load_store {
         ret
     }
 
-    pub fn ldr_inst<T>(dest: &Reg<u64>, ptr: &PointerReg<T>) -> Instruction {
-        InstructionF {
+    pub fn ldr_inst<T>(dest: &Reg<u64>, ptr: &PointerReg<T>) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "ldr".to_string(),
             results: vec![dest.reify()],
             operands: vec![ptr.reify()],
@@ -185,8 +190,12 @@ pub mod load_store {
         (ret0, ret1)
     }
 
-    pub fn ldp_inst<PTR: Pointer>(dest: &Reg<u64>, dest2: &Reg<u64>, ptr: &PTR) -> Instruction {
-        InstructionF {
+    pub fn ldp_inst<PTR: Pointer>(
+        dest: &Reg<u64>,
+        dest2: &Reg<u64>,
+        ptr: &PTR,
+    ) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "ldp".to_string(),
             results: vec![dest.reify(), dest2.reify()],
             operands: vec![ptr.reify()],
@@ -207,8 +216,8 @@ pub mod load_store {
         dest: &Reg<u64>,
         dest2: &Reg<u64>,
         ptr: &PTR,
-    ) -> Instruction {
-        InstructionF {
+    ) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "stp".to_string(),
             results: vec![],
             operands: vec![dest.reify(), dest2.reify(), ptr.reify()],
@@ -218,6 +227,8 @@ pub mod load_store {
 }
 
 pub mod simd {
+    use crate::ir::FreshRegister;
+
     use super::*;
 
     embed_asm!(ucvtf2d, "ucvtf.2d", (a: Simd<u64,2>) -> Simd<f64,2>);
@@ -233,8 +244,8 @@ pub mod simd {
     pub fn ins_inst<const I: u8>(
         dest: &SizedIdx<Reg<Simd<u64, 2>>, D, I>,
         a: &Reg<u64>,
-    ) -> Instruction {
-        InstructionF {
+    ) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "ins".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
@@ -254,8 +265,8 @@ pub mod simd {
     pub fn umov_inst<const I: u8>(
         dest: &Reg<u64>,
         a: &SizedIdx<Reg<Simd<u64, 2>>, D, I>,
-    ) -> Instruction {
-        InstructionF {
+    ) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "umov".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
@@ -273,8 +284,12 @@ pub mod simd {
         asm.append_instruction(vec![cmeq2d_inst(&ret, a, imm)]);
         ret
     }
-    pub fn cmeq2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u64) -> Instruction {
-        InstructionF {
+    pub fn cmeq2d_inst(
+        dest: &Reg<Simd<u64, 2>>,
+        a: &Reg<Simd<u64, 2>>,
+        imm: u64,
+    ) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "cmeq.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
@@ -291,8 +306,11 @@ pub mod simd {
         asm.append_instruction(vec![mov16b_inst(&ret, a)]);
         ret
     }
-    pub fn mov16b_inst<T>(dest: &Reg<Simd<T, 2>>, a: &Reg<Simd<T, 2>>) -> Instruction {
-        InstructionF {
+    pub fn mov16b_inst<T>(
+        dest: &Reg<Simd<T, 2>>,
+        a: &Reg<Simd<T, 2>>,
+    ) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "mov.16b".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
@@ -314,7 +332,7 @@ pub mod simd {
         dest: &Reg<Simd<u64, 2>>,
         source: &Reg<Simd<u64, 2>>,
         shl: u8,
-    ) -> Instruction {
+    ) -> Instruction<FreshRegister> {
         Instruction {
             opcode: "sli.2d".to_string(),
             results: vec![dest.reify()],
@@ -338,8 +356,8 @@ pub mod simd {
         dest_add: &Reg<Simd<f64, 2>>,
         a: &Reg<Simd<f64, 2>>,
         b: &T,
-    ) -> Instruction {
-        InstructionF {
+    ) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "fmla.2d".to_string(),
             results: vec![dest_add.reify()],
             operands: vec![a.reify(), b.reify()],
@@ -358,8 +376,12 @@ pub mod simd {
         ret
     }
 
-    pub fn shl2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> Instruction {
-        InstructionF {
+    pub fn shl2d_inst(
+        dest: &Reg<Simd<u64, 2>>,
+        a: &Reg<Simd<u64, 2>>,
+        imm: u8,
+    ) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "shl.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
@@ -378,8 +400,12 @@ pub mod simd {
         ret
     }
 
-    pub fn ushr2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> Instruction {
-        InstructionF {
+    pub fn ushr2d_inst(
+        dest: &Reg<Simd<u64, 2>>,
+        a: &Reg<Simd<u64, 2>>,
+        imm: u8,
+    ) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "ushr.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
@@ -398,8 +424,12 @@ pub mod simd {
         add
     }
 
-    pub fn usra2d_inst(dest: &Reg<Simd<u64, 2>>, a: &Reg<Simd<u64, 2>>, imm: u8) -> Instruction {
-        InstructionF {
+    pub fn usra2d_inst(
+        dest: &Reg<Simd<u64, 2>>,
+        a: &Reg<Simd<u64, 2>>,
+        imm: u8,
+    ) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "usra.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
@@ -418,8 +448,12 @@ pub mod simd {
         add
     }
 
-    pub fn ssra2d_inst(dest: &Reg<Simd<i64, 2>>, a: &Reg<Simd<i64, 2>>, imm: u8) -> Instruction {
-        InstructionF {
+    pub fn ssra2d_inst(
+        dest: &Reg<Simd<i64, 2>>,
+        a: &Reg<Simd<i64, 2>>,
+        imm: u8,
+    ) -> Instruction<FreshRegister> {
+        Instruction {
             opcode: "ssra.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
