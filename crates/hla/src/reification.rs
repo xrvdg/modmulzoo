@@ -111,7 +111,7 @@ impl<T> ReifyRegister for PointerReg<'_, T> {
         ReifiedRegister {
             reg: self.reg.reg,
             r#type: RegisterType::X,
-            idx: Index::Pointer(self.offset as usize),
+            idx: Index::Pointer(self.offset),
         }
     }
 }

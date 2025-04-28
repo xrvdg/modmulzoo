@@ -51,9 +51,9 @@ pub struct InstructionF<R> {
 enum Mod {
     None,
     Imm(u64),
-    ImmLSL(u16, u8),
+    ImmLsl(u16, u8),
     // Logical shift left
-    LSL(u8),
+    Lsl(u8),
     Cond(String),
 }
 
@@ -69,8 +69,8 @@ impl<R: std::fmt::Display + Copy> std::fmt::Display for InstructionF<R> {
             Mod::None => String::new(),
             Mod::Imm(imm) => format!(", #{imm}"),
             Mod::Cond(cond) => format!(", {cond}"),
-            Mod::ImmLSL(imm, shift) => format!(", #{imm}, lsl {shift}"),
-            Mod::LSL(imm) => format!(", #{imm}"),
+            Mod::ImmLsl(imm, shift) => format!(", #{imm}, lsl {shift}"),
+            Mod::Lsl(imm) => format!(", #{imm}"),
         };
 
         let inst = &self.opcode;
@@ -124,7 +124,7 @@ impl FreshVariable {
     {
         Self {
             label: label.to_string(),
-            registers: registers.into_iter().map(|reg| reg.reify()).collect(),
+            registers: registers.iter().map(|reg| reg.reify()).collect(),
         }
     }
 
@@ -150,6 +150,12 @@ pub struct Assembler {
     pub instructions: Vec<AtomicInstruction>,
 }
 
+impl Default for Assembler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Assembler {
     /// Creates a new empty Assembler.
     pub fn new() -> Self {
@@ -172,6 +178,12 @@ impl Assembler {
 pub struct Allocator {
     /// Counter for the fresh variable labels
     pub fresh: u64,
+}
+
+impl Default for Allocator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Allocator {
@@ -300,68 +312,9 @@ impl RegisterPool {
         reg
     }
 
-    fn set_availability(&mut self, tp: FreshRegister, register: HardwareRegister, lifetime: usize) {
-        let removed = self.reserved_outputs.pool.remove(&register);
-
-        if removed {
-            self.reserved_outputs
-                .reserved
-                .insert(register, (tp, lifetime));
-        } else {
-            panic!("{register} has already been allocated to an output")
-        }
-    }
-
     fn insert(&mut self, register: HardwareRegister) -> bool {
         self.pool.insert(register)
     }
-
-    fn remove(&mut self, register: &HardwareRegister) -> bool {
-        self.pool.remove(register)
-    }
-}
-
-/// Creates an input register binding to a specific hardware register.
-///
-/// This function creates a fresh register and binds it to a specific hardware register.
-/// It is typically used for handling input values that need to come from specific
-/// hardware registers.
-///
-/// # Arguments
-///
-/// * `asm` - Allocator to generate a fresh register
-/// * `mapping` - RegisterMapping to store the binding
-/// * `register_bank` - RegisterBank to allocate from
-/// * `phys` - Physical register number to bind to
-///
-/// # Returns
-///
-/// A new `Reg<T>` that is bound to the specified hardware register.
-///
-/// # Panics
-///
-/// Panics if the specified hardware register is already in use.
-pub fn input<T>(
-    asm: &mut Allocator,
-    mapping: &mut RegisterMapping,
-    register_bank: &mut RegisterBank,
-    phys: u64,
-) -> Reg<T>
-where
-    Reg<T>: ReifyRegister,
-{
-    let fresh = asm.fresh();
-
-    let hw_reg = HardwareRegister(phys);
-    let reified_register = fresh.reify().into_hardware(hw_reg);
-
-    if !register_bank.remove(hw_reg, reified_register.r#type) {
-        panic!("{:?} is already in use", phys)
-    }
-
-    mapping.assign_register(fresh.reg, reified_register.to_basic_register());
-
-    fresh
 }
 
 pub fn allocate_input_variable(
@@ -430,6 +383,12 @@ pub fn reserve_output_variable(
 /// have been processed.
 pub struct Seen(HashSet<FreshRegister>);
 
+impl Default for Seen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Seen {
     /// Creates a new empty Seen instance.
     pub fn new() -> Self {
@@ -458,6 +417,12 @@ impl Seen {
 pub struct RegisterBank {
     x: RegisterPool,
     v: RegisterPool,
+}
+
+impl Default for RegisterBank {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RegisterBank {
@@ -512,37 +477,6 @@ impl RegisterBank {
             .pop_first(reified_register.reg, end_lifetime);
 
         hw_reg.map(|reg| reified_register.into_hardware(reg))
-    }
-
-    /// Removes a hardware register from the pool.
-    ///
-    /// # Arguments
-    ///
-    /// * `register` - The hardware register to remove
-    /// * `register_type` - The type of register
-    ///
-    /// # Returns
-    ///
-    /// `true` if the register was removed, `false` if it wasn't in the pool.
-    fn remove(&mut self, register: HardwareRegister, register_type: RegisterType) -> bool {
-        self.get_register_pool(register_type).remove(&register)
-    }
-
-    /// Sets the availability of a hardware register for a specific fresh register.
-    ///
-    /// # Arguments
-    ///
-    /// * `hardware_register` - The hardware register to set availability for
-    /// * `reified_register` - The fresh register to associate with the hardware register
-    /// * `lifetime` - The lifetime (instruction index) at which the register becomes available
-    fn set_availability(
-        &mut self,
-        hardware_register: HardwareRegister,
-        reified_register: &ReifiedRegister<FreshRegister>,
-        lifetime: usize,
-    ) {
-        self.get_register_pool(reified_register.r#type)
-            .set_availability(reified_register.reg, hardware_register, lifetime);
     }
 
     /// Returns a hardware register back to the register pool.
@@ -775,7 +709,7 @@ pub struct Lifetime {
 /// # Panics
 ///
 /// Panics if an instruction has an unused destination register.
-pub fn liveness_analysis<'a>(
+pub fn liveness_analysis(
     output_variables: &[FreshVariable],
     instructions: &[Instruction],
     nr_fresh_registers: usize,
@@ -812,7 +746,7 @@ pub fn liveness_analysis<'a>(
             if release.contains(&dest) {
                 // Better way to give feedback? Now the user doesn't know where it comes from
                 // We view an unused instruction as a problem
-                print_instructions(&instructions);
+                print_instructions(instructions);
                 panic!("{line}: {instruction:?} does not use the destination")
             }; // The union could be mutable
 

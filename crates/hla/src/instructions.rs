@@ -11,7 +11,7 @@
 //! Most operations are available in two forms:
 //! 1. A high-level function that handles register allocation,
 //! 2. A low-level `_inst` function that creates the instruction directly. These are needed
-//!     when creating assembly blocks whose instructions can not be interleaved. See #Safety for more details
+//!    when creating assembly blocks whose instructions can not be interleaved. See #Safety for more details
 //!
 //! # How to add instructions
 //! For simple instruction use the `embed_asm!` to add the instruction to the DSL.
@@ -139,7 +139,7 @@ pub mod scalar {
             opcode: "movk".to_string(),
             results: vec![dest.reify()],
             operands: vec![],
-            modifiers: Mod::ImmLSL(imm, shift),
+            modifiers: Mod::ImmLsl(imm, shift),
         }
     }
 
@@ -195,7 +195,7 @@ pub mod load_store {
         str1: &Reg<u64>,
         ptr: &PTR,
     ) {
-        asm.append_instruction(vec![stp_inst(&str0, &str1, ptr)]);
+        asm.append_instruction(vec![stp_inst(str0, str1, ptr)]);
     }
 
     pub fn stp_inst<PTR: MutablePointer>(
@@ -314,7 +314,7 @@ pub mod simd {
             opcode: "sli.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![source.reify()],
-            modifiers: Mod::LSL(shl),
+            modifiers: Mod::Lsl(shl),
         }
     }
 
@@ -358,7 +358,7 @@ pub mod simd {
             opcode: "shl.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
-            modifiers: Mod::LSL(imm),
+            modifiers: Mod::Lsl(imm),
         }
     }
 
@@ -378,7 +378,7 @@ pub mod simd {
             opcode: "ushr.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
-            modifiers: Mod::LSL(imm),
+            modifiers: Mod::Lsl(imm),
         }
     }
 
@@ -398,7 +398,7 @@ pub mod simd {
             opcode: "usra.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
-            modifiers: Mod::LSL(imm),
+            modifiers: Mod::Lsl(imm),
         }
     }
 
@@ -418,7 +418,7 @@ pub mod simd {
             opcode: "ssra.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
-            modifiers: Mod::LSL(imm),
+            modifiers: Mod::Lsl(imm),
         }
     }
 }

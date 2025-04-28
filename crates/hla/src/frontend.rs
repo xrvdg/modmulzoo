@@ -21,7 +21,7 @@ pub struct PointerReg<'a, T> {
     _marker: PhantomData<T>,
 }
 
-impl<'a, T, const N: usize> Reg<*mut [T; N]> {
+impl<T, const N: usize> Reg<*mut [T; N]> {
     pub fn get(&self, index: usize) -> PointerReg<*mut T> {
         assert!(index < N, "out-of-bounds access");
 
@@ -33,7 +33,7 @@ impl<'a, T, const N: usize> Reg<*mut [T; N]> {
     }
 }
 
-impl<'a, T, const N: usize> Reg<*const [T; N]> {
+impl<T, const N: usize> Reg<*const [T; N]> {
     pub fn get(&self, index: usize) -> PointerReg<*const T> {
         assert!(index < N, "out-of-bounds access");
 

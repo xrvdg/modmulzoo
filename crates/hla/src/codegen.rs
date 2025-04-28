@@ -95,7 +95,7 @@ pub fn generate_asm_operands(
         .map(|fresh_variable| fresh_variable.to_basic_variable(&mapping))
         .collect();
 
-    let input_operands = format_operands(&inputs, "in");
+    let input_operands = format_operands(inputs, "in");
     let output_operands = format_operands(&outputs, "lateout");
     let clobber_registers = get_clobber_registers(&outputs, instructions);
 
