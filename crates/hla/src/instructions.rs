@@ -32,13 +32,13 @@ pub use scalar::*;
 pub use simd::*;
 
 use crate::frontend::{D, PointerReg, Reg, SIMD, Simd, SizedIdx};
-use crate::{Allocator, Assembler, Instruction, InstructionF, Mod, ReifyRegister};
+use crate::{Assembler, FreshAllocator, Instruction, InstructionF, Modifier, ReifyRegister};
 
 use paste::paste;
 macro_rules! embed_asm {
     ($name:ident, $opcode:literal, ($($arg:ident : $arg_ty:ty),*) -> $ret_ty:ty) => {
         paste! {
-            pub fn $name(alloc: &mut Allocator, asm: &mut Assembler, $($arg: &Reg<$arg_ty>),*) -> Reg<$ret_ty> {
+            pub fn $name(alloc: &mut FreshAllocator, asm: &mut Assembler, $($arg: &Reg<$arg_ty>),*) -> Reg<$ret_ty> {
                 let ret = alloc.fresh();
                 asm.append_instruction(vec![ [<$name _inst>](&ret, $($arg),*) ]);
                 ret
@@ -57,7 +57,7 @@ macro_rules! embed_asm_inst {
                     opcode: $opcode.to_string(),
                     results: vec![dest.reify()],
                     operands: vec![$($arg.reify()),*],
-                    modifiers: Mod::None,
+                    modifiers: Modifier::None,
                 }
             }
         }
@@ -66,7 +66,7 @@ macro_rules! embed_asm_inst {
 
 pub mod scalar {
     use super::*;
-    pub fn mov(alloc: &mut Allocator, asm: &mut Assembler, imm: u64) -> Reg<u64> {
+    pub fn mov(alloc: &mut FreshAllocator, asm: &mut Assembler, imm: u64) -> Reg<u64> {
         let ret = alloc.fresh();
         asm.append_instruction(vec![mov_inst(&ret, imm)]);
         ret
@@ -77,7 +77,7 @@ pub mod scalar {
             opcode: "mov".to_string(),
             results: vec![dest.reify()],
             operands: vec![],
-            modifiers: Mod::Imm(imm),
+            modifiers: Modifier::Imm(imm),
         }
     }
 
@@ -89,7 +89,7 @@ pub mod scalar {
             opcode: "tst".to_string(),
             results: vec![],
             operands: vec![a.reify()],
-            modifiers: Mod::Imm(imm),
+            modifiers: Modifier::Imm(imm),
         }
     }
 
@@ -98,7 +98,7 @@ pub mod scalar {
             opcode: "csel".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify(), b.reify()],
-            modifiers: Mod::Cond(cond.to_string()),
+            modifiers: Modifier::Cond(cond.to_string()),
         }
     }
 
@@ -107,7 +107,7 @@ pub mod scalar {
             opcode: "cmn".to_string(),
             results: vec![],
             operands: vec![a.reify(), b.reify()],
-            modifiers: Mod::None,
+            modifiers: Modifier::None,
         }
     }
 
@@ -116,7 +116,7 @@ pub mod scalar {
             opcode: "cinc".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
-            modifiers: Mod::Cond(cond),
+            modifiers: Modifier::Cond(cond),
         }
     }
 
@@ -128,7 +128,7 @@ pub mod scalar {
 
     // END block operations
 
-    pub fn movk(alloc: &mut Allocator, asm: &mut Assembler, imm: u16, shift: u8) -> Reg<u64> {
+    pub fn movk(alloc: &mut FreshAllocator, asm: &mut Assembler, imm: u16, shift: u8) -> Reg<u64> {
         let ret = alloc.fresh();
         asm.append_instruction(vec![movk_inst(&ret, imm, shift)]);
         ret
@@ -139,7 +139,7 @@ pub mod scalar {
             opcode: "movk".to_string(),
             results: vec![dest.reify()],
             operands: vec![],
-            modifiers: Mod::ImmLsl(imm, shift),
+            modifiers: Modifier::ImmLsl(imm, shift),
         }
     }
 
@@ -154,7 +154,11 @@ pub mod load_store {
     use crate::{MutablePointer, Pointer};
 
     use super::*;
-    pub fn ldr<T>(alloc: &mut Allocator, asm: &mut Assembler, ptr: &PointerReg<T>) -> Reg<u64> {
+    pub fn ldr<T>(
+        alloc: &mut FreshAllocator,
+        asm: &mut Assembler,
+        ptr: &PointerReg<T>,
+    ) -> Reg<u64> {
         let ret = alloc.fresh();
         asm.append_instruction(vec![ldr_inst(&ret, ptr)]);
         ret
@@ -165,12 +169,12 @@ pub mod load_store {
             opcode: "ldr".to_string(),
             results: vec![dest.reify()],
             operands: vec![ptr.reify()],
-            modifiers: Mod::None,
+            modifiers: Modifier::None,
         }
     }
 
     pub fn ldp<PTR: Pointer>(
-        alloc: &mut Allocator,
+        alloc: &mut FreshAllocator,
         asm: &mut Assembler,
         ptr: &PTR,
     ) -> (Reg<u64>, Reg<u64>) {
@@ -185,11 +189,11 @@ pub mod load_store {
             opcode: "ldp".to_string(),
             results: vec![dest.reify(), dest2.reify()],
             operands: vec![ptr.reify()],
-            modifiers: Mod::None,
+            modifiers: Modifier::None,
         }
     }
     pub fn stp<PTR: MutablePointer>(
-        _alloc: &mut Allocator,
+        _alloc: &mut FreshAllocator,
         asm: &mut Assembler,
         str0: &Reg<u64>,
         str1: &Reg<u64>,
@@ -207,7 +211,7 @@ pub mod load_store {
             opcode: "stp".to_string(),
             results: vec![],
             operands: vec![dest.reify(), dest2.reify(), ptr.reify()],
-            modifiers: Mod::None,
+            modifiers: Modifier::None,
         }
     }
 }
@@ -233,12 +237,12 @@ pub mod simd {
             opcode: "ins".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
-            modifiers: Mod::None,
+            modifiers: Modifier::None,
         }
     }
 
     pub fn umov<const I: u8>(
-        alloc: &mut Allocator,
+        alloc: &mut FreshAllocator,
         asm: &mut Assembler,
         a: &SizedIdx<Reg<Simd<u64, 2>>, D, I>,
     ) -> Reg<u64> {
@@ -254,12 +258,12 @@ pub mod simd {
             opcode: "umov".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
-            modifiers: Mod::None,
+            modifiers: Modifier::None,
         }
     }
 
     pub fn cmeq2d(
-        alloc: &mut Allocator,
+        alloc: &mut FreshAllocator,
         asm: &mut Assembler,
         a: &Reg<Simd<u64, 2>>,
         imm: u64,
@@ -273,12 +277,12 @@ pub mod simd {
             opcode: "cmeq.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
-            modifiers: Mod::Imm(imm),
+            modifiers: Modifier::Imm(imm),
         }
     }
 
     pub fn mov16b<T>(
-        alloc: &mut Allocator,
+        alloc: &mut FreshAllocator,
         asm: &mut Assembler,
         a: &Reg<Simd<T, 2>>,
     ) -> Reg<Simd<T, 2>> {
@@ -291,12 +295,12 @@ pub mod simd {
             opcode: "mov.16b".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
-            modifiers: Mod::None,
+            modifiers: Modifier::None,
         }
     }
 
     pub fn sli2d(
-        _alloc: &mut Allocator,
+        _alloc: &mut FreshAllocator,
         asm: &mut Assembler,
         dest: Reg<Simd<u64, 2>>,
         source: &Reg<Simd<u64, 2>>,
@@ -314,12 +318,12 @@ pub mod simd {
             opcode: "sli.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![source.reify()],
-            modifiers: Mod::Lsl(shl),
+            modifiers: Modifier::Lsl(shl),
         }
     }
 
     pub fn fmla2d<T: SIMD + ReifyRegister>(
-        _alloc: &mut Allocator,
+        _alloc: &mut FreshAllocator,
         asm: &mut Assembler,
         add: Reg<Simd<f64, 2>>,
         a: &Reg<Simd<f64, 2>>,
@@ -338,12 +342,12 @@ pub mod simd {
             opcode: "fmla.2d".to_string(),
             results: vec![dest_add.reify()],
             operands: vec![a.reify(), b.reify()],
-            modifiers: Mod::None,
+            modifiers: Modifier::None,
         }
     }
 
     pub fn shl2d(
-        alloc: &mut Allocator,
+        alloc: &mut FreshAllocator,
         asm: &mut Assembler,
         a: &Reg<Simd<u64, 2>>,
         imm: u8,
@@ -358,12 +362,12 @@ pub mod simd {
             opcode: "shl.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
-            modifiers: Mod::Lsl(imm),
+            modifiers: Modifier::Lsl(imm),
         }
     }
 
     pub fn ushr2d(
-        alloc: &mut Allocator,
+        alloc: &mut FreshAllocator,
         asm: &mut Assembler,
         a: &Reg<Simd<u64, 2>>,
         imm: u8,
@@ -378,12 +382,12 @@ pub mod simd {
             opcode: "ushr.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
-            modifiers: Mod::Lsl(imm),
+            modifiers: Modifier::Lsl(imm),
         }
     }
 
     pub fn usra2d(
-        _alloc: &mut Allocator,
+        _alloc: &mut FreshAllocator,
         asm: &mut Assembler,
         add: Reg<Simd<u64, 2>>,
         a: &Reg<Simd<u64, 2>>,
@@ -398,12 +402,12 @@ pub mod simd {
             opcode: "usra.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
-            modifiers: Mod::Lsl(imm),
+            modifiers: Modifier::Lsl(imm),
         }
     }
 
     pub fn ssra2d(
-        _alloc: &mut Allocator,
+        _alloc: &mut FreshAllocator,
         asm: &mut Assembler,
         add: Reg<Simd<i64, 2>>,
         a: &Reg<Simd<i64, 2>>,
@@ -418,7 +422,7 @@ pub mod simd {
             opcode: "ssra.2d".to_string(),
             results: vec![dest.reify()],
             operands: vec![a.reify()],
-            modifiers: Mod::Lsl(imm),
+            modifiers: Modifier::Lsl(imm),
         }
     }
 }

@@ -17,7 +17,7 @@ pub use reification::*;
 ///
 /// This type represents a sequence of instructions that should be executed together
 /// as they rely on side effects such as flag setting that could potentially be disturbed when interleaved.
-pub type AtomicInstruction = Vec<InstructionF<FreshRegister>>;
+pub type AtomicInstructionBlock = Vec<InstructionF<FreshRegister>>;
 
 /// An alias for an instruction using fresh registers.
 ///
@@ -44,11 +44,11 @@ pub struct InstructionF<R> {
     // - LDP has 2 destinations
     results: Vec<ReifiedRegister<R>>,
     operands: Vec<ReifiedRegister<R>>,
-    modifiers: Mod,
+    modifiers: Modifier,
 }
 
 #[derive(Debug, PartialEq)]
-enum Mod {
+enum Modifier {
     None,
     Imm(u64),
     ImmLsl(u16, u8),
@@ -66,11 +66,11 @@ impl<R: std::fmt::Display + Copy> std::fmt::Display for InstructionF<R> {
             .collect();
 
         let extra = match &self.modifiers {
-            Mod::None => String::new(),
-            Mod::Imm(imm) => format!(", #{imm}"),
-            Mod::Cond(cond) => format!(", {cond}"),
-            Mod::ImmLsl(imm, shift) => format!(", #{imm}, lsl {shift}"),
-            Mod::Lsl(imm) => format!(", #{imm}"),
+            Modifier::None => String::new(),
+            Modifier::Imm(imm) => format!(", #{imm}"),
+            Modifier::Cond(cond) => format!(", {cond}"),
+            Modifier::ImmLsl(imm, shift) => format!(", #{imm}, lsl {shift}"),
+            Modifier::Lsl(imm) => format!(", #{imm}"),
         };
 
         let inst = &self.opcode;
@@ -110,12 +110,11 @@ impl From<u64> for FreshRegister {
 #[derive(Clone, Debug)]
 pub struct Variable<R> {
     label: String,
-    // TODO pub due to pin_registers in build.rs but that should be moved
-    pub registers: Vec<R>,
+    registers: Vec<R>,
 }
 
 pub type FreshVariable = Variable<ReifiedRegister<FreshRegister>>;
-pub type BasicVariable = Variable<BasicRegister>;
+pub type AllocatedVariable = Variable<TypedHardwareRegister>;
 
 impl FreshVariable {
     pub fn new<R>(label: &str, registers: &[R]) -> Self
@@ -128,8 +127,8 @@ impl FreshVariable {
         }
     }
 
-    pub fn to_basic_variable(&self, mapping: &RegisterMapping) -> BasicVariable {
-        BasicVariable {
+    pub fn to_basic_variable(&self, mapping: &RegisterMapping) -> AllocatedVariable {
+        AllocatedVariable {
             label: self.label.clone(),
             registers: self
                 .registers
@@ -147,7 +146,7 @@ impl FreshVariable {
 /// make up a program. Instructions are appended to build up the program in
 /// a way similar to a Write/State monad.
 pub struct Assembler {
-    pub instructions: Vec<AtomicInstruction>,
+    pub instructions: Vec<AtomicInstructionBlock>,
 }
 
 impl Default for Assembler {
@@ -165,7 +164,7 @@ impl Assembler {
     }
 
     /// Appends an atomic instruction block to the assembler.
-    pub fn append_instruction(&mut self, inst: AtomicInstruction) {
+    pub fn append_instruction(&mut self, inst: AtomicInstructionBlock) {
         self.instructions.push(inst)
     }
 }
@@ -175,18 +174,18 @@ impl Assembler {
 /// The Allocator maintains a counter to generate unique FreshRegister
 /// identifiers that represent virtual registers in the intermediate code.
 #[derive(Debug)]
-pub struct Allocator {
+pub struct FreshAllocator {
     /// Counter for the fresh variable labels
     pub fresh: u64,
 }
 
-impl Default for Allocator {
+impl Default for FreshAllocator {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Allocator {
+impl FreshAllocator {
     /// Generates a new fresh register of the specified type.
     pub fn fresh<T>(&mut self) -> Reg<T> {
         let x = self.fresh;
@@ -222,27 +221,27 @@ impl std::fmt::Display for HardwareRegister {
 /// BasicRegister describes a physical register as it is contained within the
 /// register banks. It does not have any kind information nor indexing.
 #[derive(Clone, Copy, PartialEq, Debug, Eq, Ord, PartialOrd)]
-pub enum BasicRegister {
+pub enum TypedHardwareRegister {
     /// A general purpose register (like x0-x31 on ARM64)
     General(HardwareRegister),
     /// A vector register (like v0-v31 on ARM64)
     Vector(HardwareRegister),
 }
 
-impl BasicRegister {
+impl TypedHardwareRegister {
     /// Extracts the hardware register number from the basic register.
     fn reg(&self) -> HardwareRegister {
         match self {
-            BasicRegister::General(reg) | BasicRegister::Vector(reg) => *reg,
+            TypedHardwareRegister::General(reg) | TypedHardwareRegister::Vector(reg) => *reg,
         }
     }
 }
 
-impl std::fmt::Display for BasicRegister {
+impl std::fmt::Display for TypedHardwareRegister {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BasicRegister::General(reg) => write!(f, "x{}", reg.0),
-            BasicRegister::Vector(reg) => write!(f, "v{}", reg.0),
+            TypedHardwareRegister::General(reg) => write!(f, "x{}", reg.0),
+            TypedHardwareRegister::Vector(reg) => write!(f, "v{}", reg.0),
         }
     }
 }
@@ -251,21 +250,39 @@ impl std::fmt::Display for BasicRegister {
 struct RegisterPool {
     // Keeps track of the free hardware during allocations
     pool: BTreeSet<HardwareRegister>,
-    reserved_outputs: ReservedOutputs,
+    pinned: PinnedOutputRegisters,
 }
 
 #[derive(Debug)]
-struct ReservedOutputs {
+struct PinnedOutputRegisters {
     // Acts as a concrete iterator
-    pool: BTreeSet<HardwareRegister>,
+    iter: BTreeSet<HardwareRegister>,
+    // Keep track till when the pinned output register is free to use
+    // for other variables.
     reserved: BTreeMap<HardwareRegister, (FreshRegister, usize)>,
 }
 
-impl ReservedOutputs {
-    fn new(pool: BTreeSet<HardwareRegister>) -> Self {
+impl PinnedOutputRegisters {
+    fn new(iter: impl Iterator<Item = u64>) -> Self {
         Self {
-            pool,
+            iter: BTreeSet::from_iter(iter.map(HardwareRegister)),
             reserved: BTreeMap::new(),
+        }
+    }
+
+    fn reserve_output_register(
+        &mut self,
+        lifetimes: &[Lifetime],
+        reified_register: &ReifiedRegister<FreshRegister>,
+    ) {
+        match self.iter.pop_first() {
+            Some(hardware_register) => {
+                let lifetime = lifetimes[reified_register.reg.0 as usize].begin;
+
+                self.reserved
+                    .insert(hardware_register, (reified_register.reg, lifetime));
+            }
+            None => panic!("Ran out of registers to reserve"),
         }
     }
 }
@@ -275,24 +292,22 @@ impl RegisterPool {
     where
         T: Iterator<Item = u64> + Clone,
     {
-        let pool = BTreeSet::from_iter(registers.map(HardwareRegister));
-        // restrictions on the output registers are the same as during the run of the program
-        let output_pool = pool.clone();
+        let pool = BTreeSet::from_iter(registers.clone().map(HardwareRegister));
         RegisterPool {
             pool,
-            reserved_outputs: ReservedOutputs::new(output_pool),
+            pinned: PinnedOutputRegisters::new(registers),
         }
     }
 
     fn pop_first(&mut self, reg: FreshRegister, end_lifetime: usize) -> Option<HardwareRegister> {
-        // Find the first register that satisfies the condition
+        // Find the first register that is free and will be free for the entirety of the lifetime of the fresh register.
         let reg = self
             .pool
             .iter()
             .find(
                 // Check if the hardware register has been preassigned assigned to this fresh registers
                 // Check if the hardware register can be used before it's preassigned moment
-                |&hardware_register| match self.reserved_outputs.reserved.get(hardware_register) {
+                |&hardware_register| match self.pinned.reserved.get(hardware_register) {
                     Some((tp, _lifetime)) if reg == *tp => true,
                     Some((_tp, lifetime)) if end_lifetime <= *lifetime => true,
                     // Hardware register has not been preassigned
@@ -322,7 +337,7 @@ pub fn allocate_input_variable(
     register_bank: &mut RegisterBank,
     input_hw_registers: Vec<FreshVariable>,
     lifetimes: &[Lifetime],
-) -> Vec<BasicVariable> {
+) -> Vec<AllocatedVariable> {
     input_hw_registers
         .into_iter()
         .map(|variable| {
@@ -339,7 +354,7 @@ pub fn allocate_input_variable(
                         .to_basic_register()
                 })
                 .collect();
-            BasicVariable {
+            AllocatedVariable {
                 label: variable.label,
                 registers,
             }
@@ -363,17 +378,8 @@ pub fn reserve_output_variable(
 ) {
     let pool = register_bank.get_register_pool(variable.registers[0].r#type);
     for reified_register in &variable.registers {
-        // TODO part of this should be inside ReservedOutputs
-        match pool.reserved_outputs.pool.pop_first() {
-            Some(hardware_register) => {
-                let lifetime = lifetimes[reified_register.reg.0 as usize].begin;
-
-                pool.reserved_outputs
-                    .reserved
-                    .insert(hardware_register, (reified_register.reg, lifetime));
-            }
-            None => panic!("Ran out of registers to reserve"),
-        }
+        pool.pinned
+            .reserve_output_register(lifetimes, reified_register);
     }
 }
 
@@ -434,10 +440,12 @@ impl RegisterBank {
     /// Certain registers are excluded:
     /// - Register 18 (reserved by OS)
     /// - Register 19 (reserved by LLVM)
+    /// - Register 30 (reserved for link register)
+    /// - Register 31 (reserved for stack pointer)
     pub fn new() -> Self {
         Self {
             x: RegisterPool::new((0..=17).chain(20..29)),
-            v: RegisterPool::new(0..=30),
+            v: RegisterPool::new(0..=31),
         }
     }
 
@@ -484,10 +492,10 @@ impl RegisterBank {
     /// # Returns
     ///
     /// `true` if the register was added to the pool, `false` if it was already in the pool.
-    fn insert(&mut self, register: BasicRegister) -> bool {
+    fn insert(&mut self, register: TypedHardwareRegister) -> bool {
         match register {
-            BasicRegister::General(hardware_register) => self.x.insert(hardware_register),
-            BasicRegister::Vector(hardware_register) => self.v.insert(hardware_register),
+            TypedHardwareRegister::General(hardware_register) => self.x.insert(hardware_register),
+            TypedHardwareRegister::Vector(hardware_register) => self.v.insert(hardware_register),
         }
     }
 }
@@ -555,7 +563,7 @@ pub fn interleave<T>(lhs: Vec<T>, rhs: Vec<T>) -> Vec<T> {
 /// It represents the active set of allocations.
 #[derive(Debug, Default)]
 pub struct RegisterMapping {
-    mapping: HashMap<FreshRegister, BasicRegister>,
+    mapping: HashMap<FreshRegister, TypedHardwareRegister>,
 }
 
 impl RegisterMapping {
@@ -577,7 +585,7 @@ impl RegisterMapping {
     ///
     /// * `fresh` - The fresh register to assign
     /// * `hardware` - The hardware register to assign to
-    pub fn assign_register(&mut self, fresh: FreshRegister, hardware: BasicRegister) {
+    pub fn assign_register(&mut self, fresh: FreshRegister, hardware: TypedHardwareRegister) {
         self.mapping.insert(fresh, hardware);
     }
 

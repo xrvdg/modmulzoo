@@ -4,7 +4,8 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    BasicRegister, BasicVariable, FreshVariable, HardwareRegister, InstructionF, RegisterMapping,
+    AllocatedVariable, FreshVariable, HardwareRegister, InstructionF, RegisterMapping,
+    TypedHardwareRegister,
 };
 
 pub fn generate_standalone_asm(
@@ -43,7 +44,7 @@ pub fn format_instructions_rust_inline(instructions: &[InstructionF<HardwareRegi
 pub fn generate_rust_global_asm(
     label: &str,
     mapping: RegisterMapping,
-    inputs_registers: &[BasicVariable],
+    inputs_registers: &[AllocatedVariable],
     outputs_registers: &[FreshVariable],
     instructions: &[InstructionF<HardwareRegister>],
 ) -> String {
@@ -65,7 +66,7 @@ pub fn generate_rust_global_asm(
 
 pub fn generate_rust_inline_asm(
     mapping: RegisterMapping,
-    inputs_registers: &[BasicVariable],
+    inputs_registers: &[AllocatedVariable],
     outputs_registers: &[FreshVariable],
     instructions: &[InstructionF<HardwareRegister>],
 ) -> String {
@@ -86,7 +87,7 @@ pub fn generate_rust_inline_asm(
 // Can we lift that up?
 pub fn generate_asm_operands(
     mapping: RegisterMapping,
-    inputs: &[BasicVariable],
+    inputs: &[AllocatedVariable],
     outputs: &[FreshVariable],
     instructions: &[InstructionF<HardwareRegister>],
 ) -> String {
@@ -120,9 +121,9 @@ pub fn generate_asm_operands(
 /// Clobber registers are all the registers that have been used in the assembly block minus the
 /// registers that are used for the output. These are needed by Rust to plan which registers need to be saved.
 fn get_clobber_registers(
-    outputs_registers: &[BasicVariable],
+    outputs_registers: &[AllocatedVariable],
     instructions: &[InstructionF<HardwareRegister>],
-) -> Vec<BasicRegister> {
+) -> Vec<TypedHardwareRegister> {
     let mut all_used_registers = BTreeSet::new();
 
     for instruction in instructions {
@@ -155,7 +156,7 @@ fn get_clobber_registers(
 /// # Returns
 ///
 /// An iterator that produces formatted strings for each clobbered register with separators
-fn format_clobbers(clobbered_registers: &[BasicRegister]) -> impl Iterator<Item = String> {
+fn format_clobbers(clobbered_registers: &[TypedHardwareRegister]) -> impl Iterator<Item = String> {
     clobbered_registers
         .iter()
         .map(|register| format!("lateout(\"{}\") _", register))
@@ -177,7 +178,10 @@ fn format_clobbers(clobbered_registers: &[BasicRegister]) -> impl Iterator<Item 
 /// # Returns
 ///
 /// An iterator that produces formatted strings for each register group with appropriate separators
-fn format_operands(variables: &[BasicVariable], direction: &str) -> impl Iterator<Item = String> {
+fn format_operands(
+    variables: &[AllocatedVariable],
+    direction: &str,
+) -> impl Iterator<Item = String> {
     // Process each register group (with its index)
     variables
         .iter()

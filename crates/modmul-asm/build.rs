@@ -15,7 +15,7 @@ use montgomery_reduction::{
 /* BUILDERS */
 
 fn setup_schoolmethod(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
 ) -> (Vec<FreshVariable>, FreshVariable) {
     let a = alloc.fresh_array();
@@ -31,9 +31,9 @@ fn setup_schoolmethod(
 
 fn build_func(
     label: &str,
-    f: fn(alloc: &mut Allocator, asm: &mut Assembler) -> (Vec<FreshVariable>, FreshVariable),
+    f: fn(alloc: &mut FreshAllocator, asm: &mut Assembler) -> (Vec<FreshVariable>, FreshVariable),
 ) {
-    let mut alloc = Allocator::new();
+    let mut alloc = FreshAllocator::new();
     let mut mapping = RegisterMapping::new();
     let mut register_bank = RegisterBank::new();
 
@@ -86,7 +86,7 @@ fn build_func(
 }
 
 fn setup_single_step(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
 ) -> (Vec<FreshVariable>, FreshVariable) {
     let a = alloc.fresh_array();
@@ -100,7 +100,7 @@ fn setup_single_step(
 }
 
 fn setup_single_step_load(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
 ) -> (Vec<FreshVariable>, FreshVariable) {
     let mut a = alloc.fresh();
@@ -114,7 +114,7 @@ fn setup_single_step_load(
 }
 
 fn setup_single_step_split(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
 ) -> (Vec<FreshVariable>, FreshVariable) {
     let a = alloc.fresh_array();
@@ -128,7 +128,7 @@ fn setup_single_step_split(
 }
 
 fn setup_smul_add(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
 ) -> (Vec<FreshVariable>, FreshVariable) {
     let add = alloc.fresh_array();
@@ -145,7 +145,7 @@ fn setup_smul_add(
 }
 
 fn setup_u256_to_u260_shl2_imd(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
 ) -> (Vec<FreshVariable>, FreshVariable) {
     let limbs = alloc.fresh_array();
@@ -160,7 +160,7 @@ fn setup_u256_to_u260_shl2_imd(
 }
 
 fn setup_u260_to_u256_simd(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
 ) -> (Vec<FreshVariable>, FreshVariable) {
     let limbs = alloc.fresh_array();
@@ -172,7 +172,7 @@ fn setup_u260_to_u256_simd(
 }
 
 fn setup_vmultadd_noinit_simd(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
 ) -> (Vec<FreshVariable>, FreshVariable) {
     let t = alloc.fresh_array();
@@ -195,7 +195,7 @@ fn setup_vmultadd_noinit_simd(
 }
 
 fn setup_single_step_simd(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
 ) -> (Vec<FreshVariable>, FreshVariable) {
     let a = alloc.fresh_array();
@@ -209,7 +209,7 @@ fn setup_single_step_simd(
 }
 
 fn setup_reduce_ct_simd(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
 ) -> (Vec<FreshVariable>, FreshVariable) {
     let red = alloc.fresh_array();
@@ -460,7 +460,7 @@ fn setup_reduce_ct_simd(
 // }
 
 fn build_interleaved(label: &str) {
-    let mut alloc = Allocator::new();
+    let mut alloc = FreshAllocator::new();
     let mut mapping = RegisterMapping::new();
     let mut register_bank = RegisterBank::new();
 
@@ -535,7 +535,7 @@ fn main() {
 
 // adds can be confusng as it has a similar shape to s
 pub fn carry_add(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     s: &[Reg<u64>; 2],
     add: &Reg<u64>,
@@ -558,7 +558,7 @@ pub fn carry_cmn(asm: &mut Assembler, s: [Reg<u64>; 2], add: &Reg<u64>) -> Reg<u
 }
 
 pub fn smult(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     a: [Reg<u64>; 4],
     b: Reg<u64>,
@@ -576,7 +576,7 @@ pub fn smult(
 }
 
 pub fn smult_add(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     mut t: [Reg<u64>; 5],
     a: &[Reg<u64>; 4],
@@ -598,7 +598,7 @@ pub fn smult_add(
 }
 
 pub fn addv(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     a: [Reg<u64>; 5],
     b: [Reg<u64>; 5],
@@ -618,7 +618,7 @@ pub fn addv(
 }
 
 pub fn addv_truncate(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     a: [Reg<u64>; 5],
     b: [Reg<u64>; 5],
@@ -640,7 +640,7 @@ pub fn addv_truncate(
 // using smult_add would result in an instruction that gives a
 // source that isn't used
 pub fn smult_add_truncate(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     mut t: [Reg<u64>; 5],
     a: &[Reg<u64>; 4],
@@ -665,7 +665,7 @@ pub fn smult_add_truncate(
 
 // TODO better name
 pub fn school_method(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     a: &[Reg<u64>; 4],
     b: &[Reg<u64>; 4],
@@ -701,7 +701,7 @@ pub fn school_method(
 
 // TODO better name
 pub fn school_method_load(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     a: &Reg<*const [u64; 4]>,
     b: &Reg<*const [u64; 4]>,
@@ -748,7 +748,7 @@ pub fn school_method_load(
 
 // TODO make load_const smart that it knowns when to use mov and when to use a sequence of movk?
 // That would require checking if only one of the 16 bit libs is zero.
-pub fn load_const(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<u64> {
+pub fn load_const(alloc: &mut FreshAllocator, asm: &mut Assembler, val: u64) -> Reg<u64> {
     // The first load we do with mov instead of movk because of the optimization that leaves moves out.
     let l0 = val as u16;
     let reg = mov(alloc, asm, l0 as u64);
@@ -764,7 +764,7 @@ pub fn load_const(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<u
 }
 
 pub fn load_floating_simd(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     val: f64,
 ) -> Reg<Simd<f64, 2>> {
@@ -773,7 +773,7 @@ pub fn load_floating_simd(
 }
 
 pub fn subv(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     a: &[Reg<u64>; 4],
     b: &[Reg<u64>; 4],
@@ -790,7 +790,7 @@ pub fn subv(
 }
 
 // Reduce within 256-2p
-pub fn reduce(alloc: &mut Allocator, asm: &mut Assembler, a: [Reg<u64>; 4]) -> [Reg<u64>; 4] {
+pub fn reduce(alloc: &mut FreshAllocator, asm: &mut Assembler, a: [Reg<u64>; 4]) -> [Reg<u64>; 4] {
     let p2 = U64_2P.map(|val| load_const(alloc, asm, val));
     let red = subv(alloc, asm, &a, &p2);
     let out = array::from_fn(|_| alloc.fresh());
@@ -805,7 +805,7 @@ pub fn reduce(alloc: &mut Allocator, asm: &mut Assembler, a: [Reg<u64>; 4]) -> [
 }
 
 pub fn single_step(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     a: &[Reg<u64>; 4],
     b: &[Reg<u64>; 4],
@@ -833,7 +833,7 @@ pub fn single_step(
 }
 
 fn load_vector(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     a: &Reg<*const [u64; 4]>,
 ) -> [Reg<u64>; 4] {
@@ -843,7 +843,7 @@ fn load_vector(
 }
 
 fn store_vector(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     a: &[Reg<u64>; 4],
     str: &Reg<*mut [u64; 4]>,
@@ -854,7 +854,7 @@ fn store_vector(
 }
 
 pub fn single_step_load<'a>(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     a: &Reg<*mut [u64; 4]>,
     b: &Reg<*const [u64; 4]>,
@@ -868,7 +868,7 @@ pub fn single_step_load<'a>(
 }
 
 pub fn single_step_split(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     a: &[Reg<u64>; 4],
     b: &[Reg<u64>; 4],
@@ -901,7 +901,7 @@ pub fn single_step_split(
 }
 
 pub fn mul_u128(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     a: &Reg<u64>,
     b: &Reg<u64>,
@@ -911,7 +911,7 @@ pub fn mul_u128(
 
 //*******  SIMD **********/
 fn load_tuple(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     fst: Reg<u64>,
     snd: Reg<u64>,
@@ -925,7 +925,7 @@ fn load_tuple(
 }
 
 fn transpose_u256_to_simd(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     limbs: [[Reg<u64>; 4]; 2],
 ) -> [Reg<Simd<u64, 2>>; 4] {
@@ -939,7 +939,7 @@ fn transpose_u256_to_simd(
 }
 
 fn u256_to_u260_shl2_simd(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     mask52: &Reg<Simd<u64, 2>>,
     limbs: [Reg<Simd<u64, 2>>; 4],
@@ -967,7 +967,7 @@ fn u256_to_u260_shl2_simd(
     ]
 }
 
-fn load_const_simd(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<Simd<u64, 2>> {
+fn load_const_simd(alloc: &mut FreshAllocator, asm: &mut Assembler, val: u64) -> Reg<Simd<u64, 2>> {
     let val = load_const(alloc, asm, val);
     let mask = dup2d(alloc, asm, &val);
     mask
@@ -976,7 +976,7 @@ fn load_const_simd(alloc: &mut Allocator, asm: &mut Assembler, val: u64) -> Reg<
 // Embed the initials as instructions
 // TODO with larger block size this loading can be kept outside and copied
 // This is very specific to parallel_sub_simd_r256 is might be better inlined
-fn make_initials(alloc: &mut Allocator, asm: &mut Assembler) -> [Reg<Simd<u64, 2>>; 10] {
+fn make_initials(alloc: &mut FreshAllocator, asm: &mut Assembler) -> [Reg<Simd<u64, 2>>; 10] {
     let mut t: [Reg<Simd<u64, 2>>; 10] = array::from_fn(|_| alloc.fresh());
 
     for i in 0..5 {
@@ -996,7 +996,7 @@ fn make_initials(alloc: &mut Allocator, asm: &mut Assembler) -> [Reg<Simd<u64, 2
 }
 
 fn vmultadd_noinit_simd(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     c1: &Reg<Simd<u64, 2>>,
     c2: &Reg<Simd<u64, 2>>,
@@ -1023,7 +1023,7 @@ fn vmultadd_noinit_simd(
 
 // Whole vector is in registers, but that might not be great. Better to have it on the stack and load it from there
 pub fn smultadd_noinit_simd(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     mut t: [Reg<Simd<u64, 2>>; 6],
     c1: &Reg<Simd<u64, 2>>,
@@ -1054,7 +1054,7 @@ pub fn smultadd_noinit_simd(
 /// Constants that are used across functions
 /// Misses the transposing to make it easier on the registers for the next steps
 fn single_step_simd(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     a: [Reg<Simd<u64, 2>>; 4],
     b: [Reg<Simd<u64, 2>>; 4],
@@ -1113,7 +1113,7 @@ fn single_step_simd(
 }
 
 fn u260_to_u256_simd(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     limbs: [Reg<Simd<u64, 2>>; 5],
 ) -> [Reg<Simd<u64, 2>>; 4] {
@@ -1135,7 +1135,7 @@ fn u260_to_u256_simd(
 /// It doesn't clean up the carries in the upper 52bit. u260-to-u256 takes care of that.
 /// This allows us to drop 5 vector instructions.
 fn reduce_ct_simd(
-    alloc: &mut Allocator,
+    alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     red: [Reg<Simd<u64, 2>>; 6],
 ) -> [Reg<Simd<u64, 2>>; 5] {
