@@ -2,9 +2,8 @@
 use std::array;
 
 use block_multiplier::{constants::*, make_initial};
-use hla::codegen::generate_rust_global_asm;
-use hla::instructions::*;
 use hla::*;
+
 // TODO don't rely on montgomery_reduction for anything other than tests
 // Possible not even then
 use montgomery_reduction::{
@@ -27,62 +26,6 @@ fn setup_schoolmethod(
         vec![Variable::new("a", &a), Variable::new("b", &b)],
         Variable::new("out", &s),
     )
-}
-
-fn build_func(
-    label: &str,
-    f: fn(alloc: &mut FreshAllocator, asm: &mut Assembler) -> (Vec<FreshVariable>, FreshVariable),
-) {
-    let mut alloc = FreshAllocator::new();
-    let mut mapping = RegisterMapping::new();
-    let mut register_bank = RegisterBank::new();
-
-    let mut asm = Assembler::new();
-    let (input_hw_registers, output_hw_register) = f(&mut alloc, &mut asm);
-
-    let output_hw_registers = [output_hw_register];
-
-    let instructions: Vec<_> = asm.instructions.into_iter().flatten().collect();
-
-    // Is there something we n do to tie off the outputs.
-    // and to make sure it happens before drop_pass
-
-    let (releases, lifetimes) =
-        liveness_analysis(&output_hw_registers, &instructions, alloc.fresh as usize);
-
-    let input_hw_registers = allocate_input_variable(
-        &mut mapping,
-        &mut register_bank,
-        input_hw_registers,
-        &lifetimes,
-    );
-
-    output_hw_registers.iter().for_each(|variable| {
-        reserve_output_variable(&mut register_bank, &lifetimes, variable);
-    });
-
-    let out = hardware_register_allocation(
-        &mut mapping,
-        &mut register_bank,
-        instructions,
-        releases,
-        lifetimes,
-    );
-
-    // Write this info in the assembly file
-    let assembly = generate_rust_global_asm(
-        label,
-        mapping,
-        &input_hw_registers,
-        &output_hw_registers,
-        &out,
-    );
-
-    use std::io::Write;
-    let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
-        .expect("Unable to create file");
-    file.write_all(assembly.as_bytes())
-        .expect("Unable to write data to file");
 }
 
 fn setup_single_step(
@@ -459,74 +402,68 @@ fn setup_reduce_ct_simd(
 //         .expect("Unable to write data to file");
 // }
 
-fn build_interleaved(label: &str) {
-    let mut alloc = FreshAllocator::new();
-    let mut mapping = RegisterMapping::new();
-    let mut register_bank = RegisterBank::new();
+// fn build_interleaved(label: &str) {
+//     let mut alloc = FreshAllocator::new();
+//     let mut mapping = RegisterMapping::new();
+//     let mut register_bank = RegisterBank::new();
 
-    let mut first_assembler = Assembler::new();
-    let (fst_input_hw_registers, fst_regs) = setup_single_step(&mut alloc, &mut first_assembler);
+//     let mut first_assembler = Assembler::new();
+//     let (fst_input_hw_registers, fst_regs) = setup_single_step(&mut alloc, &mut first_assembler);
 
-    let mut second_assembler = Assembler::new();
+//     let mut second_assembler = Assembler::new();
 
-    let (snd_input_hw_registers, snd_regs) =
-        setup_single_step_simd(&mut alloc, &mut second_assembler);
+//     let (snd_input_hw_registers, snd_regs) =
+//         setup_single_step_simd(&mut alloc, &mut second_assembler);
 
-    let mixed: Vec<_> = interleave(first_assembler.instructions, second_assembler.instructions)
-        .into_iter()
-        .flatten()
-        .collect();
+//     let mixed: Vec<_> = interleave(first_assembler.instructions, second_assembler.instructions)
+//         .into_iter()
+//         .flatten()
+//         .collect();
 
-    let output_hw_registers = [fst_regs, snd_regs];
+//     let output_hw_registers = [fst_regs, snd_regs];
 
-    let (releases, lifetimes) =
-        liveness_analysis(&output_hw_registers, &mixed, alloc.fresh as usize);
+//     let (releases, lifetimes) =
+//         liveness_analysis(&output_hw_registers, &mixed, alloc.fresh as usize);
 
-    let mut input_hw_registers = fst_input_hw_registers;
-    input_hw_registers.extend(snd_input_hw_registers);
+//     let mut input_hw_registers = fst_input_hw_registers;
+//     input_hw_registers.extend(snd_input_hw_registers);
 
-    let input_hw_registers = allocate_input_variable(
-        &mut mapping,
-        &mut register_bank,
-        input_hw_registers,
-        &lifetimes,
-    );
+//     let input_hw_registers = allocate_input_variable(
+//         &mut mapping,
+//         &mut register_bank,
+//         input_hw_registers,
+//         &lifetimes,
+//     );
 
-    output_hw_registers
-        .iter()
-        .for_each(|variable| reserve_output_variable(&mut register_bank, &lifetimes, variable));
+//     output_hw_registers
+//         .iter()
+//         .for_each(|variable| reserve_output_variable(&mut register_bank, &lifetimes, variable));
 
-    let out =
-        hardware_register_allocation(&mut mapping, &mut register_bank, mixed, releases, lifetimes);
+//     let out =
+//         hardware_register_allocation(&mut mapping, &mut register_bank, mixed, releases, lifetimes);
 
-    let assembly = generate_rust_global_asm(
-        label,
-        mapping,
-        &input_hw_registers,
-        &output_hw_registers,
-        &out,
-    );
+//     let assembly = generate_rust_global_asm(label, &input_hw_registers, &output_hw_registers, &out);
 
-    use std::io::Write;
-    let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
-        .expect("Unable to create file");
-    file.write_all(assembly.as_bytes())
-        .expect("Unable to write data to file");
-}
+//     use std::io::Write;
+//     let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
+//         .expect("Unable to create file");
+//     file.write_all(assembly.as_bytes())
+//         .expect("Unable to write data to file");
+// }
 
 fn main() {
     // commented out now that it takes a constant
-    build_func("smul_add", setup_smul_add);
-    build_func("school_method", setup_schoolmethod);
-    build_func("single_step", setup_single_step);
-    build_func("single_step_load", setup_single_step_load);
-    build_func("single_step_split", setup_single_step_split);
-    build_func("u256_to_u260_shl2_simd", setup_u256_to_u260_shl2_imd);
-    build_func("u260_to_u256_simd", setup_u260_to_u256_simd);
-    build_func("vmultadd_noinit_simd", setup_vmultadd_noinit_simd);
-    build_func("single_step_simd", setup_single_step_simd);
-    build_func("reduce_ct_simd", setup_reduce_ct_simd);
-    build_interleaved("single_step_interleaved");
+    build("smul_add", setup_smul_add);
+    build("school_method", setup_schoolmethod);
+    build("single_step", setup_single_step);
+    build("single_step_load", setup_single_step_load);
+    build("single_step_split", setup_single_step_split);
+    build("u256_to_u260_shl2_simd", setup_u256_to_u260_shl2_imd);
+    build("u260_to_u256_simd", setup_u260_to_u256_simd);
+    build("vmultadd_noinit_simd", setup_vmultadd_noinit_simd);
+    build("single_step_simd", setup_single_step_simd);
+    build("reduce_ct_simd", setup_reduce_ct_simd);
+    // build_interleaved("single_step_interleaved");
     // build_interleaved_seq_scalar("single_step_interleaved_seq_scalar");
     // build_interleaved_triple_scalar("single_step_interleaved_triple_scalar");
 }

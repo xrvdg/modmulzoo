@@ -3,7 +3,8 @@
 //lateout("x0") a,
 //lateout("x1") _, lateout("x2") _, lateout("x3") _, lateout("x4") _, lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _, lateout("x11") _, lateout("x12") _, lateout("x13") _, lateout("x14") _, lateout("x15") _,
 //lateout("lr") _
-        .global _single_step_load
+        
+.global _single_step_load
 .align 4
 .text
 _single_step_load:

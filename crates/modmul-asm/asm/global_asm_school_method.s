@@ -3,7 +3,8 @@
 //lateout("x8") out[0], lateout("x9") out[1], lateout("x10") out[2], lateout("x11") out[3], lateout("x4") out[4], lateout("x5") out[5], lateout("x6") out[6], lateout("x7") out[7],
 //lateout("x0") _, lateout("x1") _, lateout("x2") _, lateout("x3") _, lateout("x12") _, lateout("x13") _, lateout("x14") _,
 //lateout("lr") _
-        .global _school_method
+        
+.global _school_method
 .align 4
 .text
 _school_method:

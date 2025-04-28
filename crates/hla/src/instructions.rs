@@ -31,10 +31,9 @@ pub use load_store::*;
 pub use scalar::*;
 pub use simd::*;
 
-use crate::frontend::{D, PointerReg, Reg, SIMD, Simd, SizedIdx};
+use crate::frontend::{Assembler, D, FreshAllocator, PointerReg, Reg, SIMD, Simd, SizedIdx};
 use crate::ir::{Instruction, InstructionF, Modifier};
 use crate::reification::ReifyRegister;
-use crate::{Assembler, FreshAllocator};
 
 use paste::paste;
 macro_rules! embed_asm {
@@ -153,7 +152,7 @@ pub mod scalar {
 }
 
 pub mod load_store {
-    use crate::{MutablePointer, Pointer};
+    use crate::frontend::{MutablePointer, Pointer};
 
     use super::*;
     pub fn ldr<T>(

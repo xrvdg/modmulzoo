@@ -4,7 +4,8 @@
 //lateout("x0") out[0], lateout("x1") out[1], lateout("x2") out[2], lateout("x3") out[3], lateout("x4") out[4],
 //lateout("x5") _, lateout("x6") _, lateout("x7") _, lateout("x8") _, lateout("x9") _, lateout("x10") _,
 //lateout("lr") _
-        .global _smul_add
+        
+.global _smul_add
 .align 4
 .text
 _smul_add:

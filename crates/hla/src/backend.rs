@@ -1,0 +1,448 @@
+use core::panic;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+
+use crate::frontend::*;
+use crate::ir::*;
+use crate::liveness::*;
+use crate::reification::*;
+
+pub type AllocatedVariable = Variable<TypedHardwareRegister>;
+
+impl AllocatedVariable {}
+
+#[derive(Debug)]
+struct RegisterPool {
+    // Keeps track of the free hardware during allocations
+    pool: BTreeSet<HardwareRegister>,
+    pinned: PinnedOutputRegisters,
+}
+
+#[derive(Debug)]
+struct PinnedOutputRegisters {
+    // Acts as a concrete iterator
+    iter: BTreeSet<HardwareRegister>,
+    // Keep track till when the pinned output register is free to use
+    // for other variables.
+    reserved: BTreeMap<HardwareRegister, (FreshRegister, usize)>,
+}
+
+impl PinnedOutputRegisters {
+    fn new(iter: impl Iterator<Item = u64>) -> Self {
+        Self {
+            iter: BTreeSet::from_iter(iter.map(HardwareRegister)),
+            reserved: BTreeMap::new(),
+        }
+    }
+
+    fn reserve_output_register(
+        &mut self,
+        lifetimes: &Lifetimes,
+        reified_register: &ReifiedRegister<FreshRegister>,
+    ) {
+        match self.iter.pop_first() {
+            Some(hardware_register) => {
+                let lifetime = lifetimes[reified_register.reg].begin;
+
+                self.reserved
+                    .insert(hardware_register, (reified_register.reg, lifetime));
+            }
+            None => panic!("Ran out of registers to reserve"),
+        }
+    }
+}
+
+impl RegisterPool {
+    fn new<T>(registers: T) -> Self
+    where
+        T: Iterator<Item = u64> + Clone,
+    {
+        let pool = BTreeSet::from_iter(registers.clone().map(HardwareRegister));
+        RegisterPool {
+            pool,
+            pinned: PinnedOutputRegisters::new(registers),
+        }
+    }
+
+    fn pop_first(&mut self, reg: FreshRegister, end_lifetime: usize) -> Option<HardwareRegister> {
+        // Find the first register that is free and will be free for the entirety of the lifetime of the fresh register.
+        let reg = self
+            .pool
+            .iter()
+            .find(
+                // Check if the hardware register has been preassigned assigned to this fresh registers
+                // Check if the hardware register can be used before it's preassigned moment
+                |&hardware_register| match self.pinned.reserved.get(hardware_register) {
+                    Some((tp, _lifetime)) if reg == *tp => true,
+                    Some((_tp, lifetime)) if end_lifetime <= *lifetime => true,
+                    // Hardware register has not been preassigned
+                    None => true,
+                    // Hardware register was preassigned to a different fresh register and it's ownership overlaps
+                    // with the lifetime of reg
+                    _ => false,
+                },
+            )
+            .copied();
+
+        // Remove the register from the pool if found
+        if let Some(hardware_register) = reg {
+            self.pool.remove(&hardware_register);
+        }
+
+        reg
+    }
+
+    fn insert(&mut self, register: HardwareRegister) -> bool {
+        self.pool.insert(register)
+    }
+}
+
+pub fn allocate_input_variable(
+    mapping: &mut RegisterMapping,
+    register_bank: &mut RegisterBank,
+    input_hw_registers: Vec<FreshVariable>,
+    lifetimes: &Lifetimes,
+) -> Vec<AllocatedVariable> {
+    input_hw_registers
+        .into_iter()
+        .map(|variable| {
+            let registers = variable
+                .registers
+                .into_iter()
+                .map(|register| {
+                    mapping
+                        .get_or_allocate_register(register_bank, register, lifetimes[register.reg])
+                        .to_basic_register()
+                })
+                .collect();
+            AllocatedVariable {
+                label: variable.label,
+                registers,
+            }
+        })
+        .collect()
+}
+
+/// Pins a fresh register to a specific hardware register.
+///
+/// This function assigns a specific hardware register to a fresh register,
+/// ensuring that register allocation will use the specified hardware register.
+///
+/// # Arguments
+///
+/// * `register_bank` - RegisterBank to pin the register in
+/// * `lifetimes` - Register lifetimes for allocation planning. It will use the begin value.
+pub fn reserve_output_variable(
+    register_bank: &mut RegisterBank,
+    lifetimes: &Lifetimes,
+    variable: &FreshVariable,
+) {
+    let pool = register_bank.get_register_pool(variable.registers[0].r#type);
+    for reified_register in &variable.registers {
+        pool.pinned
+            .reserve_output_register(lifetimes, reified_register);
+    }
+}
+
+/// Manages pools of hardware registers for allocation.
+///
+/// RegisterBank maintains separate pools for general-purpose registers and
+/// vector registers. It handles allocation and deallocation of hardware registers.
+#[derive(Debug)]
+pub struct RegisterBank {
+    x: RegisterPool,
+    v: RegisterPool,
+}
+
+impl Default for RegisterBank {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RegisterBank {
+    /// Creates a new RegisterBank with default register pools.
+    ///
+    /// # Returns
+    ///
+    /// A new RegisterBank with general-purpose and vector register pools.
+    /// Certain registers are excluded:
+    /// - Register 18 (reserved by OS)
+    /// - Register 19 (reserved by LLVM)
+    /// - Register 30 (reserved for link register)
+    /// - Register 31 (reserved for stack pointer)
+    pub fn new() -> Self {
+        Self {
+            x: RegisterPool::new((0..=17).chain(20..29)),
+            v: RegisterPool::new(0..=31),
+        }
+    }
+
+    /// Gets the appropriate register pool based on register type.
+    ///
+    /// # Arguments
+    ///
+    /// * `r#type` - The register type (X, V, or D)
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the corresponding register pool.
+    fn get_register_pool(&mut self, r#type: RegisterType) -> &mut RegisterPool {
+        match r#type {
+            RegisterType::X => &mut self.x,
+            RegisterType::V | RegisterType::D => &mut self.v,
+        }
+    }
+
+    /// Allocates a hardware register for a fresh register.
+    ///
+    /// # Arguments
+    ///
+    /// * `tp` - The fresh register to allocate for
+    /// * `end_lifetime` - The instruction index after which the register is no longer needed
+    ///
+    /// # Returns
+    ///
+    /// An Option containing the allocated hardware register, or None if allocation failed.
+    fn pop_first(
+        &mut self,
+        reified_register: ReifiedRegister<FreshRegister>,
+        end_lifetime: usize,
+    ) -> Option<ReifiedRegister<HardwareRegister>> {
+        let hw_reg = self
+            .get_register_pool(reified_register.r#type)
+            .pop_first(reified_register.reg, end_lifetime);
+
+        hw_reg.map(|reg| reified_register.into_hardware(reg))
+    }
+
+    /// Returns a hardware register back to the register pool.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the register was added to the pool, `false` if it was already in the pool.
+    fn insert(&mut self, register: TypedHardwareRegister) -> bool {
+        match register {
+            TypedHardwareRegister::General(hardware_register) => self.x.insert(hardware_register),
+            TypedHardwareRegister::Vector(hardware_register) => self.v.insert(hardware_register),
+        }
+    }
+}
+
+/// Maps fresh registers to their assigned hardware registers.
+///
+/// RegisterMapping maintains the mapping between virtual registers (FreshRegisters)
+/// and their corresponding physical hardware registers _during_ register allocation.
+/// It represents the active set of allocations.
+#[derive(Debug, Default)]
+pub struct RegisterMapping {
+    mapping: HashMap<FreshRegister, TypedHardwareRegister>,
+}
+
+impl RegisterMapping {
+    /// Creates a new empty RegisterMapping.
+    pub fn new() -> Self {
+        Self {
+            mapping: HashMap::with_capacity(100),
+        }
+    }
+
+    /// Returns the number of registers currently allocated.
+    pub fn allocated(&self) -> usize {
+        self.mapping.len()
+    }
+
+    /// Directly assigns a hardware register to a fresh register.
+    ///
+    /// # Arguments
+    ///
+    /// * `fresh` - The fresh register to assign
+    /// * `hardware` - The hardware register to assign to
+    pub fn assign_register(&mut self, fresh: FreshRegister, hardware: TypedHardwareRegister) {
+        self.mapping.insert(fresh, hardware);
+    }
+
+    /// Gets the physical register for an operand.
+    ///
+    /// # Arguments
+    ///
+    /// * `fresh` - The reified fresh register to look up
+    ///
+    /// # Returns
+    ///
+    /// The corresponding hardware register.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the register has not been assigned yet.
+    fn get_register(
+        &self,
+        fresh: ReifiedRegister<FreshRegister>,
+    ) -> ReifiedRegister<HardwareRegister> {
+        match self.mapping.get(&fresh.reg) {
+            Some(reg) => fresh.into_hardware(reg.reg()),
+            None => panic!("{:?} has not been assigned yet", fresh),
+        }
+    }
+
+    /// Gets or allocates a register.
+    ///
+    /// If the register is already mapped, returns the existing mapping.
+    /// Otherwise, allocates a new hardware register.
+    ///
+    /// # Arguments
+    ///
+    /// * `register_bank` - The register bank to allocate from
+    /// * `typed_register` - The fresh register to get or allocate
+    /// * `end_lifetime` - The instruction index after which the register is no longer needed
+    ///
+    /// # Returns
+    ///
+    /// The corresponding hardware register.
+    ///
+    /// # Panics
+    ///
+    /// Panics if register allocation fails.
+    pub fn get_or_allocate_register(
+        &mut self,
+        register_bank: &mut RegisterBank,
+        typed_register: ReifiedRegister<FreshRegister>,
+        lifetime: Lifetime,
+    ) -> ReifiedRegister<HardwareRegister> {
+        // Either return existing mapping or create new one
+        match self.mapping.get(&typed_register.reg) {
+            Some(reg) => typed_register.into_hardware(reg.reg()),
+            None => {
+                let hardware_reified_register = register_bank
+                    .pop_first(typed_register, lifetime.end)
+                    .expect("ran out of registers");
+
+                self.mapping.insert(
+                    typed_register.reg,
+                    hardware_reified_register.to_basic_register(),
+                );
+                hardware_reified_register
+            }
+        }
+    }
+
+    /// Frees a register, returning it to the register bank.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the register was freed, `false` otherwise.
+    fn free_register(&mut self, register_bank: &mut RegisterBank, fresh: FreshRegister) -> bool {
+        if let Some(reg) = self.mapping.remove(&fresh) {
+            // TODO this assert needs to be moved into insert and that should also solve the todo
+            let result = register_bank.insert(reg);
+            assert!(
+                result,
+                "hardware:{reg:?} is assigned to more than one fresh register."
+            );
+            result
+        } else {
+            todo!()
+        }
+    }
+
+    /// Gets the hardware register assigned to a register if available.
+    ///
+    /// # Returns
+    ///
+    /// An Option containing the corresponding hardware register if mapped, None otherwise.
+    pub fn output_register(
+        &self,
+        reified_register: &ReifiedRegister<FreshRegister>,
+    ) -> Option<ReifiedRegister<HardwareRegister>> {
+        self.mapping
+            .get(&reified_register.reg)
+            .map(|hw_reg| ReifiedRegister {
+                reg: hw_reg.reg(),
+                r#type: reified_register.r#type,
+                idx: Index::None,
+            })
+    }
+
+    pub fn allocate_variable(&mut self, variable: &FreshVariable) -> AllocatedVariable {
+        AllocatedVariable {
+            label: variable.label.clone(),
+            registers: variable
+                .registers
+                .iter()
+                .map(|register| self.output_register(register).unwrap())
+                .map(|hw_reg| hw_reg.to_basic_register())
+                .collect(),
+        }
+    }
+}
+
+/// Allocates hardware registers for a sequence of instructions.
+///
+/// This function transforms instructions using fresh registers into instructions
+/// using hardware registers, performing register allocation based on the results
+/// of liveness analysis.
+///
+/// # Arguments
+///
+/// * `mapping` - The register mapping to use and update
+/// * `register_bank` - The register bank to allocate from
+/// * `instructions` - The instruction sequence using fresh registers
+/// * `releases` - The registers to release after each instruction
+/// * `lifetimes` - The lifetime information for each register
+///
+/// # Returns
+///
+/// A new sequence of instructions using hardware registers.
+///
+/// # Panics
+///
+/// Panics if the instructions and releases collections have different lengths.
+pub fn hardware_register_allocation(
+    mapping: &mut RegisterMapping,
+    register_bank: &mut RegisterBank,
+    instructions: Vec<Instruction>,
+    // Change this into a Seen, and then rename Seen?
+    releases: VecDeque<HashSet<FreshRegister>>,
+    lifetimes: Lifetimes,
+) -> Vec<InstructionF<HardwareRegister>> {
+    assert_eq!(
+        instructions.len(),
+        releases.len(),
+        "The instructions and release collections need to be the same length"
+    );
+
+    instructions
+        .into_iter()
+        .zip(releases)
+        .map(|(instruction, release)| {
+            // Map operands to hardware registers
+            let src = instruction
+                .operands
+                .into_iter()
+                .map(|s| mapping.get_register(s))
+                .collect();
+
+            // Free registers that are no longer needed
+            release.into_iter().for_each(|fresh| {
+                mapping.free_register(register_bank, fresh);
+            });
+
+            // Allocate result registers
+            let dest = instruction
+                .results
+                .into_iter()
+                .map(|d| {
+                    let idx = d.reg;
+                    mapping.get_or_allocate_register(register_bank, d, lifetimes[idx])
+                })
+                .collect();
+
+            // Construct the hardware instruction
+            InstructionF {
+                opcode: instruction.opcode,
+                results: dest,
+                operands: src,
+                modifiers: instruction.modifiers,
+            }
+        })
+        .collect()
+}

@@ -1,5 +1,5 @@
 use crate::frontend::*;
-use crate::{FreshRegister, HardwareRegister, TypedHardwareRegister};
+use crate::ir::{FreshRegister, HardwareRegister, TypedHardwareRegister};
 
 #[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
 pub struct ReifiedRegister<R> {

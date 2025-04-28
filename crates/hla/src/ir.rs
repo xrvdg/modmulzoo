@@ -1,5 +1,11 @@
 use crate::reification::ReifiedRegister;
 
+#[derive(Clone, Debug)]
+pub struct Variable<R> {
+    pub(crate) label: String,
+    pub(crate) registers: Vec<R>,
+}
+
 /// An alias for an instruction using fresh registers.
 ///
 /// This type represents a single machine instruction that operates on virtual registers

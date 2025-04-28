@@ -1,8 +1,7 @@
 use std::array;
 use std::{marker::PhantomData, mem};
 
-use crate::RegisterMapping;
-use crate::ir::{FreshRegister, InstructionF, TypedHardwareRegister};
+use crate::ir::{FreshRegister, InstructionF, Variable};
 use crate::reification::{ReifiedRegister, ReifyRegister};
 
 /// A vector of instructions representing an atomic unit of execution.
@@ -74,14 +73,7 @@ impl FreshAllocator {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct Variable<R> {
-    pub(crate) label: String,
-    pub(crate) registers: Vec<R>,
-}
-
 pub type FreshVariable = Variable<ReifiedRegister<FreshRegister>>;
-pub type AllocatedVariable = Variable<TypedHardwareRegister>;
 
 impl FreshVariable {
     pub fn new<R>(label: &str, registers: &[R]) -> Self
@@ -91,18 +83,6 @@ impl FreshVariable {
         Self {
             label: label.to_string(),
             registers: registers.iter().map(|reg| reg.reify()).collect(),
-        }
-    }
-
-    pub fn to_basic_variable(&self, mapping: &RegisterMapping) -> AllocatedVariable {
-        AllocatedVariable {
-            label: self.label.clone(),
-            registers: self
-                .registers
-                .iter()
-                .map(|register| mapping.output_register(register).unwrap())
-                .map(|hw_reg| hw_reg.to_basic_register())
-                .collect(),
         }
     }
 }
