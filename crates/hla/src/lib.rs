@@ -1,250 +1,16 @@
 #![feature(iter_intersperse)]
 use core::panic;
-use std::{
-    array,
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
-};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 pub mod codegen;
 pub mod frontend;
 pub mod instructions;
+pub mod ir;
 pub mod reification;
 
 pub use frontend::*;
+pub use ir::*;
 pub use reification::*;
-
-/// A vector of instructions representing an atomic unit of execution.
-///
-/// This type represents a sequence of instructions that should be executed together
-/// as they rely on side effects such as flag setting that could potentially be disturbed when interleaved.
-pub type AtomicInstructionBlock = Vec<InstructionF<FreshRegister>>;
-
-/// An alias for an instruction using fresh registers.
-///
-/// This type represents a single machine instruction that operates on virtual registers
-/// (fresh registers) before hardware register allocation occurs.
-pub type Instruction = InstructionF<FreshRegister>;
-
-/// A generic instruction representation that can work with different register types.
-///
-/// This instruction models both regular machine instructions and register aliases.
-/// It contains the opcode, result registers, operand registers, and any modifiers.
-///
-/// # Type Parameters
-///
-/// * `R` - The register type is either `FreshRegister` for virtual registers
-///   or `HardwareRegister` for physical machine registers.
-#[derive(Debug, PartialEq)]
-pub struct InstructionF<R> {
-    opcode: String,
-    // Result is a vector because:
-    // - Some operations have do not write results to a register
-    //   - CMN only affects flags
-    //   - STR writes to a destination stored in operands
-    // - LDP has 2 destinations
-    results: Vec<ReifiedRegister<R>>,
-    operands: Vec<ReifiedRegister<R>>,
-    modifiers: Modifier,
-}
-
-#[derive(Debug, PartialEq)]
-enum Modifier {
-    None,
-    Imm(u64),
-    ImmLsl(u16, u8),
-    // Logical shift left
-    Lsl(u8),
-    Cond(String),
-}
-
-impl<R: std::fmt::Display + Copy> std::fmt::Display for InstructionF<R> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let regs: String = self
-            .extract_registers()
-            .map(|x| x.to_string())
-            .intersperse(", ".to_string())
-            .collect();
-
-        let extra = match &self.modifiers {
-            Modifier::None => String::new(),
-            Modifier::Imm(imm) => format!(", #{imm}"),
-            Modifier::Cond(cond) => format!(", {cond}"),
-            Modifier::ImmLsl(imm, shift) => format!(", #{imm}, lsl {shift}"),
-            Modifier::Lsl(imm) => format!(", #{imm}"),
-        };
-
-        let inst = &self.opcode;
-        write!(f, "{inst} {regs}{extra}")
-    }
-}
-
-impl<R> InstructionF<R> {
-    /// Returns an iterator over all registers referenced by this instruction.
-    ///
-    /// The iterator includes both result registers and operand registers.
-    fn extract_registers(&self) -> impl Iterator<Item = &ReifiedRegister<R>> {
-        self.results.iter().chain(&self.operands)
-    }
-}
-
-/// A virtual register identifier used before hardware register allocation.
-///
-/// FreshRegister represents a unique label for a variable in the intermediate
-/// representation. It serves as a placeholder for a hardware register that will
-/// be assigned during the register allocation phase.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct FreshRegister(u64);
-
-impl std::fmt::Display for FreshRegister {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<u64> for FreshRegister {
-    fn from(value: u64) -> Self {
-        Self(value)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Variable<R> {
-    label: String,
-    registers: Vec<R>,
-}
-
-pub type FreshVariable = Variable<ReifiedRegister<FreshRegister>>;
-pub type AllocatedVariable = Variable<TypedHardwareRegister>;
-
-impl FreshVariable {
-    pub fn new<R>(label: &str, registers: &[R]) -> Self
-    where
-        R: ReifyRegister,
-    {
-        Self {
-            label: label.to_string(),
-            registers: registers.iter().map(|reg| reg.reify()).collect(),
-        }
-    }
-
-    pub fn to_basic_variable(&self, mapping: &RegisterMapping) -> AllocatedVariable {
-        AllocatedVariable {
-            label: self.label.clone(),
-            registers: self
-                .registers
-                .iter()
-                .map(|register| mapping.output_register(register).unwrap())
-                .map(|hw_reg| hw_reg.to_basic_register())
-                .collect(),
-        }
-    }
-}
-
-/// A container for assembly instructions.
-///
-/// The Assembler maintains a collection of atomic instruction blocks that
-/// make up a program. Instructions are appended to build up the program in
-/// a way similar to a Write/State monad.
-pub struct Assembler {
-    pub instructions: Vec<AtomicInstructionBlock>,
-}
-
-impl Default for Assembler {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Assembler {
-    /// Creates a new empty Assembler.
-    pub fn new() -> Self {
-        Self {
-            instructions: Vec::new(),
-        }
-    }
-
-    /// Appends an atomic instruction block to the assembler.
-    pub fn append_instruction(&mut self, inst: AtomicInstructionBlock) {
-        self.instructions.push(inst)
-    }
-}
-
-/// Generates fresh register identifiers for intermediate code.
-///
-/// The Allocator maintains a counter to generate unique FreshRegister
-/// identifiers that represent virtual registers in the intermediate code.
-#[derive(Debug)]
-pub struct FreshAllocator {
-    /// Counter for the fresh variable labels
-    pub fresh: u64,
-}
-
-impl Default for FreshAllocator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl FreshAllocator {
-    /// Generates a new fresh register of the specified type.
-    pub fn fresh<T>(&mut self) -> Reg<T> {
-        let x = self.fresh;
-        self.fresh += 1;
-        Reg::new(x)
-    }
-
-    pub fn fresh_array<T, const N: usize>(&mut self) -> [Reg<T>; N] {
-        array::from_fn(|_| self.fresh())
-    }
-
-    /// Creates a new Allocator
-    pub fn new() -> Self {
-        Self { fresh: 0 }
-    }
-}
-
-/// Represents a physical hardware register.
-///
-/// HardwareRegister is a wrapper around a register number that identifies
-/// a specific register in the target CPU architecture.
-#[derive(PartialEq, Debug, Hash, Ord, PartialOrd, Eq, Clone, Copy)]
-pub struct HardwareRegister(u64);
-
-impl std::fmt::Display for HardwareRegister {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-/// Represents a basic hardware register with its type (general or vector).
-///
-/// BasicRegister describes a physical register as it is contained within the
-/// register banks. It does not have any kind information nor indexing.
-#[derive(Clone, Copy, PartialEq, Debug, Eq, Ord, PartialOrd)]
-pub enum TypedHardwareRegister {
-    /// A general purpose register (like x0-x31 on ARM64)
-    General(HardwareRegister),
-    /// A vector register (like v0-v31 on ARM64)
-    Vector(HardwareRegister),
-}
-
-impl TypedHardwareRegister {
-    /// Extracts the hardware register number from the basic register.
-    fn reg(&self) -> HardwareRegister {
-        match self {
-            TypedHardwareRegister::General(reg) | TypedHardwareRegister::Vector(reg) => *reg,
-        }
-    }
-}
-
-impl std::fmt::Display for TypedHardwareRegister {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TypedHardwareRegister::General(reg) => write!(f, "x{}", reg.0),
-            TypedHardwareRegister::Vector(reg) => write!(f, "v{}", reg.0),
-        }
-    }
-}
 
 #[derive(Debug)]
 struct RegisterPool {
@@ -272,12 +38,12 @@ impl PinnedOutputRegisters {
 
     fn reserve_output_register(
         &mut self,
-        lifetimes: &[Lifetime],
+        lifetimes: &Lifetimes,
         reified_register: &ReifiedRegister<FreshRegister>,
     ) {
         match self.iter.pop_first() {
             Some(hardware_register) => {
-                let lifetime = lifetimes[reified_register.reg.0 as usize].begin;
+                let lifetime = lifetimes[reified_register.reg].begin;
 
                 self.reserved
                     .insert(hardware_register, (reified_register.reg, lifetime));
@@ -336,7 +102,7 @@ pub fn allocate_input_variable(
     mapping: &mut RegisterMapping,
     register_bank: &mut RegisterBank,
     input_hw_registers: Vec<FreshVariable>,
-    lifetimes: &[Lifetime],
+    lifetimes: &Lifetimes,
 ) -> Vec<AllocatedVariable> {
     input_hw_registers
         .into_iter()
@@ -346,11 +112,7 @@ pub fn allocate_input_variable(
                 .into_iter()
                 .map(|register| {
                     mapping
-                        .get_or_allocate_register(
-                            register_bank,
-                            register,
-                            lifetimes[register.reg.0 as usize],
-                        )
+                        .get_or_allocate_register(register_bank, register, lifetimes[register.reg])
                         .to_basic_register()
                 })
                 .collect();
@@ -373,7 +135,7 @@ pub fn allocate_input_variable(
 /// * `lifetimes` - Register lifetimes for allocation planning. It will use the begin value.
 pub fn reserve_output_variable(
     register_bank: &mut RegisterBank,
-    lifetimes: &[Lifetime],
+    lifetimes: &Lifetimes,
     variable: &FreshVariable,
 ) {
     let pool = register_bank.get_register_pool(variable.registers[0].r#type);
@@ -697,6 +459,34 @@ pub struct Lifetime {
     end: usize,
 }
 
+pub struct Lifetimes(Vec<Lifetime>);
+
+impl Lifetimes {
+    pub fn new(nr_fresh_registers: usize) -> Self {
+        Self(vec![
+            Lifetime {
+                begin: usize::MAX,
+                end: usize::MAX,
+            };
+            nr_fresh_registers
+        ])
+    }
+}
+
+impl std::ops::Index<FreshRegister> for Lifetimes {
+    type Output = Lifetime;
+
+    fn index(&self, index: FreshRegister) -> &Self::Output {
+        &self.0[index.0 as usize]
+    }
+}
+
+impl std::ops::IndexMut<FreshRegister> for Lifetimes {
+    fn index_mut(&mut self, index: FreshRegister) -> &mut Self::Output {
+        &mut self.0[index.0 as usize]
+    }
+}
+
 /// Performs liveness analysis on instructions to determine register lifetimes.
 ///
 /// This function analyzes the instruction sequence to determine at which instructions
@@ -721,7 +511,7 @@ pub fn liveness_analysis(
     output_variables: &[FreshVariable],
     instructions: &[Instruction],
     nr_fresh_registers: usize,
-) -> (VecDeque<HashSet<FreshRegister>>, Vec<Lifetime>) {
+) -> (VecDeque<HashSet<FreshRegister>>, Lifetimes) {
     // Initialize the seen_registers with the output registers such that they won't get released.
     let mut seen_registers = Seen::new();
     output_variables.iter().for_each(|variable| {
@@ -731,13 +521,7 @@ pub fn liveness_analysis(
     });
 
     // Keep track of the last line the free register is used for
-    let mut lifetimes = vec![
-        Lifetime {
-            begin: 0,
-            end: usize::MAX
-        };
-        nr_fresh_registers
-    ];
+    let mut lifetimes = Lifetimes::new(nr_fresh_registers);
     let mut commands = VecDeque::new();
     for (line, instruction) in instructions.iter().enumerate().rev() {
         // Add check whether the source is released here.
@@ -758,11 +542,11 @@ pub fn liveness_analysis(
                 panic!("{line}: {instruction:?} does not use the destination")
             }; // The union could be mutable
 
-            let lifetime = &mut lifetimes[dest.0 as usize];
+            let lifetime = &mut lifetimes[dest];
             lifetime.begin = line;
         });
         release.iter().for_each(|reg| {
-            let lifetime = &mut lifetimes[reg.0 as usize];
+            let lifetime = &mut lifetimes[*reg];
             lifetime.end = line;
             seen_registers.0.insert(*reg);
         });
@@ -806,7 +590,7 @@ pub fn hardware_register_allocation(
     instructions: Vec<Instruction>,
     // Change this into a Seen, and then rename Seen?
     releases: VecDeque<HashSet<FreshRegister>>,
-    lifetimes: Vec<Lifetime>,
+    lifetimes: Lifetimes,
 ) -> Vec<InstructionF<HardwareRegister>> {
     assert_eq!(
         instructions.len(),
@@ -835,8 +619,8 @@ pub fn hardware_register_allocation(
                 .results
                 .into_iter()
                 .map(|d| {
-                    let idx = d.reg.0;
-                    mapping.get_or_allocate_register(register_bank, d, lifetimes[idx as usize])
+                    let idx = d.reg;
+                    mapping.get_or_allocate_register(register_bank, d, lifetimes[idx])
                 })
                 .collect();
 

@@ -1,6 +1,111 @@
+use std::array;
 use std::{marker::PhantomData, mem};
 
-use crate::{FreshRegister, ReifyRegister};
+use crate::RegisterMapping;
+use crate::ir::{FreshRegister, InstructionF, TypedHardwareRegister};
+use crate::reification::{ReifiedRegister, ReifyRegister};
+
+/// A vector of instructions representing an atomic unit of execution.
+///
+/// This type represents a sequence of instructions that should be executed together
+/// as they rely on side effects such as flag setting that could potentially be disturbed when interleaved.
+pub type AtomicInstructionBlock = Vec<InstructionF<FreshRegister>>;
+
+/// A container for assembly instructions.
+///
+/// The Assembler maintains a collection of atomic instruction blocks that
+/// make up a program. Instructions are appended to build up the program in
+/// a way similar to a Write/State monad.
+pub struct Assembler {
+    pub instructions: Vec<AtomicInstructionBlock>,
+}
+
+impl Default for Assembler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Assembler {
+    /// Creates a new empty Assembler.
+    pub fn new() -> Self {
+        Self {
+            instructions: Vec::new(),
+        }
+    }
+
+    /// Appends an atomic instruction block to the assembler.
+    pub fn append_instruction(&mut self, inst: AtomicInstructionBlock) {
+        self.instructions.push(inst)
+    }
+}
+
+/// Generates fresh register identifiers for intermediate code.
+///
+/// The Allocator maintains a counter to generate unique FreshRegister
+/// identifiers that represent virtual registers in the intermediate code.
+#[derive(Debug)]
+pub struct FreshAllocator {
+    /// Counter for the fresh variable labels
+    pub fresh: u64,
+}
+
+impl Default for FreshAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FreshAllocator {
+    /// Generates a new fresh register of the specified type.
+    pub fn fresh<T>(&mut self) -> Reg<T> {
+        let x = self.fresh;
+        self.fresh += 1;
+        Reg::new(x)
+    }
+
+    pub fn fresh_array<T, const N: usize>(&mut self) -> [Reg<T>; N] {
+        array::from_fn(|_| self.fresh())
+    }
+
+    /// Creates a new Allocator
+    pub fn new() -> Self {
+        Self { fresh: 0 }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Variable<R> {
+    pub(crate) label: String,
+    pub(crate) registers: Vec<R>,
+}
+
+pub type FreshVariable = Variable<ReifiedRegister<FreshRegister>>;
+pub type AllocatedVariable = Variable<TypedHardwareRegister>;
+
+impl FreshVariable {
+    pub fn new<R>(label: &str, registers: &[R]) -> Self
+    where
+        R: ReifyRegister,
+    {
+        Self {
+            label: label.to_string(),
+            registers: registers.iter().map(|reg| reg.reify()).collect(),
+        }
+    }
+
+    pub fn to_basic_variable(&self, mapping: &RegisterMapping) -> AllocatedVariable {
+        AllocatedVariable {
+            label: self.label.clone(),
+            registers: self
+                .registers
+                .iter()
+                .map(|register| mapping.output_register(register).unwrap())
+                .map(|hw_reg| hw_reg.to_basic_register())
+                .collect(),
+        }
+    }
+}
 
 /// Represents a single hardware registers by modelling it as
 /// a fresh variable.

@@ -32,7 +32,9 @@ pub use scalar::*;
 pub use simd::*;
 
 use crate::frontend::{D, PointerReg, Reg, SIMD, Simd, SizedIdx};
-use crate::{Assembler, FreshAllocator, Instruction, InstructionF, Modifier, ReifyRegister};
+use crate::ir::{Instruction, InstructionF, Modifier};
+use crate::reification::ReifyRegister;
+use crate::{Assembler, FreshAllocator};
 
 use paste::paste;
 macro_rules! embed_asm {
