@@ -4,12 +4,12 @@ use std::path::Path;
 
 use crate::AtomicInstructionBlock;
 use crate::backend::{
-    RegisterBank, RegisterMapping, allocate_input_variable, hardware_register_allocation,
-    reserve_output_variable,
+    AllocatedVariable, RegisterBank, RegisterMapping, allocate_input_variable,
+    hardware_register_allocation, reserve_output_variable,
 };
-use crate::codegen::generate_rust_global_asm;
+use crate::codegen::{generate_rust_global_asm, generate_rust_inline_asm};
 use crate::frontend::{Assembler, FreshAllocator, FreshVariable};
-use crate::ir::Variable;
+use crate::ir::{HardwareRegister, Instruction, Variable};
 use crate::liveness::liveness_analysis;
 
 /// A function type that sets up an assembly program, returning input and output variables.
@@ -24,7 +24,7 @@ pub type Setup =
 /// * `label` - The label for the assembly function
 /// * `f` - The setup function that creates the assembly
 pub fn build_single<P: AsRef<Path>>(path: P, label: &str, f: Setup) {
-    build(path, label, Interleaving::single(f));
+    build_standalone(path, label, Interleaving::single(f));
 }
 
 /// Builds one or more interleaved assembly functions.
@@ -41,7 +41,25 @@ pub fn build_single<P: AsRef<Path>>(path: P, label: &str, f: Setup) {
 /// * `path` - The path where the assembly file will be written
 /// * `label` - The label for the assembly function
 /// * `algos` - The interleaved setup functions
-pub fn build<P: AsRef<Path>>(path: P, label: &str, algos: Interleaving<Setup>) {
+pub fn build_standalone<P: AsRef<Path>>(path: P, label: &str, algos: Interleaving<Setup>) {
+    build(path, algos, |inputs, outputs, instructions| {
+        generate_rust_global_asm(label, inputs, outputs, instructions)
+    })
+}
+
+pub fn build_inline<P: AsRef<Path>>(path: P, algos: Interleaving<Setup>) {
+    build(path, algos, generate_rust_inline_asm)
+}
+
+pub fn build<P, C>(path: P, algos: Interleaving<Setup>, codegen: C)
+where
+    P: AsRef<Path>,
+    C: FnOnce(
+        &[AllocatedVariable],
+        &[AllocatedVariable],
+        &[Instruction<HardwareRegister>],
+    ) -> String,
+{
     let mut alloc = FreshAllocator::new();
     let mut mapping = RegisterMapping::new();
     let mut register_bank = RegisterBank::new();
@@ -68,7 +86,7 @@ pub fn build<P: AsRef<Path>>(path: P, label: &str, algos: Interleaving<Setup>) {
         reserve_output_variable(&mut register_bank, &lifetimes, variable);
     });
 
-    let out = hardware_register_allocation(
+    let hardware_instructions = hardware_register_allocation(
         &mut mapping,
         &mut register_bank,
         instructions,
@@ -82,7 +100,11 @@ pub fn build<P: AsRef<Path>>(path: P, label: &str, algos: Interleaving<Setup>) {
         .collect();
 
     // Write this info in the assembly file
-    let assembly = generate_rust_global_asm(label, &input_hw_registers, &output_hw_registers, &out);
+    let assembly = codegen(
+        &input_hw_registers,
+        &output_hw_registers,
+        &hardware_instructions,
+    );
 
     use std::io::Write;
     let mut file = std::fs::File::create(&path)

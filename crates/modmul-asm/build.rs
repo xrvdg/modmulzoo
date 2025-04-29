@@ -2,7 +2,7 @@ use block_multiplier_codegen::scalar::*;
 use block_multiplier_codegen::simd::*;
 
 use hla::{
-    build,
+    build_standalone,
     builder::{Interleaving, build_single},
 };
 
@@ -50,7 +50,7 @@ fn main() {
         "reduce_ct_simd",
         setup_reduce_ct_simd,
     );
-    build(
+    build_standalone(
         "./asm/single_step_interleaved.s",
         "single_step_interleaved",
         Interleaving::par(
@@ -58,7 +58,7 @@ fn main() {
             Interleaving::single(setup_single_step_simd),
         ),
     );
-    build(
+    build_standalone(
         "./asm/single_step_interleaved_seq_scalar.s",
         "single_step_interleaved_seq_scalar",
         Interleaving::par(
@@ -66,7 +66,7 @@ fn main() {
             Interleaving::single(setup_single_step_simd),
         ),
     );
-    build(
+    build_standalone(
         "./asm/single_step_interleaved_triple_scalar.s",
         "single_step_interleaved_triple_scalar",
         Interleaving::par(

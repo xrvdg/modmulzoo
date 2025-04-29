@@ -9,6 +9,6 @@ pub mod ir;
 pub mod liveness;
 pub mod reification;
 
-pub use builder::build;
+pub use builder::build_standalone;
 pub use frontend::*;
 pub use instructions::*;
