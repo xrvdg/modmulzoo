@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+
 use crate::AtomicInstructionBlock;
 use crate::backend::{
     RegisterBank, RegisterMapping, allocate_input_variable, hardware_register_allocation,
@@ -5,13 +8,14 @@ use crate::backend::{
 };
 use crate::codegen::generate_rust_global_asm;
 use crate::frontend::{Assembler, FreshAllocator, FreshVariable};
+use crate::ir::Variable;
 use crate::liveness::liveness_analysis;
 
 pub type Setup =
     fn(alloc: &mut FreshAllocator, asm: &mut Assembler) -> (Vec<FreshVariable>, FreshVariable);
 
 pub fn build_single(label: &str, f: Setup) {
-    build(label, Interleaving::Seq(vec![f]));
+    build(label, Interleaving::single(f));
 }
 
 pub fn build(label: &str, algos: Interleaving<Setup>) {
@@ -20,6 +24,11 @@ pub fn build(label: &str, algos: Interleaving<Setup>) {
     let mut register_bank = RegisterBank::new();
 
     let (input_hw_registers, output_hw_registers, instructions) = run_setups(&mut alloc, algos);
+
+    // We do not check for unique_variables across inputs and outputs. For example when using a input pointer as output as well the name
+    // should be the same.
+    let input_hw_registers = unique_variable(input_hw_registers);
+    let output_hw_registers = unique_variable(output_hw_registers);
 
     let instructions: Vec<_> = instructions.into_iter().flatten().collect();
 
@@ -109,6 +118,35 @@ fn run_setup(
     let mut asm = Assembler::new();
     let (inputs, outputs) = f(alloc, &mut asm);
     (inputs, outputs, asm.instructions)
+}
+
+// In case of colliding variable names add a number to make it unique
+fn unique_variable<T>(variables: Vec<Variable<T>>) -> Vec<Variable<T>> {
+    let mut variable_count: HashMap<String, u8> = HashMap::new();
+
+    variables
+        .into_iter()
+        .map(|variable| {
+            let label = variable.label.clone();
+
+            match variable_count.entry(label.clone()) {
+                Entry::Vacant(entry) => {
+                    entry.insert(1);
+                    variable
+                }
+                Entry::Occupied(mut entry) => {
+                    let count = entry.get_mut();
+                    let new_label = format!("{}{}", label, *count);
+                    *count += 1;
+
+                    Variable {
+                        label: new_label,
+                        registers: variable.registers,
+                    }
+                }
+            }
+        })
+        .collect()
 }
 
 // This interleaving can be more complex, but we don't need it for the moment and use Seq as a leaf
