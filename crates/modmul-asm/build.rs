@@ -38,7 +38,7 @@ fn main() {
     build_single(
         "./asm/vmultadd_noinit_simd.s",
         "vmultadd_noinit_simd",
-        setup_vmultadd_noinit_simd,
+        setup_widening_mul_u256_simd,
     );
     build_single(
         "./asm/single_step_simd.s",

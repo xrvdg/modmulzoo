@@ -26,6 +26,30 @@ pub fn load_const(alloc: &mut FreshAllocator, asm: &mut Assembler, val: u64) -> 
     reg
 }
 
+pub fn load_const_simd(
+    alloc: &mut FreshAllocator,
+    asm: &mut Assembler,
+    val: u64,
+) -> Reg<Simd<u64, 2>> {
+    let val = load_const(alloc, asm, val);
+    let mask = dup2d(alloc, asm, &val);
+    mask
+}
+
+pub fn load_tuple(
+    alloc: &mut FreshAllocator,
+    asm: &mut Assembler,
+    fst: Reg<u64>,
+    snd: Reg<u64>,
+) -> Reg<Simd<u64, 2>> {
+    let fresh: Reg<Simd<u64, 2>> = alloc.fresh();
+    asm.append_instruction(vec![
+        ins_inst(fresh._d0(), &fst),
+        ins_inst(fresh._d1(), &snd),
+    ]);
+    fresh
+}
+
 pub fn load_u256(
     alloc: &mut FreshAllocator,
     asm: &mut Assembler,

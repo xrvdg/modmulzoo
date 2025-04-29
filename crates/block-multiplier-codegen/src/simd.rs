@@ -4,8 +4,11 @@ use block_multiplier::{constants::*, make_initial};
 use hla::*;
 use montgomery_reduction::domb::heaviside;
 
-use crate::load_store::{load_const, load_floating_simd};
+use crate::load_store::{load_const, load_const_simd, load_floating_simd, load_tuple};
 
+/// Sets up the assembly code generation for converting u256 to u260 with a left shift by 2 using immediate values.
+///
+/// Returns the input and output variables for the generated assembly function.
 pub fn setup_u256_to_u260_shl2_imd(
     alloc: &mut FreshAllocator,
     asm: &mut Assembler,
@@ -16,11 +19,14 @@ pub fn setup_u256_to_u260_shl2_imd(
     let mask_simd = dup2d(alloc, asm, &mask);
 
     let var_limb = FreshVariable::new("limbs", &limbs);
-    let res = u256_to_u260_shl2_simd(alloc, asm, &mask_simd, limbs);
+    let res = u256_to_u260_shl2(alloc, asm, &mask_simd, limbs);
 
     (vec![var_limb], FreshVariable::new("out", &res))
 }
 
+/// Sets up the assembly code generation for converting u260 back to u256 using SIMD instructions.
+///
+/// Returns the input and output variables for the generated assembly function.
 pub fn setup_u260_to_u256_simd(
     alloc: &mut FreshAllocator,
     asm: &mut Assembler,
@@ -28,12 +34,15 @@ pub fn setup_u260_to_u256_simd(
     let limbs = alloc.fresh_array();
 
     let var_limb = FreshVariable::new("limbs", &limbs);
-    let res = u260_to_u256_simd(alloc, asm, limbs);
+    let res = u260_to_u256(alloc, asm, limbs);
 
     (vec![var_limb], FreshVariable::new("out", &res))
 }
 
-pub fn setup_vmultadd_noinit_simd(
+/// Sets up the assembly code generation for a widening multiplication of two u256 numbers using SIMD instructions.
+///
+/// Returns the input and output variables for the generated assembly function.
+pub fn setup_widening_mul_u256_simd(
     alloc: &mut FreshAllocator,
     asm: &mut Assembler,
 ) -> (Vec<FreshVariable>, FreshVariable) {
@@ -51,11 +60,14 @@ pub fn setup_vmultadd_noinit_simd(
     let var_a = FreshVariable::new("a", &a);
     let var_b = FreshVariable::new("b", &b);
 
-    let res = vmultadd_noinit_simd(alloc, asm, &c1, &c2, t, a, b);
+    let res = widening_mul_u256(alloc, asm, &c1, &c2, t, a, b);
 
     (vec![var_t, var_a, var_b], FreshVariable::new("out", &res))
 }
 
+/// Sets up the assembly code generation for a single Montgomery multiplication step using SIMD instructions.
+///
+/// Returns the input and output variables for the generated assembly function.
 pub fn setup_single_step_simd(
     alloc: &mut FreshAllocator,
     asm: &mut Assembler,
@@ -65,11 +77,14 @@ pub fn setup_single_step_simd(
 
     let var_a = FreshVariable::new("av", &a);
     let var_b = FreshVariable::new("bv", &b);
-    let res = single_step_simd(alloc, asm, a, b);
+    let res = montgomery(alloc, asm, a, b);
 
     (vec![var_a, var_b], FreshVariable::new("outv", &res))
 }
 
+/// Sets up the assembly code generation for a constant-time reduction using SIMD instructions.
+///
+/// Returns the input and output variables for the generated assembly function.
 pub fn setup_reduce_ct_simd(
     alloc: &mut FreshAllocator,
     asm: &mut Assembler,
@@ -81,26 +96,13 @@ pub fn setup_reduce_ct_simd(
 
     let var_red = FreshVariable::new("red", &red);
 
-    let res = reduce_ct_simd(alloc, asm, red).map(|reg| and16(alloc, asm, &reg, &mask52));
+    let res = reduce(alloc, asm, red).map(|reg| and16(alloc, asm, &reg, &mask52));
 
     (vec![var_red], FreshVariable::new("out", &res))
 }
 
 //*******  SIMD **********/
-fn load_tuple(
-    alloc: &mut FreshAllocator,
-    asm: &mut Assembler,
-    fst: Reg<u64>,
-    snd: Reg<u64>,
-) -> Reg<Simd<u64, 2>> {
-    let fresh: Reg<Simd<u64, 2>> = alloc.fresh();
-    asm.append_instruction(vec![
-        ins_inst(fresh._d0(), &fst),
-        ins_inst(fresh._d1(), &snd),
-    ]);
-    fresh
-}
-
+/// Transposes two u256 values (represented as arrays of u64 limbs) into an array of SIMD registers.
 fn transpose_u256_to_simd(
     alloc: &mut FreshAllocator,
     asm: &mut Assembler,
@@ -115,7 +117,9 @@ fn transpose_u256_to_simd(
     ]
 }
 
-fn u256_to_u260_shl2_simd(
+/// Converts a u256 represented by SIMD registers to a u260 representation with a left shift by 2.
+/// This involves shifting and masking operations to pack the 256 bits into 5 limbs of 52 bits each.
+fn u256_to_u260_shl2(
     alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     mask52: &Reg<Simd<u64, 2>>,
@@ -144,15 +148,9 @@ fn u256_to_u260_shl2_simd(
     ]
 }
 
-fn load_const_simd(alloc: &mut FreshAllocator, asm: &mut Assembler, val: u64) -> Reg<Simd<u64, 2>> {
-    let val = load_const(alloc, asm, val);
-    let mask = dup2d(alloc, asm, &val);
-    mask
-}
-
-// Embed the initials as instructions
-// TODO with larger block size this loading can be kept outside and copied
-// This is very specific to parallel_sub_simd_r256 is might be better inlined
+/// Generates assembly instructions to load the initial floating Montgomery constants into SIMD registers to counteract
+/// the biasses that are added to be able to perform 52bit multiplication in the mantissa of a 64 bit floating point.
+/// See Emmart https://ieeexplore.ieee.org/abstract/document/8464792
 fn make_initials(alloc: &mut FreshAllocator, asm: &mut Assembler) -> [Reg<Simd<u64, 2>>; 10] {
     let mut t: [Reg<Simd<u64, 2>>; 10] = array::from_fn(|_| alloc.fresh());
 
@@ -172,7 +170,12 @@ fn make_initials(alloc: &mut FreshAllocator, asm: &mut Assembler) -> [Reg<Simd<u
     t
 }
 
-fn vmultadd_noinit_simd(
+/// Performs a widening multiplication of two u256 numbers (represented as 5 limbs of u260) using floating-point SIMD instructions.
+///
+/// The inputs `a` and `b` are expected to be biased for floating-point representation.
+/// The result `t` accumulates the product `a * b`.
+/// Requires the callee to remove the bias that has been used to shift the multiplication operation into the mantissa
+fn widening_mul_u256(
     alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     c1: &Reg<Simd<u64, 2>>,
@@ -198,8 +201,12 @@ fn vmultadd_noinit_simd(
     t
 }
 
-// Whole vector is in registers, but that might not be great. Better to have it on the stack and load it from there
-pub fn smultadd_noinit_simd(
+/// Performs a multiply-add operation: `t += s * v`, where `t` is an array of 6 u260 limbs,
+/// `s` is a single u260 limb, and `v` is a constant array of 5 u64 values.
+/// Uses floating-point SIMD instructions with biasing constants `c1` and `c2`.
+///
+/// Requires the callee to remove the bias that has been used to shift the multiplication operation into the mantissa
+pub fn madd_u256_limb(
     alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     mut t: [Reg<Simd<u64, 2>>; 6],
@@ -211,7 +218,7 @@ pub fn smultadd_noinit_simd(
     let s = ucvtf2d(alloc, asm, &s);
 
     // This ordering is the fastest that I've found. Any change or breaking up into parts seem
-    // to inhibit bypass
+    // to inhibit bypassing causing a slow down.
     for i in 0..v.len() {
         // skip ucvtf by loading the constant directly as (simd) floating point
         // No measurable difference in loading the vector v completely outside or per element inside the load
@@ -228,9 +235,8 @@ pub fn smultadd_noinit_simd(
     t
 }
 
-/// Constants that are used across functions
-/// Misses the transposing to make it easier on the registers for the next steps
-fn single_step_simd(
+/// Performs a full Montgomery multiplication of two pairs of two u256 numbers `a` and `b` using SIMD instructions.
+fn montgomery(
     alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     a: [Reg<Simd<u64, 2>>; 4],
@@ -239,10 +245,14 @@ fn single_step_simd(
     let mask = mov(alloc, asm, MASK52);
     let mask52 = dup2d(alloc, asm, &mask);
 
-    let a = u256_to_u260_shl2_simd(alloc, asm, &mask52, a);
-    let b = u256_to_u260_shl2_simd(alloc, asm, &mask52, b);
+    // The be interoperable with the scalar montgomery multiplication we have to compensate
+    // for SIMD's mod 260 instead of 256. This is achieved by shifting both inputs by 2.
+    let a = u256_to_u260_shl2(alloc, asm, &mask52, a);
+    let b = u256_to_u260_shl2(alloc, asm, &mask52, b);
+
     let t = make_initials(alloc, asm);
 
+    // Biasing constants are kept in registers and passed to functions that require them.
     let c1 = mov(alloc, asm, C1.to_bits());
     let c1 = dup2d(alloc, asm, &c1);
 
@@ -250,8 +260,7 @@ fn single_step_simd(
     let c2 = load_const(alloc, asm, C2.to_bits());
     let c2 = dup2d(alloc, asm, &c2);
 
-    let [t0, t1, t2, t3, t4, t5, t6, t7, t8, t9] =
-        vmultadd_noinit_simd(alloc, asm, &c1, &c2, t, a, b);
+    let [t0, t1, t2, t3, t4, t5, t6, t7, t8, t9] = widening_mul_u256(alloc, asm, &c1, &c2, t, a, b);
 
     let t1 = usra2d(alloc, asm, t1, &t0, 52);
     let t2 = usra2d(alloc, asm, t2, &t1, 52);
@@ -266,10 +275,10 @@ fn single_step_simd(
     let t3 = and16(alloc, asm, &t3, &mask52);
 
     // loading rho interleaved with multiplication to prevent to prevent allocation a lot of X-registers
-    let r0 = smultadd_noinit_simd(alloc, asm, t4_10, &c1, &c2, t0, RHO_4);
-    let r1 = smultadd_noinit_simd(alloc, asm, r0, &c1, &c2, t1, RHO_3);
-    let r2 = smultadd_noinit_simd(alloc, asm, r1, &c1, &c2, t2, RHO_2);
-    let s = smultadd_noinit_simd(alloc, asm, r2, &c1, &c2, t3, RHO_1);
+    let r0 = madd_u256_limb(alloc, asm, t4_10, &c1, &c2, t0, RHO_4);
+    let r1 = madd_u256_limb(alloc, asm, r0, &c1, &c2, t1, RHO_3);
+    let r2 = madd_u256_limb(alloc, asm, r1, &c1, &c2, t2, RHO_2);
+    let s = madd_u256_limb(alloc, asm, r2, &c1, &c2, t3, RHO_1);
 
     // Could be replaced with fmul, but the rust compiler generates something close to this
     let u52_np0 = load_const(alloc, asm, U52_NP0);
@@ -282,14 +291,15 @@ fn single_step_simd(
     let m1 = and(alloc, asm, &m1, &mask);
     let m = load_tuple(alloc, asm, m0, m1);
 
-    let s = smultadd_noinit_simd(alloc, asm, s, &c1, &c2, m, U52_P);
+    let s = madd_u256_limb(alloc, asm, s, &c1, &c2, m, U52_P);
 
-    let rs = reduce_ct_simd(alloc, asm, s);
+    let rs = reduce(alloc, asm, s);
 
-    u260_to_u256_simd(alloc, asm, rs)
+    u260_to_u256(alloc, asm, rs)
 }
 
-fn u260_to_u256_simd(
+/// Converts a u260 number (represented as 5 SIMD limbs) back to a u256 representation (4 SIMD limbs).
+fn u260_to_u256(
     alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     limbs: [Reg<Simd<u64, 2>>; 5],
@@ -308,10 +318,10 @@ fn u260_to_u256_simd(
     ]
 }
 
-/// Does reduction with -2p, but DOESN'T return a clean 52 bit limbs.
-/// It doesn't clean up the carries in the upper 52bit. u260-to-u256 takes care of that.
-/// This allows us to drop 5 vector instructions.
-fn reduce_ct_simd(
+/// Performs a reduction step using subtraction of 2*P (U52_2P) conditionally based on the most significant bit.
+/// NOTE: This DOESN'T return clean 52 bit limbs as there is still junk in the upper 12 bits. u260-to-u256 will take care of the junk
+/// and this allows for saving 5 vector instructions.
+fn reduce(
     alloc: &mut FreshAllocator,
     asm: &mut Assembler,
     red: [Reg<Simd<u64, 2>>; 6],
