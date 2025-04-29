@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::path::Path;
 
 use crate::AtomicInstructionBlock;
 use crate::backend::{
@@ -14,11 +15,11 @@ use crate::liveness::liveness_analysis;
 pub type Setup =
     fn(alloc: &mut FreshAllocator, asm: &mut Assembler) -> (Vec<FreshVariable>, FreshVariable);
 
-pub fn build_single(label: &str, f: Setup) {
-    build(label, Interleaving::single(f));
+pub fn build_single<P: AsRef<Path>>(path: P, label: &str, f: Setup) {
+    build(path, label, Interleaving::single(f));
 }
 
-pub fn build(label: &str, algos: Interleaving<Setup>) {
+pub fn build<P: AsRef<Path>>(path: P, label: &str, algos: Interleaving<Setup>) {
     let mut alloc = FreshAllocator::new();
     let mut mapping = RegisterMapping::new();
     let mut register_bank = RegisterBank::new();
@@ -58,17 +59,17 @@ pub fn build(label: &str, algos: Interleaving<Setup>) {
 
     let output_hw_registers: Vec<_> = output_hw_registers
         .iter()
-        .map(|fresh_variable| mapping.allocate_variable(fresh_variable))
+        .map(|fresh_variable| mapping.get_allocated_variable(fresh_variable))
         .collect();
 
     // Write this info in the assembly file
     let assembly = generate_rust_global_asm(label, &input_hw_registers, &output_hw_registers, &out);
 
     use std::io::Write;
-    let mut file = std::fs::File::create(format!("./asm/global_asm_{label}.s"))
-        .expect("Unable to create file");
+    let mut file = std::fs::File::create(&path)
+        .unwrap_or_else(|_| panic!("Unable to create file: {:#?}", path.as_ref()));
     file.write_all(assembly.as_bytes())
-        .expect("Unable to write data to file");
+        .unwrap_or_else(|_| panic!("Unable to write assembly to file: {:#?}", path.as_ref()));
 }
 
 fn run_setups(

@@ -1,4 +1,3 @@
-use core::panic;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use crate::{
@@ -38,19 +37,21 @@ impl PinnedOutputRegisters {
         }
     }
 
+    // Return True on successful reservation
     fn reserve_output_register(
         &mut self,
         lifetimes: &Lifetimes,
         reified_register: &ReifiedRegister<FreshRegister>,
-    ) {
+    ) -> bool {
         match self.iter.pop_first() {
             Some(hardware_register) => {
                 let lifetime = lifetimes[reified_register.reg].begin;
 
                 self.reservations
                     .insert(hardware_register, (reified_register.reg, lifetime));
+                true
             }
-            None => panic!("Ran out of registers to reserve"),
+            None => false,
         }
     }
 }
@@ -142,8 +143,15 @@ pub fn reserve_output_variable(
 ) {
     let pool = register_bank.get_register_pool(variable.registers[0].r#type);
     for reified_register in &variable.registers {
-        pool.pinned
-            .reserve_output_register(lifetimes, reified_register);
+        if !pool
+            .pinned
+            .reserve_output_register(lifetimes, reified_register)
+        {
+            panic!(
+                "Ran out of registers to reserve {}! Reduce the number of outputs.",
+                variable.label
+            )
+        }
     }
 }
 
@@ -278,7 +286,10 @@ impl RegisterMapping {
     ) -> ReifiedRegister<HardwareRegister> {
         match self.mapping.get(&fresh.reg) {
             Some(reg) => fresh.into_hardware(reg.reg()),
-            None => panic!("{:?} has not been assigned yet", fresh),
+            None => panic!(
+                "Internal error: {:?} has not been assigned yet. This should not be possible.",
+                fresh
+            ),
         }
     }
 
@@ -312,7 +323,7 @@ impl RegisterMapping {
             None => {
                 let hardware_reified_register = register_bank
                     .pop_first(typed_register, lifetime.end)
-                    .expect("ran out of registers");
+                    .unwrap_or_else(||panic!("All register are in use. HLA does not support spilling to stack for performance reasons. Reduce the number of registers simultaneously in use."));
 
                 self.mapping.insert(
                     typed_register.reg,
@@ -342,32 +353,29 @@ impl RegisterMapping {
         }
     }
 
-    /// Gets the hardware register assigned to a register if available.
-    ///
-    /// # Returns
-    ///
-    /// An Option containing the corresponding hardware register if mapped, None otherwise.
-    pub fn output_register(
-        &self,
-        reified_register: &ReifiedRegister<FreshRegister>,
-    ) -> Option<ReifiedRegister<HardwareRegister>> {
-        self.mapping
-            .get(&reified_register.reg)
-            .map(|hw_reg| ReifiedRegister {
-                reg: hw_reg.reg(),
-                r#type: reified_register.r#type,
-                idx: Index::None,
-            })
-    }
-
-    pub fn allocate_variable(&mut self, variable: &FreshVariable) -> AllocatedVariable {
+    pub fn get_allocated_variable(&mut self, variable: &FreshVariable) -> AllocatedVariable {
         AllocatedVariable {
             label: variable.label.clone(),
             registers: variable
                 .registers
                 .iter()
-                .map(|register| self.output_register(register).unwrap())
-                .map(|hw_reg| hw_reg.to_basic_register())
+                .map(|register| {
+                    {
+                        self.mapping
+                            .get(&register.reg)
+                            .map(|hw_reg| {
+                                ReifiedRegister {
+                                    reg: hw_reg.reg(),
+                                    r#type: register.r#type,
+                                    idx: Index::None,
+                                }
+                                .to_basic_register()
+                            })
+                            .unwrap_or_else(|| {
+                                panic!("Internal error: {} has not been allocated.", variable.label)
+                            })
+                    }
+                })
                 .collect(),
         }
     }
