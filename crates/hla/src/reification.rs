@@ -1,5 +1,5 @@
 use crate::frontend::*;
-use crate::{BasicRegister, FreshRegister, HardwareRegister};
+use crate::ir::{FreshRegister, HardwareRegister, TypedHardwareRegister};
 
 #[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone, Copy)]
 pub struct ReifiedRegister<R> {
@@ -46,10 +46,10 @@ impl ReifiedRegister<FreshRegister> {
 }
 
 impl ReifiedRegister<HardwareRegister> {
-    pub fn to_basic_register(&self) -> BasicRegister {
+    pub fn to_basic_register(&self) -> TypedHardwareRegister {
         match self.r#type {
-            RegisterType::X => BasicRegister::General(self.reg),
-            RegisterType::V | RegisterType::D => BasicRegister::Vector(self.reg),
+            RegisterType::X => TypedHardwareRegister::General(self.reg),
+            RegisterType::V | RegisterType::D => TypedHardwareRegister::Vector(self.reg),
         }
     }
 }
@@ -111,7 +111,7 @@ impl<T> ReifyRegister for PointerReg<'_, T> {
         ReifiedRegister {
             reg: self.reg.reg,
             r#type: RegisterType::X,
-            idx: Index::Pointer(self.offset as usize),
+            idx: Index::Pointer(self.offset),
         }
     }
 }
