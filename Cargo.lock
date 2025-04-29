@@ -129,6 +129,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "block-multiplier-codegen"
+version = "0.1.0"
+dependencies = [
+ "block-multiplier",
+ "hla",
+ "montgomery_reduction",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -631,6 +640,7 @@ name = "modmul-asm"
 version = "0.1.0"
 dependencies = [
  "block-multiplier",
+ "block-multiplier-codegen",
  "criterion",
  "hla",
  "mod256-generator",
