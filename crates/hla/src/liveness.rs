@@ -1,6 +1,7 @@
 use std::collections::{HashSet, VecDeque};
 use std::fmt::Display;
 
+use crate::FreshAllocator;
 use crate::frontend::FreshVariable;
 use crate::ir::{FreshRegister, Instruction};
 use crate::reification::ReifiedRegister;
@@ -92,9 +93,9 @@ impl std::ops::IndexMut<FreshRegister> for Lifetimes {
 ///
 /// Panics if an instruction has an unused destination register.
 pub fn liveness_analysis(
+    alloc: &FreshAllocator, // Only used to know the size of the lifetimes allocations
     output_variables: &[FreshVariable],
     instructions: &[Instruction<FreshRegister>],
-    nr_fresh_registers: usize,
 ) -> (VecDeque<HashSet<FreshRegister>>, Lifetimes) {
     // Initialize the seen_registers with the output registers such that they won't get released.
     let mut seen_registers = Seen::new();
@@ -105,7 +106,7 @@ pub fn liveness_analysis(
     });
 
     // Keep track of the last line the free register is used in
-    let mut lifetimes = Lifetimes::new(nr_fresh_registers);
+    let mut lifetimes = Lifetimes::new(alloc.allocated());
     let mut commands = VecDeque::new();
     for (line, instruction) in instructions.iter().enumerate().rev() {
         let registers: HashSet<_> = instruction.extract_registers().map(|tr| tr.reg).collect();

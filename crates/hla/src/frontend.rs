@@ -71,6 +71,10 @@ impl FreshAllocator {
     pub fn new() -> Self {
         Self { fresh: 0 }
     }
+
+    pub fn allocated(&self) -> usize {
+        self.fresh as usize
+    }
 }
 
 pub type FreshVariable = Variable<ReifiedRegister<FreshRegister>>;

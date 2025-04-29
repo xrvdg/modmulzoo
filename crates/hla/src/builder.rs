@@ -1,31 +1,41 @@
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+
+use crate::AtomicInstructionBlock;
 use crate::backend::{
     RegisterBank, RegisterMapping, allocate_input_variable, hardware_register_allocation,
     reserve_output_variable,
 };
 use crate::codegen::generate_rust_global_asm;
 use crate::frontend::{Assembler, FreshAllocator, FreshVariable};
+use crate::ir::Variable;
 use crate::liveness::liveness_analysis;
 
-pub fn build(
-    label: &str,
-    f: fn(alloc: &mut FreshAllocator, asm: &mut Assembler) -> (Vec<FreshVariable>, FreshVariable),
-) {
+pub type Setup =
+    fn(alloc: &mut FreshAllocator, asm: &mut Assembler) -> (Vec<FreshVariable>, FreshVariable);
+
+pub fn build_single(label: &str, f: Setup) {
+    build(label, Interleaving::single(f));
+}
+
+pub fn build(label: &str, algos: Interleaving<Setup>) {
     let mut alloc = FreshAllocator::new();
     let mut mapping = RegisterMapping::new();
     let mut register_bank = RegisterBank::new();
 
-    let mut asm = Assembler::new();
-    let (input_hw_registers, output_hw_register) = f(&mut alloc, &mut asm);
+    let (input_hw_registers, output_hw_registers, instructions) = run_setups(&mut alloc, algos);
 
-    let output_hw_registers = [output_hw_register];
+    // We do not check for unique_variables across inputs and outputs. For example when using a input pointer as output as well the name
+    // should be the same.
+    let input_hw_registers = unique_variable(input_hw_registers);
+    let output_hw_registers = unique_variable(output_hw_registers);
 
-    let instructions: Vec<_> = asm.instructions.into_iter().flatten().collect();
+    let instructions: Vec<_> = instructions.into_iter().flatten().collect();
 
     // Is there something we n do to tie off the outputs.
     // and to make sure it happens before drop_pass
 
-    let (releases, lifetimes) =
-        liveness_analysis(&output_hw_registers, &instructions, alloc.fresh as usize);
+    let (releases, lifetimes) = liveness_analysis(&alloc, &output_hw_registers, &instructions);
 
     let input_hw_registers = allocate_input_variable(
         &mut mapping,
@@ -59,6 +69,102 @@ pub fn build(
         .expect("Unable to create file");
     file.write_all(assembly.as_bytes())
         .expect("Unable to write data to file");
+}
+
+fn run_setups(
+    alloc: &mut FreshAllocator,
+    algos: Interleaving<Setup>,
+) -> (
+    Vec<FreshVariable>, // inputs
+    Vec<FreshVariable>, // outputs
+    Vec<AtomicInstructionBlock>,
+) {
+    match algos {
+        Interleaving::Seq(items) => items.into_iter().fold(
+            (Vec::new(), Vec::new(), Vec::new()),
+            |(mut inputs, mut outputs, mut instructions), func| {
+                let (input, output, instrs) = run_setup(alloc, func);
+                inputs.extend(input);
+                outputs.push(output);
+                instructions.extend(instrs);
+                (inputs, outputs, instructions)
+            },
+        ),
+        Interleaving::Par(left, right) => {
+            let (inputs_left, outputs_left, instructions_left) = run_setups(alloc, *left);
+            let (inputs_right, outputs_right, instructions_right) = run_setups(alloc, *right);
+
+            let mut inputs = inputs_left;
+            inputs.extend(inputs_right);
+
+            let mut outputs = outputs_left;
+            outputs.extend(outputs_right);
+
+            let instructions = interleave(instructions_left, instructions_right);
+
+            (inputs, outputs, instructions)
+        }
+    }
+}
+
+fn run_setup(
+    alloc: &mut FreshAllocator,
+    f: Setup,
+) -> (
+    Vec<FreshVariable>,
+    FreshVariable,
+    Vec<AtomicInstructionBlock>,
+) {
+    let mut asm = Assembler::new();
+    let (inputs, outputs) = f(alloc, &mut asm);
+    (inputs, outputs, asm.instructions)
+}
+
+// In case of colliding variable names add a number to make it unique
+fn unique_variable<T>(variables: Vec<Variable<T>>) -> Vec<Variable<T>> {
+    let mut variable_count: HashMap<String, u8> = HashMap::new();
+
+    variables
+        .into_iter()
+        .map(|variable| {
+            let label = variable.label.clone();
+
+            match variable_count.entry(label.clone()) {
+                Entry::Vacant(entry) => {
+                    entry.insert(1);
+                    variable
+                }
+                Entry::Occupied(mut entry) => {
+                    let count = entry.get_mut();
+                    let new_label = format!("{}{}", label, *count);
+                    *count += 1;
+
+                    Variable {
+                        label: new_label,
+                        registers: variable.registers,
+                    }
+                }
+            }
+        })
+        .collect()
+}
+
+// This interleaving can be more complex, but we don't need it for the moment and use Seq as a leaf
+pub enum Interleaving<T> {
+    Seq(Vec<T>),
+    Par(Box<Interleaving<T>>, Box<Interleaving<T>>),
+}
+
+impl<T> Interleaving<T> {
+    pub fn single(t: T) -> Self {
+        Interleaving::Seq(vec![t])
+    }
+    pub fn seq(t: Vec<T>) -> Self {
+        Interleaving::Seq(t)
+    }
+    pub fn par(t1: Interleaving<T>, t2: Interleaving<T>) -> Self {
+        Interleaving::Par(Box::new(t1), Box::new(t2))
+    }
 }
 
 /// Interleaves elements from two vectors.
