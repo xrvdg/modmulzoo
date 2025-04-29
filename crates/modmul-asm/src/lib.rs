@@ -6,23 +6,19 @@ use std::{
 
 use block_multiplier::rtz::RTZ;
 
-global_asm!(include_str!("../asm/global_asm_school_method.s"));
-global_asm!(include_str!("../asm/mulu128.s"));
-global_asm!(include_str!("../asm/global_asm_smul.s"));
-global_asm!(include_str!("../asm/global_asm_smul_add.s"));
-global_asm!(include_str!("../asm/global_asm_single_step.s"));
-global_asm!(include_str!("../asm/global_asm_single_step_load.s"));
-global_asm!(include_str!("../asm/global_asm_u256_to_u260_shl2_simd.s"));
-global_asm!(include_str!("../asm/global_asm_u260_to_u256_simd.s"));
-global_asm!(include_str!("../asm/global_asm_vmultadd_noinit_simd.s"));
-global_asm!(include_str!("../asm/global_asm_reduce_ct_simd.s"));
-global_asm!(include_str!("../asm/global_asm_single_step_simd.s"));
-global_asm!(include_str!("../asm/global_asm_single_step_interleaved.s"));
+global_asm!(include_str!("../asm/school_method.s"));
+global_asm!(include_str!("../asm/smul_add.s"));
+global_asm!(include_str!("../asm/single_step.s"));
+global_asm!(include_str!("../asm/single_step_load.s"));
+global_asm!(include_str!("../asm/u256_to_u260_shl2_simd.s"));
+global_asm!(include_str!("../asm/u260_to_u256_simd.s"));
+global_asm!(include_str!("../asm/vmultadd_noinit_simd.s"));
+global_asm!(include_str!("../asm/reduce_ct_simd.s"));
+global_asm!(include_str!("../asm/single_step_simd.s"));
+global_asm!(include_str!("../asm/single_step_interleaved.s"));
+global_asm!(include_str!("../asm/single_step_interleaved_seq_scalar.s"));
 global_asm!(include_str!(
-    "../asm/global_asm_single_step_interleaved_seq_scalar.s"
-));
-global_asm!(include_str!(
-    "../asm/global_asm_single_step_interleaved_triple_scalar.s"
+    "../asm/single_step_interleaved_triple_scalar.s"
 ));
 
 #[inline(never)]
@@ -229,15 +225,6 @@ pub fn call_schoolmethod_inline_stub(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
     call_schoolmethod_inline(a, b)
 }
 
-#[inline(never)]
-fn call_mulu128(a: u64, b: u64) -> u128 {
-    let mut lo: u64;
-    let mut hi: u64;
-    // For now hard code since it only generated every now and then
-    unsafe { asm!("bl _mulu128", in("x0") a, in("x1") b, out("x2") lo, out("x3") hi) };
-    (hi as u128) << 64 | lo as u128
-}
-
 // This might be the best approach to include it into Rust, but depends on if it destroys the order
 #[inline(never)]
 fn inline_call_mulu128(a: u64, b: u64) -> u128 {
@@ -251,20 +238,6 @@ fn inline_call_mulu128(a: u64, b: u64) -> u128 {
     "#, in("x0") a, in("x1") b, out("x2") lo, out("x3") hi)
     };
     (hi as u128) << 64 | lo as u128
-}
-
-#[inline(never)]
-fn call_smul(a: [u64; 4], b: u64) -> [u64; 5] {
-    let mut out = [0; 5];
-    unsafe {
-        asm!(
-            "bl _smul",
-            in("x0") b, in("x1") a[0], in("x2") a[1], in("x3") a[2], in("x4") a[3],
-            lateout("x5") out[0], lateout("x6") out[1], lateout("x1") out[2], lateout("x2") out[3], lateout("x0") out[4],
-            lateout("lr") _
-        )
-    };
-    out
 }
 
 #[inline(never)]
@@ -431,19 +404,13 @@ mod tests {
     use montgomery_reduction::{arith, domb, yuval};
     use quickcheck_macros::quickcheck;
 
+    use crate::call_smul_add;
     use crate::{
         call_reduce_ct_simd, call_schoolmethod, call_single_step, call_single_step_5,
         call_single_step_interleaved, call_single_step_interleaved_seq_scalar,
         call_single_step_load, call_single_step_simd, call_single_step_split,
         call_u256_to_u260_shl2_simd, call_u260_to_u256_simd, call_vmultadd_noinit_simd,
     };
-    use crate::{call_smul, call_smul_add};
-
-    #[quickcheck]
-    fn smul(a: U256b64, b: u64) -> bool {
-        let a = a.0;
-        arith::smul(b, a) == call_smul(a, b)
-    }
 
     #[quickcheck]
     fn school_method(a: U256b64, b: U256b64) {
