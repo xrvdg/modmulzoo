@@ -12,13 +12,35 @@ use crate::frontend::{Assembler, FreshAllocator, FreshVariable};
 use crate::ir::Variable;
 use crate::liveness::liveness_analysis;
 
+/// A function type that sets up an assembly program, returning input and output variables.
 pub type Setup =
     fn(alloc: &mut FreshAllocator, asm: &mut Assembler) -> (Vec<FreshVariable>, FreshVariable);
 
+/// Builds a single assembly function.
+///
+/// # Arguments
+///
+/// * `path` - The path where the assembly file will be written
+/// * `label` - The label for the assembly function
+/// * `f` - The setup function that creates the assembly
 pub fn build_single<P: AsRef<Path>>(path: P, label: &str, f: Setup) {
     build(path, label, Interleaving::single(f));
 }
 
+/// Builds one or more interleaved assembly functions.
+///
+/// This function coordinates the entire process of assembly generation:
+/// 1. Runs the setup functions to get instructions and variables
+/// 2. Performs liveness analysis
+/// 3. Allocates registers to variables
+/// 4. Generates assembly code
+/// 5. Writes the code to the specified file
+///
+/// # Arguments
+///
+/// * `path` - The path where the assembly file will be written
+/// * `label` - The label for the assembly function
+/// * `algos` - The interleaved setup functions
 pub fn build<P: AsRef<Path>>(path: P, label: &str, algos: Interleaving<Setup>) {
     let mut alloc = FreshAllocator::new();
     let mut mapping = RegisterMapping::new();
@@ -32,9 +54,6 @@ pub fn build<P: AsRef<Path>>(path: P, label: &str, algos: Interleaving<Setup>) {
     let output_hw_registers = unique_variable(output_hw_registers);
 
     let instructions: Vec<_> = instructions.into_iter().flatten().collect();
-
-    // Is there something we n do to tie off the outputs.
-    // and to make sure it happens before drop_pass
 
     let (releases, lifetimes) = liveness_analysis(&alloc, &output_hw_registers, &instructions);
 
@@ -72,6 +91,16 @@ pub fn build<P: AsRef<Path>>(path: P, label: &str, algos: Interleaving<Setup>) {
         .unwrap_or_else(|_| panic!("Unable to write assembly to file: {:#?}", path.as_ref()));
 }
 
+/// Runs setup functions according to their interleaving pattern.
+///
+/// # Arguments
+///
+/// * `alloc` - The fresh register allocator
+/// * `algos` - The interleaved setup functions
+///
+/// # Returns
+///
+/// A tuple containing input variables, output variables, and instruction blocks
 fn run_setups(
     alloc: &mut FreshAllocator,
     algos: Interleaving<Setup>,
@@ -108,6 +137,11 @@ fn run_setups(
     }
 }
 
+/// Runs a single setup function.
+///
+/// # Returns
+///
+/// A tuple containing input variables, the output variable, and instruction blocks
 fn run_setup(
     alloc: &mut FreshAllocator,
     f: Setup,
@@ -121,7 +155,18 @@ fn run_setup(
     (inputs, outputs, asm.instructions)
 }
 
-// In case of colliding variable names add a number to make it unique
+/// Ensures all variable labels are unique by adding incremental numbers to duplicates.
+///
+/// When multiple variables would have the same label, this function adds numbers
+/// to make them unique (e.g., "var" becomes "var1", "var2", etc.).
+///
+/// # Arguments
+///
+/// * `variables` - A vector of variables that might contain duplicate labels
+///
+/// # Returns
+///
+/// A new vector with the same variables but unique labels
 fn unique_variable<T>(variables: Vec<Variable<T>>) -> Vec<Variable<T>> {
     let mut variable_count: HashMap<String, u8> = HashMap::new();
 
@@ -150,19 +195,39 @@ fn unique_variable<T>(variables: Vec<Variable<T>>) -> Vec<Variable<T>> {
         .collect()
 }
 
-// This interleaving can be more complex, but we don't need it for the moment and use Seq as a leaf
+/// Represents how setup functions should be executed and their instructions combined.
+///
+/// This enum allows for sequential or parallel execution patterns of setup functions.
+/// - `Seq` - Functions are executed sequentially, with their instructions appearing in order
+/// - `Par` - Functions from both branches are executed, with their instructions interleaved
 pub enum Interleaving<T> {
+    /// Sequential execution of setup functions
     Seq(Vec<T>),
+    /// Parallel execution with instructions interleaved
     Par(Box<Interleaving<T>>, Box<Interleaving<T>>),
 }
 
 impl<T> Interleaving<T> {
+    /// Creates an interleaving with a single item.
     pub fn single(t: T) -> Self {
         Interleaving::Seq(vec![t])
     }
+
+    /// Places assembly instructions after each other
     pub fn seq(t: Vec<T>) -> Self {
         Interleaving::Seq(t)
     }
+
+    /// Creates a parallel interleaving from two existing interleavings.
+    ///
+    /// # Arguments
+    ///
+    /// * `t1` - First interleaving branch
+    /// * `t2` - Second interleaving branch
+    ///
+    /// # Returns
+    ///
+    /// A new parallel interleaving that combines both branches
     pub fn par(t1: Interleaving<T>, t2: Interleaving<T>) -> Self {
         Interleaving::Par(Box::new(t1), Box::new(t2))
     }
