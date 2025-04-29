@@ -4,7 +4,7 @@ use block_multiplier::{constants::*, make_initial};
 use hla::*;
 use montgomery_reduction::domb::heaviside;
 
-use crate::scalar::{load_const, load_floating_simd};
+use crate::load_store::{load_const, load_floating_simd};
 
 pub fn setup_u256_to_u260_shl2_imd(
     alloc: &mut FreshAllocator,

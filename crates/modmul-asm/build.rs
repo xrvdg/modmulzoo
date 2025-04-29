@@ -8,18 +8,22 @@ use hla::{
 
 fn main() {
     // commented out now that it takes a constant
-    build_single("./asm/smul_add.s", "smul_add", setup_smul_add);
-    build_single("./asm/school_method.s", "school_method", setup_schoolmethod);
-    build_single("./asm/single_step.s", "single_step", setup_single_step);
+    build_single("./asm/smul_add.s", "smul_add", setup_madd_u256_limb);
+    build_single(
+        "./asm/school_method.s",
+        "school_method",
+        setup_widening_mul_u256,
+    );
+    build_single("./asm/single_step.s", "single_step", setup_montgomery);
     build_single(
         "./asm/single_step_load.s",
         "single_step_load",
-        setup_single_step_load,
+        experiments::setup_single_step_load,
     );
     build_single(
         "./asm/single_step_split.s",
         "single_step_split",
-        setup_single_step_split,
+        experiments::setup_single_step_split,
     );
     build_single(
         "./asm/u256_to_u260_shl2_simd.s",
@@ -50,7 +54,7 @@ fn main() {
         "./asm/single_step_interleaved.s",
         "single_step_interleaved",
         Interleaving::par(
-            Interleaving::single(setup_single_step),
+            Interleaving::single(setup_montgomery),
             Interleaving::single(setup_single_step_simd),
         ),
     );
@@ -58,7 +62,7 @@ fn main() {
         "./asm/single_step_interleaved_seq_scalar.s",
         "single_step_interleaved_seq_scalar",
         Interleaving::par(
-            Interleaving::seq(vec![setup_single_step, setup_single_step]),
+            Interleaving::seq(vec![setup_montgomery, setup_montgomery]),
             Interleaving::single(setup_single_step_simd),
         ),
     );
@@ -67,9 +71,9 @@ fn main() {
         "single_step_interleaved_triple_scalar",
         Interleaving::par(
             Interleaving::seq(vec![
-                setup_single_step_load,
-                setup_single_step_load,
-                setup_single_step_load,
+                experiments::setup_single_step_load,
+                experiments::setup_single_step_load,
+                experiments::setup_single_step_load,
             ]),
             Interleaving::single(setup_single_step_simd),
         ),
