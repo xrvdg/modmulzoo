@@ -1,3 +1,12 @@
+use block_multiplier_codegen::{scalar::setup_montgomery, simd::setup_single_step_simd};
+use hla::builder::{Interleaving, build_inline};
+
 fn main() {
-    println!("Hello, world!");
+    build_inline(
+        "./asm/montgomery_interleaved.s",
+        Interleaving::par(
+            Interleaving::single(setup_montgomery),
+            Interleaving::single(setup_single_step_simd),
+        ),
+    );
 }

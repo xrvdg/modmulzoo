@@ -1,0 +1,14 @@
+[package]
+name = "block-multiplier-sys"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+block-multiplier = { path = "../block-multiplier" }
+
+[dev-dependencies]
+quickcheck = "1.0.3"
+quickcheck_macros = "1.0.0"
+mod256-generator = { path = "../mod256-generator" }
+# TODO this dependency needs to be removed
+montgomery_reduction = { path = "../experiments" }

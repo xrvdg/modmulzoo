@@ -71,10 +71,10 @@ pub fn generate_rust_inline_asm(
 
     format!(
         r#"
-        asm!(
-        {inst},
-        {operands}
-        );"#
+unsafe {{ asm!(
+{inst},
+{operands}
+    )}};"#
     )
 }
 
