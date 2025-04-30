@@ -12,3 +12,9 @@ quickcheck_macros = "1.0.0"
 mod256-generator = { path = "../mod256-generator" }
 # TODO this dependency needs to be removed
 montgomery_reduction = { path = "../experiments" }
+criterion = "0.5.1"
+rand = "0.9.1"
+
+[[bench]]
+name = "montgomery_interleaved"
+harness = false
