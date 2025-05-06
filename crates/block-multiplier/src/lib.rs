@@ -5,7 +5,6 @@ use crate::constants::*;
 use seq_macro::seq;
 use std::arch::aarch64::vcvtq_f64_u64;
 use std::arch::asm;
-use std::hint::black_box;
 use std::marker::PhantomData;
 use std::ops::BitAnd;
 use std::simd::{Simd, StdFloat, num::SimdFloat};
@@ -226,9 +225,11 @@ pub fn block_multiplier(
     let resolve = resolve_simd_add_truncate(s, mp);
     let u256_result = u260_to_u256_simd(resolve);
     let v = transpose_simd_to_u256(u256_result);
-    let (v, _fpcr) = empty_asm_black_box((v, fpcr));
-    // drop(fpcr);
-    // set_fpcr(fpcr);
+
+    let (v, fpcr) = volatile_black_box((v, fpcr));
+    // Force the drop of FPCR such that it won't be pinned to the end of the function.
+    // when there is no black_box covering v and fpcr. The call to set_fpcr will bubble up.
+    drop(fpcr);
     // ---------------------------------------------------------------------------------------------
     // -- [SCALAR] ---------------------------------------------------------------------------------
     let mut s0_t = [0_u64; 8];
@@ -289,9 +290,11 @@ pub fn block_multiplier(
     (s0, v[0], v[1])
 }
 
-pub fn my_black_box<T>(dummy: T) -> T {
+// Black box experiments
+
+pub fn volatile_black_box<T>(dummy: T) -> T {
     unsafe {
-        let ret = std::ptr::read_volatile(&dummy);
+        let ret = std::ptr::read_volatile(&raw const dummy);
         std::mem::forget(dummy);
         ret
     }
@@ -313,6 +316,18 @@ pub fn empty_asm_black_box<T>(dummy: T) -> T {
         asm!("/*{in_var}*/", in_var = in(reg) &dummy as *const T, options(nomem, nostack));
     }
     dummy
+}
+
+/// DOES NOT WORK
+#[inline(always)]
+pub fn fence_black_box<U, T>(dummy0: U, dummy: T) -> (U, T) {
+    use std::sync::atomic::{Ordering, compiler_fence};
+    // Prevent compiler reordering across this fence
+    compiler_fence(Ordering::SeqCst);
+    let result = (dummy0, dummy);
+    // Prevent compiler reordering across this fence
+    compiler_fence(Ordering::SeqCst);
+    result
 }
 
 // Could also do a naked asm_block with just switching registers
@@ -421,9 +436,9 @@ pub fn resolve_simd_add_truncate(s: [Simd<u64, 2>; 6], mp: [Simd<u64, 2>; 6]) ->
     out
 }
 
-struct FPCR<'a, 'id, T>(u64, PhantomData<&'a mut &'id T>);
+pub struct FPCR<T>(u64, PhantomData<*mut T>);
 
-impl<'a, 'id, T> Drop for FPCR<'a, 'id, T> {
+impl<'a, 'id, T> Drop for FPCR<T> {
     // #[inline(never)]
     fn drop(&mut self) {
         // Restore the original FPCR value when the FPCR object is dropped
@@ -432,13 +447,14 @@ impl<'a, 'id, T> Drop for FPCR<'a, 'id, T> {
 }
 
 #[cfg(target_arch = "aarch64")]
+// Easier to trigger the reordering of set_fpcr when set to inline(never)
 #[inline(never)]
 /// Set the floating point control register (FPCR) to a specified value
 ///
 /// This function allows direct control of the ARM64 FPCR register, which controls
 /// floating point behavior including rounding modes, exception handling, and other
 /// floating point settings.
-pub fn set_fpcr<'a, T>(fpcr: &mut FPCR<'_, '_, T>) {
+pub fn set_fpcr<T>(fpcr: &mut FPCR<T>) {
     // Defense-in-depth but can't be relied on
     // From the documentation:
     // Programs cannot rely on black_box for correctness, beyond it behaving as the identity function. As such, it must not be relied upon to control critical program behavior.
@@ -453,7 +469,7 @@ pub fn set_fpcr<'a, T>(fpcr: &mut FPCR<'_, '_, T>) {
 #[cfg(target_arch = "aarch64")]
 #[inline(never)]
 /// Set the floating point rounding mode to round to zero
-pub fn set_round_to_zero<'a, 'id, T>() -> FPCR<'a, 'id, T> {
+pub fn set_round_to_zero<T>() -> FPCR<T> {
     let fpcr: u64;
     unsafe {
         // Set RMode (bits 22-23) to 0b11 for round toward zero
@@ -469,7 +485,7 @@ pub fn set_round_to_zero<'a, 'id, T>() -> FPCR<'a, 'id, T> {
     // Defense-in-depth but can't be relied on
     // From the documentation:
     // Programs cannot rely on black_box for correctness, beyond it behaving as the identity function. As such, it must not be relied upon to control critical program behavior.
-    FPCR((fpcr), PhantomData)
+    FPCR(fpcr, PhantomData)
 }
 // -------------------------------------------------------------------------------------------------
 
