@@ -1,8 +1,12 @@
 #![feature(portable_simd)]
+#![feature(asm_unwind)]
 
 use crate::constants::*;
 use seq_macro::seq;
 use std::arch::aarch64::vcvtq_f64_u64;
+use std::arch::asm;
+use std::hint::black_box;
+use std::marker::PhantomData;
 use std::ops::BitAnd;
 use std::simd::{Simd, StdFloat, num::SimdFloat};
 
@@ -44,6 +48,8 @@ macro_rules! subarray {
     };
 }
 
+struct RTZ;
+
 pub fn block_multiplier(
     s0_a: [u64; 4],
     s0_b: [u64; 4],
@@ -53,7 +59,7 @@ pub fn block_multiplier(
     v1_b: [u64; 4],
 ) -> ([u64; 4], [u64; 4], [u64; 4]) {
     // -- [VECTOR] ---------------------------------------------------------------------------------
-    let fpcr = set_round_to_zero();
+    let fpcr: FPCR<RTZ> = set_round_to_zero();
     let v0_a = u256_to_u260_shl2_simd(transpose_u256_to_simd([v0_a, v1_a]));
     let v0_b = u256_to_u260_shl2_simd(transpose_u256_to_simd([v0_b, v1_b]));
 
@@ -220,7 +226,9 @@ pub fn block_multiplier(
     let resolve = resolve_simd_add_truncate(s, mp);
     let u256_result = u260_to_u256_simd(resolve);
     let v = transpose_simd_to_u256(u256_result);
-    set_fpcr(fpcr);
+    let (v, _fpcr) = empty_asm_black_box((v, fpcr));
+    // drop(fpcr);
+    // set_fpcr(fpcr);
     // ---------------------------------------------------------------------------------------------
     // -- [SCALAR] ---------------------------------------------------------------------------------
     let mut s0_t = [0_u64; 8];
@@ -280,6 +288,35 @@ pub fn block_multiplier(
     // ---------------------------------------------------------------------------------------------
     (s0, v[0], v[1])
 }
+
+pub fn my_black_box<T>(dummy: T) -> T {
+    unsafe {
+        let ret = std::ptr::read_volatile(&dummy);
+        std::mem::forget(dummy);
+        ret
+    }
+}
+
+#[inline(always)]
+pub fn asm_black_box<T>(dummy: T) -> T {
+    unsafe {
+        asm!("mov xzr, {in_var}", in_var = in(reg) &dummy as *const T);
+    }
+    dummy
+}
+
+#[inline(always)]
+pub fn empty_asm_black_box<T>(dummy: T) -> T {
+    unsafe {
+        // may unwind adds extra code
+        // as long as not marked as pure, it's kind of like volatile
+        asm!("/*{in_var}*/", in_var = in(reg) &dummy as *const T, options(nomem, nostack));
+    }
+    dummy
+}
+
+// Could also do a naked asm_block with just switching registers
+
 // -------------------------------------------------------------------------------------------------
 
 #[inline(always)]
@@ -384,6 +421,16 @@ pub fn resolve_simd_add_truncate(s: [Simd<u64, 2>; 6], mp: [Simd<u64, 2>; 6]) ->
     out
 }
 
+struct FPCR<'a, 'id, T>(u64, PhantomData<&'a mut &'id T>);
+
+impl<'a, 'id, T> Drop for FPCR<'a, 'id, T> {
+    // #[inline(never)]
+    fn drop(&mut self) {
+        // Restore the original FPCR value when the FPCR object is dropped
+        set_fpcr(self);
+    }
+}
+
 #[cfg(target_arch = "aarch64")]
 #[inline(never)]
 /// Set the floating point control register (FPCR) to a specified value
@@ -391,17 +438,14 @@ pub fn resolve_simd_add_truncate(s: [Simd<u64, 2>; 6], mp: [Simd<u64, 2>; 6]) ->
 /// This function allows direct control of the ARM64 FPCR register, which controls
 /// floating point behavior including rounding modes, exception handling, and other
 /// floating point settings.
-///
-/// inline(never) to prevent the compiler from reordering this operation
-pub fn set_fpcr(fpcr: u64) {
+pub fn set_fpcr<'a, T>(fpcr: &mut FPCR<'_, '_, T>) {
     // Defense-in-depth but can't be relied on
     // From the documentation:
     // Programs cannot rely on black_box for correctness, beyond it behaving as the identity function. As such, it must not be relied upon to control critical program behavior.
-    std::hint::black_box(fpcr);
     unsafe {
         core::arch::asm!(
         "msr fpcr, {fpcr}",
-        fpcr = in(reg) fpcr
+        fpcr = in(reg) fpcr.0,
         )
     }
 }
@@ -409,9 +453,7 @@ pub fn set_fpcr(fpcr: u64) {
 #[cfg(target_arch = "aarch64")]
 #[inline(never)]
 /// Set the floating point rounding mode to round to zero
-///
-/// inline(never) to prevent to compiler from reordering
-pub fn set_round_to_zero() -> u64 {
+pub fn set_round_to_zero<'a, 'id, T>() -> FPCR<'a, 'id, T> {
     let fpcr: u64;
     unsafe {
         // Set RMode (bits 22-23) to 0b11 for round toward zero
@@ -427,7 +469,7 @@ pub fn set_round_to_zero() -> u64 {
     // Defense-in-depth but can't be relied on
     // From the documentation:
     // Programs cannot rely on black_box for correctness, beyond it behaving as the identity function. As such, it must not be relied upon to control critical program behavior.
-    std::hint::black_box(fpcr)
+    FPCR((fpcr), PhantomData)
 }
 // -------------------------------------------------------------------------------------------------
 
